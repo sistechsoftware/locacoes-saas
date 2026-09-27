@@ -1,0 +1,304 @@
+@import "tailwindcss";
+
+/*
+ * Utilitarios do app fora das camadas do Tailwind: vale a regra classica de
+ * especificidade — utilitario vence componente. Assim `campo pl-9` empurra o
+ * texto para abrir espaco para o icone de busca, e `py-2` encolhe a altura do
+ * campo dentro da barra da agenda, em qualquer largura de tela.
+ */
+@layer components {
+  /* Campos de formulario padronizados */
+  .campo {
+    width: 100%;
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-nuvem-300);
+    background: #fff;
+    padding: 0.7rem 0.85rem;
+    font-size: 1rem;
+    color: var(--color-tinta-900);
+    outline: none;
+  }
+  .campo:focus {
+    border-color: var(--color-marca-400);
+    box-shadow: 0 0 0 3px rgba(5, 16, 148, 0.14);
+  }
+  .campo:disabled {
+    background: var(--color-nuvem-100);
+    color: #6B7280;
+  }
+
+  label.rotulo,
+  span.rotulo,
+  .rotulo {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6B7280;
+    margin-bottom: 0.3rem;
+  }
+
+  .cartao {
+    background: #fff;
+    border: 1px solid var(--color-nuvem-300);
+    border-radius: 1rem;
+  }
+
+  /*
+   * Data e hora em tela pequena: o Safari no iOS aumenta o zoom da pagina
+   * quando o campo focado tem fonte menor que 16px. Em telas estreitas o
+   * campo de data/hora ocupa a linha inteira, entao pode ficar grande.
+   */
+  @media (max-width: 639px) {
+    .data-hora {
+      font-size: 1rem;
+    }
+  }
+
+  /* Barras de filtro empilhadas no celular e lado a lado no desktop */
+  .pilha-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.5rem;
+  }
+  @media (min-width: 640px) {
+    .pilha-filtros {
+      flex-wrap: nowrap;
+      align-items: flex-end;
+    }
+  }
+
+  /* Abas de filtro com rolagem horizontal no celular */
+  .abas-barra {
+    display: flex;
+    gap: 0.375rem;
+  }
+
+  /* Desktop (>=768px): as abas deixam de rolar e passam a quebrar em quantas
+     linhas forem necessarias — nenhuma opcao fica cortada ou escondida. No
+     celular a regra original (uma linha com rolagem horizontal) continua
+     valendo, sem nenhuma mudanca visual. */
+  @media (min-width: 768px) {
+    .abas-barra {
+      flex-wrap: wrap;
+    }
+  }
+}
+
+@theme {
+  /*
+   * Paleta da marca. A hierarquia pretendida e 60% azul (navegacao, acoes
+   * primarias, identidade), 30% neutro (fundos e superficies) e 10% amarelo,
+   * usado so como destaque pontual.
+   *
+   * A escala segue a convencao do Tailwind: quanto maior o numero, mais
+   * escuro. O azul principal e o 600; o 500, mais claro, e o estado de hover.
+   */
+  --color-marca-50: #EEF1FF;
+  --color-marca-100: #DDE4FF;
+  --color-marca-200: #B9C4FF;
+  --color-marca-300: #8E9BF0;
+  --color-marca-400: #3B4AD6;
+  --color-marca-500: #0715C7;
+  --color-marca-600: #051094;
+  --color-marca-700: #040C75;
+  --color-marca-800: #030957;
+  --color-marca-900: #02063A;
+
+  /* Neutros: 100 e o fundo da aplicacao, o branco fica nos cartoes. */
+  --color-nuvem-50: #FBFCFF;
+  --color-nuvem-100: #F5F7FF;
+  --color-nuvem-200: #E8ECFA;
+  --color-nuvem-300: #D7DEF2;
+  --color-nuvem-400: #AEB8D6;
+
+  /* Destaque, sempre com texto escuro por causa do contraste. */
+  --color-destaque-100: #FDF1D8;
+  --color-destaque-300: #F9DA9A;
+  --color-destaque-500: #F4B942;
+  --color-destaque-600: #DDA22A;
+  --color-destaque-700: #8A6314;
+
+  /* Texto. */
+  --color-tinta-700: #4A4A52;
+  --color-tinta-800: #2A2A31;
+  --color-tinta-900: #1A1816;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--color-nuvem-100);
+  color: var(--color-tinta-900);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+/* Rolagem horizontal suave em abas e tabelas no celular */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * Menu lateral no desktop (>=768px): a navegacao rola internamente quando os
+ * itens ultrapassam a altura da tela. Scrollbar fina e discreta, que so
+ * aparece de fato quando ha conteudo a rolar (overflow: overlay/auto no
+ * WebKit mantem a trilha fora da area util). Abaixo de 768px a barra nem
+ * existe, entao nada muda no celular.
+ */
+@media (min-width: 768px) {
+  .navegacao-lateral {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-nuvem-400) transparent;
+  }
+  .navegacao-lateral::-webkit-scrollbar {
+    width: 6px;
+  }
+  .navegacao-lateral::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .navegacao-lateral::-webkit-scrollbar-thumb {
+    background-color: var(--color-nuvem-400);
+    border-radius: 9999px;
+  }
+}
+
+/*
+ * Contrato com formatacao (modelos editados no editor de Configuracoes ->
+ * Modelos). Os tamanhos de fonte e as cores vêm do documento (style inline
+ * sanitizado); aqui fica so a base, para nao herdar o mono do antigo <pre>.
+ */
+.contrato-rico {
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  text-align: left;
+}
+.contrato-rico p,
+.contrato-rico div,
+.contrato-rico ul,
+.contrato-rico ol,
+.contrato-rico h1,
+.contrato-rico h2,
+.contrato-rico h3,
+.contrato-rico h4 {
+  margin: 0;
+}
+.contrato-rico ul,
+.contrato-rico ol {
+  padding-left: 1.6rem;
+  list-style: revert;
+}
+.contrato-rico hr {
+  border: none;
+  border-top: 1px solid var(--color-nuvem-300);
+  margin: 1rem 0;
+}
+
+/* Impressão de contratos e orcamentos */
+@media print {
+  .nao-imprimir {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* o documento precisa ocupar a folha inteira, sem as margens do layout do app */
+  .com-barra-inferior {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+
+  .imprimivel {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  /* evita quebrar cliente, itens ou assinatura no meio da pagina */
+  .imprimivel pre,
+  .imprimivel h1,
+  .imprimivel h2,
+  .imprimivel section,
+  .imprimivel footer {
+    break-inside: avoid;
+  }
+
+  /* o contrato formatado pode ocupar varias paginas: paragrafos e itens
+     quebram entre folhas, sem cortar o miolo de uma linha */
+  .contrato-rico p,
+  .contrato-rico div,
+  .contrato-rico li,
+  .contrato-rico h3,
+  .contrato-rico h4 {
+    break-inside: avoid;
+  }
+
+  /* marcadores de lista saem no papel */
+  .contrato-rico ul,
+  .contrato-rico ol {
+    list-style: revert;
+  }
+
+  /* em documento longo, o cabecalho da tabela se repete a cada pagina e
+     nenhuma linha e cortada ao meio */
+  .imprimivel thead {
+    display: table-header-group;
+  }
+  .imprimivel tr {
+    break-inside: avoid;
+  }
+
+  /* fundos e cores precisam sair na impressao, senao o documento vira so texto */
+  .imprimivel * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* a tabela nao rola no papel */
+  .imprimivel .scroll-x {
+    overflow: visible !important;
+  }
+
+  @page {
+    margin: 16mm;
+  }
+}
+
+@media (max-width: 767px) {
+  /* Espaco para a barra inferior elevada: os glifos ficam sempre ACIMA da
+     area segura (a barra em si cobre a base com fundo opaco), e o conteudo
+     rola por baixo sem nunca ficar escondido atras dela. O env() vale 0 onde
+     nao ha Home Bar (Android com barra de gestos embutida), entao o espaco
+     acompanha cada aparelho — sem px fixo. */
+  .com-barra-inferior {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 6rem);
+  }
+
+  /* A tela de chat usa altura cheia entre a barra superior e a barra inferior.
+     dvh acompanha a barra de endereco dos navegadores mobile. */
+  .com-barra-inferior:has(.chat-tela) {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
+  }
+}

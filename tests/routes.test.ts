@@ -1,0 +1,22 @@
+import { describe,it } from "node:test";
+import assert from "node:assert/strict";
+import { calculateRoadRoute,geocodeAddress,roadLegs,routeAddresses,type MapServices } from "../src/lib/routes";
+import { freightConfig,priceRoadDistance } from "../src/lib/freight-config";
+import { calcularFrete } from "../src/lib/freight";
+const settings={freight_consumption:"10",freight_fuel_price_cents:"500",freight_cost_per_km_cents:"50",freight_margin_percent:"0",freight_minimum_cents:"0",freight_rounding_cents:"0",freight_labor_cents:"0",freight_comum_base_address:"Rua da Base 10, Sao Paulo",freight_locacao_base_address:"Rua da Locacao 20, Santos"};
+const common=freightConfig(settings,"comum");
+const rental=freightConfig(settings,"locacao");
+const mock:MapServices={geocode:async address=>({label:address,lat:1,lon:2}),route:async points=>points.slice(1).map((_,i)=>10+i)};
+describe("rotas sem chave",()=>{
+  it("comum percorre base coleta destino base e soma 3 trechos",async()=>{const r=await calculateRoadRoute("comum",common,"Rua de Coleta 20, Sao Paulo","Rua de Destino 30, Santos",mock);assert.equal(r.totalKm,33);assert.equal(r.legsKm.length,3);assert.equal(r.labels[0],common.baseAddress);assert.equal(r.labels.at(-1),common.baseAddress);assert.equal(r.suggestedCents,3300);});
+  it("locacao automatica usa ida e volta reais sem multiplicar por quatro",async()=>{const r=await calculateRoadRoute("locacao",rental,"","Rua do Evento 40, Santos",mock);assert.equal(r.totalKm,21);assert.equal(r.legsKm.length,2);assert.equal(r.suggestedCents,2100);assert.equal(r.labels[0],rental.baseAddress);});
+  it("manual de locacao continua com 4 viagens",()=>{const r=calcularFrete({tipo:"locacao",distanciaIdaKm:10,consumoKmPorLitro:10,precoLitroCents:500,custoPorKmCents:50,pedagioCents:0,maoDeObraCents:0,margemPercent:0,valorMinimoCents:0,arredondamentoCents:0});assert.equal(r.distanciaTotalKm,40);assert.equal(r.valorSugeridoCents,4000);});
+  it("configuracoes sao independentes",()=>{const changed={...settings,freight_comum_fuel_price_cents:"999"};assert.equal(freightConfig(changed,"comum").fuelPriceCents,999);assert.equal(freightConfig(changed,"locacao").fuelPriceCents,500);});
+  it("base nao cadastrada e endereco incompleto geram erro claro",()=>{assert.throws(()=>routeAddresses("comum","","",""),/base/);assert.throws(()=>routeAddresses("comum",common.baseAddress,"abc","destino"),/completos/);});
+  it("geocodifica a base somente uma vez",async()=>{let count=0;await calculateRoadRoute("locacao",rental,"","Rua do Evento 40, Santos",{...mock,geocode:async a=>{count++;return mock.geocode(a);}});assert.equal(count,2);});
+  it("recusa rota ausente, distancia invalida e rota zero",async()=>{for(const legs of [[],[NaN,1],[0,0],[-1,2]]) await assert.rejects(()=>calculateRoadRoute("locacao",rental,"","Rua do Evento 40, Santos",{...mock,route:async()=>legs}));assert.throws(()=>priceRoadDistance(-1,"comum",common));});
+  it("nao usa distancia em linha reta quando rota nao existe",async()=>{await assert.rejects(()=>roadLegs([{label:"a",lat:1,lon:1},{label:"b",lat:2,lon:2}],"https://routing.test",async()=>Response.json({code:"NoRoute"})),/rodoviária/);});
+  it("trata endereco nao encontrado e cidade sem rua",async()=>{await assert.rejects(()=>geocodeAddress("Endereco inexistente","https://geo.test",async()=>Response.json([])),/não encontrado/);await assert.rejects(()=>geocodeAddress("Sao Paulo","https://geo.test",async()=>Response.json([{lat:"1",lon:"2",address:{city:"Sao Paulo"}}])),/incompleto/);});
+  it("trata limite de requisicoes e falha de rede",async()=>{await assert.rejects(()=>geocodeAddress("Endereco completo","https://geo.test",async()=>new Response("",{status:429})),/Limite/);await assert.rejects(()=>geocodeAddress("Endereco completo","https://geo.test",async()=>{throw Error("offline");}),/conectar/);});
+  it("OSRM preserva trechos assimetricos",async()=>{const legs=await roadLegs([{label:"a",lat:1,lon:1},{label:"b",lat:2,lon:2},{label:"a",lat:1,lon:1}],"https://routing.test",async()=>Response.json({code:"Ok",routes:[{legs:[{distance:1200},{distance:1800}]}]}));assert.deepEqual(legs,[1.2,1.8]);});
+});

@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+.open-next/
+.wrangler/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# Runtime data (may contain customer and authentication data)
+data/*.db
+data/*.db-*
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Logs and OS files
+*.log
+.DS_Store

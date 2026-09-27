@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "limas-locacoes",
+  "main": "custom-worker.ts",
+  "compatibility_date": "2026-09-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "NOMINATIM_URL": "https://nominatim.openstreetmap.org/",
+    "OSRM_URL": "https://routing.openstreetmap.de/routed-car",
+    "VAPID_SUBJECT": "mailto:uericlislima@gmail.com"
+  },
+  "triggers": { "crons": ["* * * * *"] },
+  // o guarda do Next nao se aplica ao Worker e impedia o cron de rodar
+  "alias": { "server-only": "./src/lib/server-only-worker.ts" },
+  "secrets": { "required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"] },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "limas-locacoes",
+      "database_id": "79a1d43c-8355-4689-9f11-5ff461e48c58"
+    }
+  ]
+}

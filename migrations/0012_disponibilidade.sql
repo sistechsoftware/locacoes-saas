@@ -1,0 +1,33 @@
+-- Query preference only: it never exempts this reservation from other queries.
+ALTER TABLE reservations ADD COLUMN stock_consider_preparation INTEGER NOT NULL DEFAULT 1 CHECK(stock_consider_preparation IN (0,1));
+ALTER TABLE quotes ADD COLUMN stock_consider_preparation INTEGER NOT NULL DEFAULT 1 CHECK(stock_consider_preparation IN (0,1));
+INSERT OR IGNORE INTO settings(key, value) VALUES ('stock_preparation_minutes', '0');
+CREATE INDEX IF NOT EXISTS idx_reservations_stock_status ON reservations(status, id);
+-- Optimistic revision checked INSIDE the atomic D1 write batch.
+CREATE TABLE stock_revision (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL);
+INSERT INTO stock_revision VALUES (1, 0);
+CREATE TABLE stock_write_guard (id INTEGER PRIMARY KEY CONSTRAINT stock_version_matches CHECK(id = 1));
+CREATE TRIGGER stock_revision_reservations_insert AFTER INSERT ON reservations BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservations_update AFTER UPDATE ON reservations BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservations_delete AFTER DELETE ON reservations BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservation_items_insert AFTER INSERT ON reservation_items BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservation_items_update AFTER UPDATE ON reservation_items BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservation_items_delete AFTER DELETE ON reservation_items BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservation_item_components_insert AFTER INSERT ON reservation_item_components BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservation_item_components_update AFTER UPDATE ON reservation_item_components BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_reservation_item_components_delete AFTER DELETE ON reservation_item_components BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_products_insert AFTER INSERT ON products BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_products_update AFTER UPDATE ON products BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_products_delete AFTER DELETE ON products BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_product_components_insert AFTER INSERT ON product_components BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_product_components_update AFTER UPDATE ON product_components BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_product_components_delete AFTER DELETE ON product_components BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_settings_insert AFTER INSERT ON settings BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_settings_update AFTER UPDATE ON settings BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_settings_delete AFTER DELETE ON settings BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_quotes_insert AFTER INSERT ON quotes BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_quotes_update AFTER UPDATE ON quotes BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_quotes_delete AFTER DELETE ON quotes BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_quote_items_insert AFTER INSERT ON quote_items BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_quote_items_update AFTER UPDATE ON quote_items BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER stock_revision_quote_items_delete AFTER DELETE ON quote_items BEGIN UPDATE stock_revision SET revision = revision + 1 WHERE id = 1; END;

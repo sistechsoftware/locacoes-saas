@@ -1,0 +1,11 @@
+-- Foto de perfil dos usuarios.
+--
+-- O sistema ja guarda imagens na tabela `files` (blob no D1, migration 0003)
+-- e as serve por /api/arquivo/<id> com cache imutavel — logo da empresa,
+-- fotos de produtos e anexos de operacao ja vivem assim. A foto de usuario
+-- segue o MESMO caminho: o upload grava em `files` e aqui fica apenas a URL,
+-- no padrao de nomenclatura usado em products.photo e settings.company_logo.
+--
+-- ALTER TABLE e aditivo: nenhuma linha existente e tocada, e usuarios sem
+-- foto ficam com NULL, que o frontend resolve para o avatar de iniciais.
+ALTER TABLE users ADD COLUMN avatar_url TEXT;
