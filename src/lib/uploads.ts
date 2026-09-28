@@ -58,12 +58,15 @@ export async function saveUpload(file: File | null, userId?: number): Promise<st
 
   const id = randomId();
   const bytes = new Uint8Array(await file.arrayBuffer());
+// tenantCompanyId evita carregar next/* em rotinas sem request (cron, testes)
+const { tenantCompanyId } = await import("./tenant");
+const companyId = await tenantCompanyId();
 
   // o driver do D1 aceita ArrayBuffer/Uint8Array diretamente em colunas BLOB,
   // por isso este INSERT nao passa pelo helper que serializa objetos em JSON
   await getDb()
-    .prepare(`INSERT INTO files (id, mime, size, data, created_by) VALUES (?,?,?,?,?)`)
-    .bind(id, mime, bytes.length, bytes, userId ?? null)
+    .prepare(`INSERT INTO files (id, mime, size, data, created_by, company_id) VALUES (?,?,?,?,?,?)`)
+    .bind(id, mime, bytes.length, bytes, userId ?? null, companyId)
     .run();
 
   return `/api/arquivo/${id}`;
@@ -118,10 +121,13 @@ export async function saveChatAttachment(file: File, opts: ChatSaveOptions = {})
   const id = randomId();
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (!bytes.length) throw new UploadError("Arquivo corrompido no upload. Tente novamente.");
+// tenantCompanyId evita carregar next/* em rotinas sem request (cron, testes)
+const { tenantCompanyId } = await import("./tenant");
+const companyId = await tenantCompanyId();
 
   await getDb()
-    .prepare(`INSERT INTO files (id, mime, size, data, created_by) VALUES (?,?,?,?,?)`)
-    .bind(id, mime, bytes.length, bytes, null)
+    .prepare(`INSERT INTO files (id, mime, size, data, created_by, company_id) VALUES (?,?,?,?,?,?)`)
+    .bind(id, mime, bytes.length, bytes, null, companyId)
     .run();
   return { id, name: nome, mime, size: bytes.length, audioSeconds: opts.audioSeconds ?? null };
 }
@@ -131,12 +137,12 @@ export async function getFileById(id: string): Promise<StoredFile | undefined> {
 }
 
 export async function getFile(id: string): Promise<StoredFile | undefined> {
-  const row = await one<{ id: string; mime: string; size: number; data: unknown }>(
-    `SELECT id, mime, size, data FROM files WHERE id = ?`,
+  const row = await one<{ id: string; mime: string; size: number; data: unknown; company_id: number }>(
+    `SELECT id, mime, size, data, company_id FROM files WHERE id = ?`,
     [id],
   );
   if (!row) return undefined;
-  return { id: row.id, mime: row.mime, size: row.size, data: toBytes(row.data) };
+  return { id: row.id, mime: row.mime, size: row.size, data: toBytes(row.data), company_id: row.company_id } as StoredFile & { company_id: number };
 }
 
 /**
