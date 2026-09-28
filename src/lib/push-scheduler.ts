@@ -1,6 +1,7 @@
 import { buildPushPayload } from "@block65/webcrypto-web-push";
 import { eligible, notificationType, safePushEndpoint, ROLE_KINDS, type Activity, type Candidate } from "./push-rules";
 import { mensagemLembreteAntecipado, mensagemLembreteHoje } from "./adiantamento";
+import { companySettingsRows, cronCompanyId } from "./db";
 
 // a.* traz source/source_id/reservation_id mesmo sem declarados no tipo Activity
 type EventRow = Activity & {
@@ -15,13 +16,14 @@ async function rows<T>(db: D1Database, sql: string, params: (string|number|null)
 async function execute(db: D1Database, sql: string, params: (string|number|null)[] = []) {
   return db.prepare(sql).bind(...params).run();
 }
-async function candidates(db: D1Database, type: string, kind: string, id?: number): Promise<Candidate[]> {
+async function candidates(db: D1Database, type: string, kind: string, companyId: number, id?: number): Promise<Candidate[]> {
+  // escopo de empresa: candidatos, preferencias e regras sao da empresa iterada
   const result = await rows<{ id: number; active: number; roles: string; mode: string; kindMode: string }>(db, `
     SELECT u.id,u.active,COALESCE((SELECT json_group_array(role) FROM user_operational_roles WHERE user_id=u.id),'[]') AS roles,
     COALESCE(p.mode,'auto') AS mode,COALESCE(k.mode,'auto') AS kindMode FROM users u
-    LEFT JOIN notification_preferences p ON p.user_id=u.id AND p.type=?
-    LEFT JOIN notification_preferences k ON k.user_id=u.id AND k.type=?
-    WHERE u.active=1 ${id ? "AND u.id=?" : ""}`, id ? [type,kind,id] : [type,kind]);
+    LEFT JOIN notification_preferences p ON p.user_id=u.id AND p.company_id=? AND p.type=?
+    LEFT JOIN notification_preferences k ON k.user_id=u.id AND k.company_id=? AND k.type=?
+    WHERE u.active=1 AND u.company_id=? ${id ? "AND u.id=?" : ""}`, id ? [companyId,type,companyId,kind,companyId,id] : [companyId,type,companyId,kind,companyId]);
   return result.map(u => ({ ...u, roles: JSON.parse(u.roles) }));
 }
 /**
@@ -61,13 +63,22 @@ export function webPushSender(credentials: Credentials): Sender {
 }
 
 /** Durable outbox, independent of Next request context. UTC clock; operational dates are Sao Paulo (-03:00). */
+/**
+ * Durable outbox, independent of Next request context. UTC clock; operational dates are Sao Paulo (-03:00).
+ *
+ * Multi-empresa (Etapa 2): tudo aqui roda no escopo de UMA empresa. O chamador
+ * (cron do Worker) itera companies e chama esta funcao dentro de
+ * runWithCompany(cid) — o mesmo cid que leituras de plataforma (getSettings)
+ * enxergam. Nenhuma query cruza dados de duas empresas.
+ */
 export async function runNotificationScheduler(db: D1Database, now = Math.floor(Date.now()/1000), sender?: Sender) {
+  const companyId = await cronCompanyId();
   // A bounded catch-up window avoids sending yesterday's reminders after an outage.
-  await execute(db, `INSERT OR IGNORE INTO notification_events(activity_id,revision,type,offset_minutes,created_at)
-    SELECT a.id,a.revision,'reminder',j.value,? FROM activities a
-    JOIN notification_rules r ON r.type=a.kind JOIN json_each(r.offsets) j
-    WHERE a.status='pending' AND a.scheduled_at<>''
-    AND unixepoch(replace(a.scheduled_at,' ','T') || '-03:00')-j.value*60 BETWEEN ? AND ?`, [now,now-300,now]);
+  await execute(db, `INSERT OR IGNORE INTO notification_events(company_id,activity_id,revision,type,offset_minutes,created_at)
+    SELECT ?,a.id,a.revision,'reminder',j.value,? FROM activities a
+    JOIN notification_rules r ON r.type=a.kind AND r.company_id=? JOIN json_each(r.offsets) j
+    WHERE a.company_id=? AND a.status='pending' AND a.scheduled_at<>''
+    AND unixepoch(replace(a.scheduled_at,' ','T') || '-03:00')-j.value*60 BETWEEN ? AND ?`, [companyId,now,companyId,companyId,now-300,now]);
   const events = await rows<EventRow>(db, `SELECT a.*,e.id AS event_id,e.type AS event_type,e.revision AS event_revision,e.offset_minutes,e.created_at
     FROM notification_events e JOIN activities a ON a.id=e.activity_id WHERE e.processed=0 ORDER BY e.id LIMIT 5`);
   let created = 0;
@@ -76,7 +87,7 @@ export async function runNotificationScheduler(db: D1Database, now = Math.floor(
       await execute(db,"UPDATE notification_events SET processed=1 WHERE id=?",[e.event_id]); continue;
     }
     const type = notificationType(e.event_type,e.kind);
-    const rule = await db.prepare("SELECT message FROM notification_rules WHERE type=?").bind(type).first<{ message: string }>();
+    const rule = await db.prepare("SELECT message FROM notification_rules WHERE company_id=? AND type=?").bind(companyId,type).first<{ message: string }>();
     const prefix = e.event_type === "reminder" ? (e.offset_minutes ? `Em ${e.offset_minutes} min` : "Agora") : e.event_type === "cancelamento" ? "Cancelamento" : e.event_type === "alteracao" ? "Alteração" : "Novo agendamento";
     let title = `${prefix}: ${e.title}`.slice(0,180);
     let body = (rule?.message || `${e.title} — ${e.scheduled_at.replace("T"," ")}. Abra para conferir os detalhes.`).slice(0,500);
@@ -101,46 +112,53 @@ export async function runNotificationScheduler(db: D1Database, now = Math.floor(
     // Same precedence as eligible(), evaluated atomically with the source revision.
     // Bulk INSERTs keep the D1 query count bounded independently of team size.
     const results = await db.batch([
-      db.prepare(`INSERT OR IGNORE INTO user_notifications(user_id,event_id,type,title,body,link,created_at)
-        SELECT u.id,?,?,?,?,?,? FROM activities a CROSS JOIN users u
-        LEFT JOIN notification_preferences p ON p.user_id=u.id AND p.type=?
-        LEFT JOIN notification_preferences k ON k.user_id=u.id AND k.type=a.kind
-        WHERE a.id=? AND a.revision=? AND u.active=1
+      db.prepare(`INSERT OR IGNORE INTO user_notifications(company_id,user_id,event_id,type,title,body,link,created_at)
+        SELECT u.company_id,u.id,?,?,?,?,?,? FROM activities a CROSS JOIN users u
+        LEFT JOIN notification_preferences p ON p.user_id=u.id AND p.company_id=u.company_id AND p.type=?
+        LEFT JOIN notification_preferences k ON k.user_id=u.id AND k.company_id=u.company_id AND k.type=a.kind
+        WHERE a.id=? AND a.revision=? AND u.active=1 AND u.company_id=?
         AND COALESCE(p.mode,'auto')<>'off' AND COALESCE(k.mode,'auto')<>'off'
         AND ((a.assignee_id IS NOT NULL AND a.assignee_id=u.id) OR (a.assignee_id IS NULL AND
           (p.mode='on' OR k.mode='on' OR EXISTS (
             SELECT 1 FROM user_operational_roles ur JOIN json_each(?) mapping ON mapping.key=ur.role
             JOIN json_each(mapping.value) kinds WHERE ur.user_id=u.id AND kinds.value=a.kind
-          ))))`).bind(e.event_id,type,title,body,e.link,now,type,e.id,e.revision,JSON.stringify(ROLE_KINDS)),
+          ))))`).bind(e.event_id,type,title,body,e.link,now,type,e.id,e.revision,companyId,JSON.stringify(ROLE_KINDS)),
       db.prepare(`INSERT OR IGNORE INTO push_deliveries(notification_id,subscription_id)
-        SELECT n.id,s.id FROM user_notifications n JOIN push_subscriptions s ON s.user_id=n.user_id
-        WHERE n.event_id=? AND s.enabled=1 AND (s.expiration_time IS NULL OR s.expiration_time>?)`).bind(e.event_id,now*1000),
+        SELECT n.id,s.id FROM user_notifications n JOIN push_subscriptions s ON s.user_id=n.user_id AND s.company_id=n.company_id
+        WHERE n.event_id=? AND n.company_id=? AND s.enabled=1 AND (s.expiration_time IS NULL OR s.expiration_time>?)`).bind(e.event_id,companyId,now*1000),
       db.prepare("UPDATE notification_events SET processed=1 WHERE id=?").bind(e.event_id),
     ]);
     created += results[0].meta.changes;
   }
 
   // Recover crashed claims. Stable notification IDs are also deduplicated by the service worker.
-  await execute(db,"UPDATE push_deliveries SET status='pending' WHERE status='sending' AND lease_until<?",[now]);
-  const global = await db.prepare("SELECT value FROM settings WHERE key='push_enabled'").first<{value:string}>();
+  await execute(db,"UPDATE push_deliveries SET status='pending' WHERE company_id=? AND status='sending' AND lease_until<?",[companyId,now]);
+  // Chave global de push passou a viver em company_settings (a tabela legada
+  // settings foi substituida pela migration 0027).
+  const cfgRows = await companySettingsRows(companyId);
+  const global = cfgRows.find(r => r.key === "push_enabled");
   let sent = 0;
   if (sender && global?.value !== "0") {
-    const deliveries = await rows<{ id: number }>(db,"SELECT id FROM push_deliveries WHERE status='pending' AND next_attempt<=? ORDER BY id LIMIT 3",[now]);
+    const deliveries = await rows<{ id: number }>(db,"SELECT id FROM push_deliveries WHERE company_id=? AND status='pending' AND next_attempt<=? ORDER BY id LIMIT 3",[companyId,now]);
     for (const job of deliveries) {
-      const claim = await execute(db,"UPDATE push_deliveries SET status='sending',lease_until=?,attempts=attempts+1 WHERE id=? AND status='pending' AND next_attempt<=?",[now+120,job.id,now]);
+      const claim = await execute(db,"UPDATE push_deliveries SET status='sending',lease_until=?,attempts=attempts+1 WHERE id=? AND company_id=? AND status='pending' AND next_attempt<=?",[now+120,job.id,companyId,now]);
       if (!claim.meta.changes) continue;
       // Re-read source, ownership, preferences and device immediately before dispatch.
       const d = await db.prepare(`SELECT d.notification_id,d.subscription_id,d.attempts,s.endpoint,s.p256dh,s.auth,s.enabled,s.user_id,s.expiration_time,
         n.title AS notification_title,n.body,n.link AS notification_link,n.type AS notification_type,n.created_at AS notification_created,
         a.*,e.revision AS event_revision,r.enabled AS rule_enabled
-        FROM push_deliveries d JOIN push_subscriptions s ON s.id=d.subscription_id
-        JOIN user_notifications n ON n.id=d.notification_id LEFT JOIN notification_events e ON e.id=n.event_id
-        LEFT JOIN activities a ON a.id=e.activity_id LEFT JOIN notification_rules r ON r.type=n.type WHERE d.id=?`).bind(job.id).first<Activity & {
+        FROM push_deliveries d
+        JOIN user_notifications n ON n.id=d.notification_id AND n.company_id=?
+        JOIN push_subscriptions s ON s.id=d.subscription_id AND s.company_id=?
+        LEFT JOIN notification_events e ON e.id=n.event_id
+        LEFT JOIN activities a ON a.id=e.activity_id
+        LEFT JOIN notification_rules r ON r.company_id=n.company_id AND r.type=n.type
+        WHERE d.id=?`).bind(companyId,companyId,job.id).first<Activity & {
           notification_id:number; subscription_id:number; attempts:number; endpoint:string; p256dh:string; auth:string;
           enabled:number; user_id:number; expiration_time:number|null; notification_title:string;body:string;notification_link:string;
           notification_type:string;notification_created:number;event_revision:number;rule_enabled:number;
         }>();
-      const recipient = d ? (await candidates(db,d.notification_type,d.kind ?? d.notification_type,d.user_id))[0] : undefined;
+      const recipient = d ? (await candidates(db,d.notification_type,d.kind ?? d.notification_type,companyId,d.user_id))[0] : undefined;
       // Um aviso proprio (aniversario, por exemplo) nao nasce de uma atividade:
       // ali nao ha revisao nem escala para conferir, e o que vale e o tipo estar
       // ligado e o usuario nao ter desligado. As checagens de atividade seguem
@@ -184,10 +202,9 @@ export async function runNotificationScheduler(db: D1Database, now = Math.floor(
       }
     }
   }
-  await db.batch([
-    db.prepare("DELETE FROM route_cache WHERE expires_at<?").bind(now),
-    db.prepare("DELETE FROM api_rate_limits WHERE expires_at<?").bind(now),
-    db.prepare("INSERT INTO scheduler_state(key,value) VALUES ('last_run',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(String(now)),
-  ]);
+  // A marca last_run fica por empresa (a limpeza global de rotas/rate limits
+  // acontece uma unica vez no fim do ciclo, no cron).
+  await db.prepare(`INSERT INTO scheduler_state(key,value) VALUES (?,?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(`last_run:c${companyId}`,String(now)).run();
   return { created, sent };
 }

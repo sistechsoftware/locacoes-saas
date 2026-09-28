@@ -1,5 +1,6 @@
 import "server-only";
 import { all, batch } from "./db";
+import { tenantCompanyId } from "./tenant";
 import { addDays, today } from "./format";
 import { scanConflicts } from "./stock";
 
@@ -12,8 +13,8 @@ type Alert = {
   link?: string;
 };
 
-const UPSERT_SQL = `INSERT INTO notifications (type, severity, title, body, link, dedupe_key)
-   VALUES (?,?,?,?,?,?)
+const UPSERT_SQL = `INSERT INTO notifications (company_id, type, severity, title, body, link, dedupe_key)
+   VALUES (?,?,?,?,?,?,?)
    ON CONFLICT(dedupe_key) DO UPDATE SET
      title = excluded.title, body = excluded.body, severity = excluded.severity, link = excluded.link`;
 
@@ -31,6 +32,10 @@ export async function rebuildNotifications({ force = false } = {}) {
   // painel sem atrasar nada que o usuario perceba.
   if (!force && !(await passouDoIntervalo())) return;
 
+  // Alertas sao da empresa autenticada (ou da padrao, no cron): nenhuma
+  // consulta abaixo cruza empresas.
+  const cid = await tenantCompanyId();
+
   const d0 = today();
   const d3 = addDays(d0, 3);
 
@@ -44,36 +49,36 @@ export async function rebuildNotifications({ force = false } = {}) {
          FROM operations o
          LEFT JOIN reservations r ON r.id = o.reservation_id
          LEFT JOIN customers c ON c.id = r.customer_id
-        WHERE o.status NOT IN ('concluida','cancelada')
+        WHERE o.company_id = ? AND o.status NOT IN ('concluida','cancelada')
           /* comparacao direta na coluna (sargable): '<hoje>T23:59' cobre o dia
-             inteiro e permite o uso do indice idx_op_sched */
+             inteiro e permite o uso do indice de operacoes por empresa */
           AND o.scheduled_at <= ?`,
-      [`${d0}T23:59`],
+      [cid, `${d0}T23:59`],
     ),
     /* pagamentos pendentes de reservas ja entregues ou com evento passado */
     all<any>(
       `SELECT r.id, r.number, r.event_date, r.total_cents, c.name AS customer,
               (SELECT COALESCE(SUM(amount_cents),0) FROM payments p WHERE p.reservation_id = r.id) AS paid
          FROM reservations r JOIN customers c ON c.id = r.customer_id
-        WHERE r.status NOT IN ('cancelada','orcamento')
+        WHERE r.company_id = ? AND r.status NOT IN ('cancelada','orcamento')
           AND r.event_date <= ?
           AND r.total_cents > (SELECT COALESCE(SUM(amount_cents),0) FROM payments p WHERE p.reservation_id = r.id)`,
-      [d0],
+      [cid, d0],
     ),
     /* reservas proximas ainda como pre-reserva */
     all<any>(
       `SELECT r.id, r.number, r.event_date, c.name AS customer
          FROM reservations r JOIN customers c ON c.id = r.customer_id
-        WHERE r.status = 'pre_reserva' AND r.event_date BETWEEN ? AND ?`,
-      [d0, d3],
+        WHERE r.company_id = ? AND r.status = 'pre_reserva' AND r.event_date BETWEEN ? AND ?`,
+      [cid, d0, d3],
     ),
     /* contratos nao assinados de eventos proximos */
     all<any>(
       `SELECT r.id, r.number, r.event_date, c.name AS customer,
               (SELECT ct.status FROM contracts ct WHERE ct.reservation_id = r.id ORDER BY ct.id DESC LIMIT 1) AS cstatus
          FROM reservations r JOIN customers c ON c.id = r.customer_id
-        WHERE r.status IN ('confirmada','entregue','em_uso') AND r.event_date BETWEEN ? AND ?`,
-      [d0, d3],
+        WHERE r.company_id = ? AND r.status IN ('confirmada','entregue','em_uso') AND r.event_date BETWEEN ? AND ?`,
+      [cid, d0, d3],
     ),
     /* caucao nao recebida em reservas confirmadas */
     all<any>(
@@ -81,20 +86,23 @@ export async function rebuildNotifications({ force = false } = {}) {
          FROM reservations r
          JOIN customers c ON c.id = r.customer_id
          JOIN deposits d ON d.reservation_id = r.id
-        WHERE d.status = 'nao_recebida' AND d.amount_cents > 0
+        WHERE r.company_id = ? AND d.status = 'nao_recebida' AND d.amount_cents > 0
           AND r.status IN ('confirmada','entregue','em_uso','aguardando_retirada')`,
+      [cid],
     ),
     /* estoque baixo: kits nao tem estoque proprio e ficam de fora */
     all<any>(
       `SELECT id, name, total_qty, maintenance_qty, min_qty FROM products
-        WHERE active = 1 AND kind <> 'kit' AND min_qty > 0 AND (total_qty - maintenance_qty) < min_qty`,
+        WHERE company_id = ? AND active = 1 AND kind <> 'kit' AND min_qty > 0 AND (total_qty - maintenance_qty) < min_qty`,
+      [cid],
     ),
     /* manutencoes abertas */
     all<any>(
-      `SELECT m.id, m.qty, p.name FROM maintenance m JOIN products p ON p.id = m.product_id WHERE m.status = 'aberta'`,
+      `SELECT m.id, m.qty, p.name FROM maintenance m JOIN products p ON p.id = m.product_id WHERE m.company_id = ? AND m.status = 'aberta'`,
+      [cid],
     ),
     /* conflitos de estoque em reservas futuras (uma varredura, sem N+1) */
-    scanConflicts(d0),
+    scanConflicts(d0, {}, "9999-12-31T23:59", cid),
   ]);
 
   for (const o of ops) {
@@ -187,26 +195,29 @@ export async function rebuildNotifications({ force = false } = {}) {
     });
   }
 
-  /* grava tudo de uma vez: os alertas atuais e a limpeza dos que sairam */
-  const keep = alertas.map((a) => a.dedupe_key);
+  /* grava tudo de uma vez: os alertas atuais e a limpeza dos que sairam.
+     O dedupe_key e UNICO no banco inteiro, entao recebe o prefixo da empresa —
+     duas empresas nunca disputam a mesma chave (ex.: `op-7`). */
+  const chave = (k: string) => `c${cid}:${k}`;
+  const keep = alertas.map((a) => chave(a.dedupe_key));
   const escritas: { sql: string; params: any[] }[] = alertas.map((a) => ({
     sql: UPSERT_SQL,
-    params: [a.type, a.severity, a.title, a.body ?? null, a.link ?? null, a.dedupe_key],
+    params: [cid, a.type, a.severity, a.title, a.body ?? null, a.link ?? null, chave(a.dedupe_key)],
   }));
   escritas.push(
     keep.length
       ? {
-          sql: `DELETE FROM notifications WHERE dedupe_key IS NOT NULL AND dedupe_key NOT IN (${keep
+          sql: `DELETE FROM notifications WHERE company_id = ? AND dedupe_key IS NOT NULL AND dedupe_key NOT IN (${keep
             .map(() => "?")
             .join(",")})`,
-          params: keep,
+          params: [cid, ...keep],
         }
-      : { sql: `DELETE FROM notifications WHERE dedupe_key IS NOT NULL`, params: [] },
+      : { sql: `DELETE FROM notifications WHERE company_id = ? AND dedupe_key IS NOT NULL`, params: [cid] },
   );
   escritas.push({
-    sql: `INSERT INTO settings (key, value) VALUES ('notifications_rebuilt_at', ?)
-          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    params: [String(Date.now())],
+    sql: `INSERT INTO company_settings (company_id, key, value) VALUES (?,?,?)
+          ON CONFLICT(company_id, key) DO UPDATE SET value = excluded.value`,
+    params: [cid, "notifications_rebuilt_at", String(Date.now())],
   });
   await batch(escritas);
 }
@@ -214,20 +225,27 @@ export async function rebuildNotifications({ force = false } = {}) {
 const INTERVALO_MS = 60_000;
 
 async function passouDoIntervalo(): Promise<boolean> {
-  const r = await all<{ value: string }>(`SELECT value FROM settings WHERE key = 'notifications_rebuilt_at'`);
+  const cid = await tenantCompanyId();
+  const r = await all<{ value: string | null }>(
+    `SELECT value FROM company_settings WHERE company_id = ? AND key = 'notifications_rebuilt_at'`,
+    [cid],
+  );
   const ultimo = Number(r[0]?.value ?? 0);
   return !Number.isFinite(ultimo) || Date.now() - ultimo > INTERVALO_MS;
 }
 
-export async function listNotifications(onlyUnread = false) {
+export async function listNotifications(onlyUnread = false, companyId?: number) {
+  const cid = companyId ?? (await tenantCompanyId());
   return await all<any>(
-    `SELECT * FROM notifications ${onlyUnread ? "WHERE read_at IS NULL" : ""}
+    `SELECT * FROM notifications WHERE company_id = ? ${onlyUnread ? "AND read_at IS NULL" : ""}
       ORDER BY CASE severity WHEN 'critico' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END, id DESC
       LIMIT 200`,
+    [cid],
   );
 }
 
-export async function unreadCount(): Promise<number> {
-  const r = await all<{ n: number }>(`SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL`);
+export async function unreadCount(companyId?: number): Promise<number> {
+  const cid = companyId ?? (await tenantCompanyId());
+  const r = await all<{ n: number }>(`SELECT COUNT(*) AS n FROM notifications WHERE company_id = ? AND read_at IS NULL`, [cid]);
   return r[0]?.n ?? 0;
 }

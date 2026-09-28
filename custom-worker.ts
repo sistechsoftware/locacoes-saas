@@ -2,22 +2,46 @@
 import handler from "./.open-next/worker.js";
 import { runWithDb } from "./src/lib/db";
 import { runNotificationScheduler, webPushSender } from "./src/lib/push-scheduler";
-import { runBirthdayDaily, runFidelityDaily } from "./src/lib/fidelidade-cron";
+import { runBirthdayDaily, runFidelityDaily, paraCadaEmpresa } from "./src/lib/fidelidade-cron";
 import { mensagemDeErro, podarErrosAntigos, registrarErro } from "./src/lib/error-log";
 
 export default {
   fetch: handler.fetch,
   async scheduled(event, env, ctx) {
+    const now = Math.floor(event.scheduledTime / 1000);
+    const sender =
+      env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY
+        ? webPushSender({ publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT })
+        : undefined;
+
+    /** Registra a falha de UMA empresa no diario de erros, sem derrubar as outras. */
+    const registrarFalhaDeEmpresa = (rotina: string, route: string, r: { companyId: number; name: string; ok: false; erro: string }) => {
+      console.error(`${rotina}_error (empresa ${r.companyId} - ${r.name}):`, r.erro);
+      return registrarErro({
+        source: "cron",
+        kind: "server",
+        message: mensagemDeErro(new Error(r.erro)),
+        route,
+        context: { rotina, companyId: r.companyId, empresa: r.name },
+      });
+    };
+
     // Toda rotina registra a propria falha: sem isso, uma quebra fica invisivel
     // e a rotina simplesmente para de acontecer. O diario error_logs guarda
     // cada falha com o dia em que ocorreu (fonte "cron"), visivel em /erros.
+    //
+    // Multi-empresa (Etapa 2): cada rotina roda UMA VEZ POR EMPRESA ATIVA,
+    // dentro de runWithCompany(cid) — as leituras de plataforma (settings,
+    // usuarios, atividades) ficam escopadas na empresa sendo processada.
     ctx.waitUntil(
-      runNotificationScheduler(env.DB, Math.floor(event.scheduledTime / 1000),
-        env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY
-          ? webPushSender({ publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT })
-          : undefined,
-      )
-        .then((result) => { console.log(JSON.stringify({ event: "notification_cron", ...result })); })
+      runWithDb(env.DB, async () => {
+        const resultados = await paraCadaEmpresa(env.DB, (cid, nome) =>
+          runNotificationScheduler(env.DB, now, sender).then((r) => {
+            console.log(JSON.stringify({ event: "notification_cron", company: cid, empresa: nome, ...r }));
+          }),
+        );
+        for (const r of resultados) if (!r.ok) await registrarFalhaDeEmpresa("notification_cron", "cron/notificacoes", r);
+      })
         .catch((e) => {
           console.error("notification_cron_error:", e);
           // Fora de request nao existe getCloudflareContext(): o acesso ao D1
@@ -32,35 +56,59 @@ export default {
           );
         }),
     );
-    // fidelidade uma vez por dia: expirar recompensas e preparar lembretes nao
-    // pode depender de alguem abrir o sistema
-    ctx.waitUntil(runFidelityDaily(env.DB, Math.floor(event.scheduledTime / 1000))
-      .then((result) => { if (result) console.log(JSON.stringify({ event: "fidelity_cron", ...result })); })
-      .catch((e) => {
-        console.error("fidelity_cron_error:", e);
-        return runWithDb(env.DB, () =>
-          registrarErro({
-            source: "cron", kind: "server",
-            message: mensagemDeErro(e),
-            route: "cron/fidelidade",
-            context: { rotina: "runFidelityDaily" },
+    // fidelidade uma vez por dia, POR EMPRESA: expirar recompensas e preparar
+    // lembretes nao pode depender de alguem abrir o sistema
+    ctx.waitUntil(
+      runWithDb(env.DB, async () => {
+        const resultados = await paraCadaEmpresa(env.DB, (cid, nome) =>
+          runFidelityDaily(env.DB, now).then((r) => {
+            if (r) console.log(JSON.stringify({ event: "fidelity_cron", company: cid, empresa: nome, ...r }));
           }),
         );
-      }));
-    // aniversarios: uma falha aqui nao pode derrubar as outras rotinas do cron
-    ctx.waitUntil(runBirthdayDaily(env.DB, Math.floor(event.scheduledTime / 1000))
-      .then((result) => { if (result) console.log(JSON.stringify({ event: "birthday_cron", ...result })); })
-      .catch((e) => {
-        console.error("birthday_cron_error:", e);
-        return runWithDb(env.DB, () =>
-          registrarErro({
-            source: "cron", kind: "server",
-            message: mensagemDeErro(e),
-            route: "cron/aniversarios",
-            context: { rotina: "runBirthdayDaily" },
+        for (const r of resultados) if (!r.ok) await registrarFalhaDeEmpresa("fidelity_cron", "cron/fidelidade", r);
+      })
+        .catch((e) => {
+          console.error("fidelity_cron_error:", e);
+          return runWithDb(env.DB, () =>
+            registrarErro({
+              source: "cron", kind: "server",
+              message: mensagemDeErro(e),
+              route: "cron/fidelidade",
+              context: { rotina: "runFidelityDaily" },
+            }),
+          );
+        }),
+    );
+    // aniversarios: uma falha aqui (ou numa empresa) nao derruba as outras rotinas
+    ctx.waitUntil(
+      runWithDb(env.DB, async () => {
+        const resultados = await paraCadaEmpresa(env.DB, (cid, nome) =>
+          runBirthdayDaily(env.DB, now).then((r) => {
+            if (r) console.log(JSON.stringify({ event: "birthday_cron", company: cid, empresa: nome, ...r }));
           }),
         );
-      }));
+        for (const r of resultados) if (!r.ok) await registrarFalhaDeEmpresa("birthday_cron", "cron/aniversarios", r);
+      })
+        .catch((e) => {
+          console.error("birthday_cron_error:", e);
+          return runWithDb(env.DB, () =>
+            registrarErro({
+              source: "cron", kind: "server",
+              message: mensagemDeErro(e),
+              route: "cron/aniversarios",
+              context: { rotina: "runBirthdayDaily" },
+            }),
+          );
+        }),
+    );
+    // limpezas GLOBAIS, uma unica vez por ciclo (sairam do laco por empresa):
+    // cache de rotas e rate limits nao pertencem a nenhuma empresa
+    ctx.waitUntil(
+      env.DB.batch([
+        env.DB.prepare("DELETE FROM route_cache WHERE expires_at<?").bind(now),
+        env.DB.prepare("DELETE FROM api_rate_limits WHERE expires_at<?").bind(now),
+      ]).catch(() => {}),
+    );
     // manutencao do proprio diario: nada de erro cresce para sempre (30 dias)
     ctx.waitUntil(podarErrosAntigos(env.DB).catch(() => {}));
   },

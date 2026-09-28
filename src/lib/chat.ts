@@ -2,6 +2,7 @@ import "server-only";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { all, batch, insert, one, run, scalar } from "./db";
 import type { SessionUser } from "./auth";
+import { tenantCompanyId } from "./tenant";
 import { saveChatAttachment } from "./uploads";
 import { webPushSender } from "./push-scheduler";
 
@@ -39,12 +40,17 @@ const MAX_BODY = 4000;
 
 /* ------------------------------- usuarios ------------------------------- */
 
-/** Usuarios ativos com quem se pode conversar (exceto o proprio). */
+/**
+ * Usuarios ativos com quem se pode conversar (exceto o proprio) —
+ * SEMPRE da mesma empresa do usuario informado. Nunca expoe usuarios de
+ * outra empresa na lista de contatos.
+ */
 export async function contactableUsers(me: number) {
+  const empresa = await scalar<number>(`SELECT company_id FROM users WHERE id = ?`, [me]);
   return await all<{ id: number; name: string; username: string; role: string; avatar_url: string | null }>(
     `SELECT id, name, username, role, avatar_url FROM users
-      WHERE active = 1 AND id <> ? ORDER BY name`,
-    [me],
+      WHERE company_id = ? AND active = 1 AND id <> ? ORDER BY name`,
+    [empresa ?? 0, me],
   );
 }
 
@@ -53,9 +59,12 @@ export async function contactableUsers(me: number) {
 /** Garante a conversa 1:1 do par e devolve o id. Criada sob demanda. */
 export async function ensureConversation(me: number, other: number): Promise<number> {
   if (!Number.isInteger(other) || other === me) throw new ChatError("Contato invalido.");
+  // Conversa so dentro da empresa: usuario de outra empresa e "inexistente"
+  // para o chat.
+  const minhaEmpresa = await scalar<number>(`SELECT company_id FROM users WHERE id = ?`, [me]);
   const alvo = await one<{ id: number; active: number }>(
-    `SELECT id, active FROM users WHERE id = ?`,
-    [other],
+    `SELECT id, active FROM users WHERE id = ? AND company_id = ?`,
+    [other, minhaEmpresa ?? 0],
   );
   if (!alvo || !alvo.active) throw new ChatError("Usuário não disponível para conversa.");
   const lo = Math.min(me, other);
@@ -66,8 +75,8 @@ export async function ensureConversation(me: number, other: number): Promise<num
   );
   if (existente) return existente.id;
   const conv = await insert(
-    `INSERT INTO chat_conversations (user_low, user_high) VALUES (?,?)`,
-    [lo, hi],
+    `INSERT INTO chat_conversations (user_low, user_high, company_id) VALUES (?,?,?)`,
+    [lo, hi, minhaEmpresa ?? (await tenantCompanyId())],
   );
   await batch([
     { sql: `INSERT INTO chat_participants (conversation_id, user_id) VALUES (?,?)`, params: [conv, lo] },
@@ -103,6 +112,7 @@ export type ConversationRow = {
  * Uma conversa arquivada so reaparece quando chega mensagem nova.
  */
 export async function listConversations(me: number): Promise<ConversationRow[]> {
+  const empresa = await scalar<number>(`SELECT company_id FROM users WHERE id = ?`, [me]);
   return await all<ConversationRow>(
     `SELECT c.id AS conversation_id,
             o.id AS other_id, o.name AS other_name, o.username AS other_username, o.avatar_url AS other_avatar_url,
@@ -118,10 +128,10 @@ export async function listConversations(me: number): Promise<ConversationRow[]> 
        LEFT JOIN chat_messages m ON m.id = (
          SELECT cm2.id FROM chat_messages cm2 WHERE cm2.conversation_id = c.id ORDER BY cm2.id DESC LIMIT 1
        )
-      WHERE p.user_id = ?
+      WHERE p.user_id = ? AND c.company_id = ?
         AND (p.archived_at IS NULL OR COALESCE(m.id, 0) > COALESCE(p.archive_before, 0))
       ORDER BY last_message_id DESC, c.id DESC`,
-    [me, me, me],
+    [me, me, me, empresa ?? 0],
   );
 }
 

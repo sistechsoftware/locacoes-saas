@@ -12,10 +12,14 @@ export default async function PreferencesPage() {
   const user = await requireUser();
   const prefs = await all<{type:string;mode:string}>("SELECT type,mode FROM notification_preferences WHERE user_id=?",[user.id]);
   const roles = await all<{key:string;label:string}>("SELECT * FROM operational_roles");
-  const assignments = await all<{user_id:number;role:string}>("SELECT * FROM user_operational_roles");
-  const rules = user.role==="admin" ? await all<{type:string;enabled:number;offsets:string;message:string}>("SELECT * FROM notification_rules") : [];
+  // escopo de empresa: atribuicoes e regras visiveis sao so da empresa do usuario
+  const assignments = await all<{user_id:number;role:string}>(
+    "SELECT ur.user_id, ur.role FROM user_operational_roles ur JOIN users u ON u.id = ur.user_id WHERE u.company_id=?",
+    [user.company_id],
+  );
+  const rules = user.role==="admin" ? await all<{type:string;enabled:number;offsets:string;message:string}>("SELECT * FROM notification_rules WHERE company_id=?",[user.company_id]) : [];
   const users = user.role==="admin" ? await listUsers() : [];
-  const enabled = await one<{value:string}>("SELECT value FROM settings WHERE key='push_enabled'");
+  const enabled = await one<{value:string}>("SELECT value FROM company_settings WHERE company_id=? AND key='push_enabled'",[user.company_id]);
   const lastRun = await one<{value:string}>("SELECT value FROM scheduler_state WHERE key='last_run'");
   return <div className="space-y-4">
     <PageHeader title="Preferências de Notificação" subtitle="Por tipo, função e dispositivo" />

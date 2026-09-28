@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       WHERE s.user_id=? AND d.status IN ('pending','sending')`,
     [user.id],
   );
-  const pushLigado = await one<{value:string}>("SELECT value FROM settings WHERE key='push_enabled'");
+  const pushLigado = await one<{value:string}>("SELECT value FROM company_settings WHERE company_id=? AND key='push_enabled'",[user.company_id]);
   return Response.json({
     devices,
     publicKey: env.VAPID_PUBLIC_KEY || "",
