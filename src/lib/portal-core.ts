@@ -159,9 +159,9 @@ export async function configurarAcesso(entrada: {
   const telefone = digitosFone(String(entrada.telefone ?? ""));
   const password = String(entrada.password ?? "");
 
-  if (!token || token.length > 128) return { ok: false, erro: "Convite inválido. Peça um novo link à Lima's." };
+  if (!token || token.length > 128) return { ok: false, erro: "Convite inválido. Peça um novo link à empresa." };
   if (!cpfValido(cpf)) return { ok: false, erro: "CPF inválido. Confira os números digitados." };
-  if (telefone.length < 10) return { ok: false, erro: "Informe o telefone cadastrado na Lima's (com DDD)." };
+  if (telefone.length < 10) return { ok: false, erro: "Informe o telefone cadastrado na empresa (com DDD)." };
   if (password.length < 8) return { ok: false, erro: "A senha precisa ter pelo menos 8 caracteres." };
 
   const hash = crypto.createHash("sha256").update(token).digest("hex");
@@ -177,7 +177,7 @@ export async function configurarAcesso(entrada: {
   // descobre qual das tres falhou
   if (!c) return { ok: false, erro: "Convite, CPF ou telefone não conferem. Revise os dados ou peça um novo link." };
   if (!c.portal_setup_token_hash || (c.portal_setup_expires_at && new Date(c.portal_setup_expires_at) < new Date())) {
-    return { ok: false, erro: "Este convite expirou. Peça um novo link à Lima's." };
+    return { ok: false, erro: "Este convite expirou. Peça um novo link à empresa." };
   }
 
   // a confirmacao do telefone cadastrado e o segundo fator do convite
@@ -220,8 +220,15 @@ export async function tentarLogin(cpf: string, password: string): Promise<Tentat
     return { erro: "Muitas tentativas. Aguarde alguns minutos e tente novamente.", customerId: null };
   }
 
+  /*
+   * O CPF identifica o cliente DENTRO da empresa dele. Hoje a base tem uma
+   * empresa; quando o onboarding comercial existir, o login do portal passará
+   * a receber a empresa (subdomínio/seleção) e o filtro company_id entrará
+   * aqui. Enquanto isso, dois CPFs iguais em empresas diferentes seriam
+   * ambíguos — a criação de empresas valida CPF duplicado no cadastro.
+   */
   const c = await one<any>(
-    `SELECT id, name, active, portal_password_hash
+    `SELECT id, name, company_id, active, portal_password_hash
        FROM customers
       WHERE replace(replace(replace(replace(replace(doc,'.',''),'-',''),'(',''),')',''),' ','') = ? AND active = 1`,
     [cpfDig],
@@ -246,10 +253,13 @@ export async function loginCliente(cpf: string, password: string): Promise<strin
 export async function abrirSessaoCliente(customerId: number): Promise<string> {
   const id = crypto.randomBytes(32).toString("hex");
   const expires = new Date(Date.now() + 30 * 864e5);
-  await insert(`INSERT INTO portal_sessions (id, customer_id, expires_at) VALUES (?,?,?)`, [
+  // A sessao herda a empresa do cliente: nunca ha sessao de portal "sem dono".
+  const empresa = await scalar<number>(`SELECT company_id FROM customers WHERE id = ?`, [customerId]);
+  await insert(`INSERT INTO portal_sessions (id, customer_id, expires_at, company_id) VALUES (?,?,?,?)`, [
     id,
     customerId,
     expires.toISOString(),
+    empresa ?? (await import("./db")).currentCompanyId(),
   ]);
   return id;
 }
@@ -262,12 +272,12 @@ export async function apagarSessao(id: string) {
 /**
  * Cliente de uma sessao valida, ou null. Nao le cookie: quem chama passa o id.
  */
-export async function clienteDaSessao(sessionId: string): Promise<{ id: number; name: string } | null> {
+export async function clienteDaSessao(sessionId: string): Promise<{ id: number; name: string; company_id: number } | null> {
   if (!/^[0-9a-f]{64}$/.test(sessionId)) return null;
   const row = await one<any>(
-    `SELECT c.id, c.name, s.expires_at
+    `SELECT c.id, c.name, c.company_id, s.expires_at
        FROM portal_sessions s JOIN customers c ON c.id = s.customer_id
-      WHERE s.id = ?`,
+      WHERE s.id = ? AND s.company_id = c.company_id`,
     [sessionId],
   );
   if (!row) return null;
@@ -275,7 +285,7 @@ export async function clienteDaSessao(sessionId: string): Promise<{ id: number; 
     await apagarSessao(sessionId);
     return null;
   }
-  return { id: row.id, name: String(row.name ?? "").trim() };
+  return { id: row.id, name: String(row.name ?? "").trim(), company_id: row.company_id };
 }
 
 /** Limpeza de sessoes vencidas (mesma chamada da limpeza das sessoes internas). */

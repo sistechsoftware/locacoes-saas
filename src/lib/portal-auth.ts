@@ -43,6 +43,8 @@ export type ClienteSessao = {
   id: number;
   name: string;
   first_name: string;
+  /** Empresa do cliente (da sessao, migration 0027). */
+  company_id: number;
 };
 
 const COOKIE = "limas_portal";
@@ -78,7 +80,7 @@ export async function clienteAtual(): Promise<ClienteSessao | null> {
   const row = await clienteDaSessao(id);
   if (!row) return null;
   const nome = row.name;
-  return { id: row.id, name: nome, first_name: nome.split(/\s+/)[0] ?? nome };
+  return { id: row.id, name: nome, first_name: nome.split(/\s+/)[0] ?? nome, company_id: row.company_id };
 }
 
 /** Exige cliente logado; redireciona para /portal/login caso contrario. */

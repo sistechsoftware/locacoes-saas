@@ -52,7 +52,7 @@ export default async function PortalLoginPage({
         </div>
 
         <p className="mt-5 text-center text-xs leading-relaxed text-marca-100/80">
-          Área exclusiva para clientes. Equipe Lima&apos;s,{" "}
+          Área exclusiva para clientes. {" "}
           <Link href="/login" className="underline">
             entre aqui
           </Link>

@@ -28,6 +28,14 @@ const PASSADOS = `('retirada','finalizada')`;
  */
 const FUTURAS = HOLDING_STATUSES.map((s) => `'${s}'`).join(",");
 
+/**
+ * Ancora de empresa: toda leitura do portal parte do cliente da sessao, e o
+ * filtro de company_id e derivado DO PROPRIO cliente (subconsulta), nunca de
+ * parametro. Defesa em profundidade: mesmo se um filtro de cliente falhar,
+ * dados de outra empresa nao saem.
+ */
+const EMPRESA_DO_CLIENTE = `(SELECT company_id FROM customers WHERE id = ?1)`;
+
 export type ReservaPortal = {
   id: number;
   number: string;
@@ -89,9 +97,9 @@ export async function reservasDoCliente(customerId: number, limite = 100): Promi
             EXISTS (SELECT 1 FROM fidelity_rewards f WHERE f.used_reservation_id = r.id) AS usou_recompensa,
             EXISTS (SELECT 1 FROM fidelity_events e WHERE e.reservation_id = r.id AND e.kind = 'ponto') AS contou_fidelidade
        FROM reservations r
-      WHERE r.customer_id = ?
+      WHERE r.customer_id = ?1 AND r.company_id = ${EMPRESA_DO_CLIENTE}
       ORDER BY r.event_date DESC, r.id DESC
-      LIMIT ?`,
+      LIMIT ?2`,
     [customerId, limite],
   );
   return rows.map((r) => ({
@@ -142,16 +150,16 @@ export async function reservaDoCliente(customerId: number, reservaId: number) {
 export async function financeiroDoCliente(customerId: number) {
   const r = await one<any>(
     `SELECT
-       (SELECT COALESCE(SUM(total_cents),0) FROM reservations WHERE customer_id = ?1 AND status IN (${ACTIVE})) AS total_cents,
-       (SELECT COUNT(*) FROM reservations WHERE customer_id = ?1 AND status IN (${ACTIVE})) AS locacoes_ativas,
-       (SELECT COUNT(*) FROM reservations WHERE customer_id = ?1 AND status IN ${PASSADOS}) AS locacoes_concluidas,
+       (SELECT COALESCE(SUM(total_cents),0) FROM reservations WHERE customer_id = ?1 AND company_id = ${EMPRESA_DO_CLIENTE} AND status IN (${ACTIVE})) AS total_cents,
+       (SELECT COUNT(*) FROM reservations WHERE customer_id = ?1 AND company_id = ${EMPRESA_DO_CLIENTE} AND status IN (${ACTIVE})) AS locacoes_ativas,
+       (SELECT COUNT(*) FROM reservations WHERE customer_id = ?1 AND company_id = ${EMPRESA_DO_CLIENTE} AND status IN ${PASSADOS}) AS locacoes_concluidas,
        (SELECT COALESCE(SUM(p.amount_cents),0)
           FROM payments p JOIN reservations r ON r.id = p.reservation_id
-         WHERE r.customer_id = ?1) AS pago_cents,
+         WHERE r.customer_id = ?1 AND r.company_id = ${EMPRESA_DO_CLIENTE}) AS pago_cents,
        (SELECT COUNT(*) FROM payments p JOIN reservations r ON r.id = p.reservation_id
-         WHERE r.customer_id = ?1) AS qtd_pagamentos,
+         WHERE r.customer_id = ?1 AND r.company_id = ${EMPRESA_DO_CLIENTE}) AS qtd_pagamentos,
        (SELECT MAX(p.paid_at) FROM payments p JOIN reservations r ON r.id = p.reservation_id
-         WHERE r.customer_id = ?1) AS ultimo_pagamento`,
+         WHERE r.customer_id = ?1 AND r.company_id = ${EMPRESA_DO_CLIENTE}) AS ultimo_pagamento`,
     [customerId],
   );
   const total = Number(r?.total_cents ?? 0);
@@ -207,10 +215,10 @@ export async function contratosDoCliente(customerId: number): Promise<ContratoPo
               ORDER BY a.id DESC LIMIT 1) AS assinatura_status
        FROM contracts ct
        JOIN reservations r ON r.id = ct.reservation_id
-      WHERE r.customer_id = ?
+      WHERE r.customer_id = ? AND r.company_id = (SELECT company_id FROM customers WHERE id = ?)
       ORDER BY ct.id DESC
       LIMIT 100`,
-    [customerId],
+    [customerId, customerId],
   );
 }
 
@@ -229,9 +237,9 @@ export async function documentosDoPortal(customerId: number) {
        LEFT JOIN contracts ct ON ct.id = d.contract_id
        LEFT JOIN reservations r ON r.id = d.reservation_id
        LEFT JOIN contract_signatures a ON a.id = d.signature_id
-      WHERE d.customer_id = ?
+      WHERE d.customer_id = ? AND d.company_id = (SELECT company_id FROM customers WHERE id = ?)
       ORDER BY d.id DESC`,
-    [customerId],
+    [customerId, customerId],
   );
 }
 
@@ -246,7 +254,8 @@ export async function proximaReserva(customerId: number) {
                FROM reservation_items i JOIN products p ON p.id = i.product_id
               WHERE i.reservation_id = r.id) AS itens
        FROM reservations r
-      WHERE r.customer_id = ? AND r.event_date >= ? AND r.status IN (${FUTURAS})
+      WHERE r.customer_id = ?1 AND r.company_id = (SELECT company_id FROM customers WHERE id = ?1)
+        AND r.event_date >= ?2 AND r.status IN (${FUTURAS})
       ORDER BY r.event_date, r.id
       LIMIT 1`,
     [customerId, d0],
@@ -273,7 +282,7 @@ export async function ultimaLocacao(customerId: number) {
   return await one<any>(
     `SELECT r.id, r.number, r.event_date, r.total_cents, r.status
        FROM reservations r
-      WHERE r.customer_id = ? AND r.status IN ${PASSADOS}
+      WHERE r.customer_id = ?1 AND r.company_id = ${EMPRESA_DO_CLIENTE} AND r.status IN ${PASSADOS}
       ORDER BY r.event_date DESC, r.id DESC
       LIMIT 1`,
     [customerId],
