@@ -25,3 +25,7 @@ public/uploads/*
 # Logs and OS files
 *.log
 .DS_Store
+
+# Secrets locais do novo projeto SaaS (VAPID proprias; NUNCA commitar)
+.dev.vars.saas
+.dev.vars.*

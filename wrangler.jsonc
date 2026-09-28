@@ -1,6 +1,20 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "limas-locacoes",
+  // =============================================================================
+  // NOVO PROJETO SAAS — infraestrutura PRÓPRIA e ISOLADA da Lima's Locações.
+  //
+  //  * NÃO utilize aqui o Worker/D1 da aplicação atual da Lima's Locações
+  //    (database_id antigo 79a1d43c-8355-4689-9f11-5ff461e48c58 — INTOCÁVEL).
+  //  * Deploy SEMPRE com ambiente explícito:
+  //      npm run deploy:staging      -> wrangler deploy --env staging
+  //      npm run deploy:production   -> wrangler deploy --env production
+  //    O bloco padrão (top-level) serve só ao desenvolvimento local e nunca é
+  //    deployado.
+  //  * Secrets por ambiente (nunca commitados):
+  //      VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY  -> gerados para ESTE projeto
+  //      ASAAS_API_KEY, ASAAS_ENVIRONMENT, ASAAS_WEBHOOK_TOKEN -> futuros
+  // =============================================================================
+  "name": "limas-saas",
   "main": "custom-worker.ts",
   "compatibility_date": "2026-09-03",
   "compatibility_flags": ["nodejs_compat"],
@@ -21,8 +35,73 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "limas-locacoes",
-      "database_id": "79a1d43c-8355-4689-9f11-5ff461e48c58"
+      "database_name": "limas-saas-db",
+      "database_id": "8f5a97e8-fe8c-42c7-869d-b1d7ed709969"
     }
-  ]
+  ],
+  "env": {
+    // ===========================================================================
+    // STAGING — Worker e D1 PRÓPRIOS, sem qualquer vínculo com produção do SaaS
+    // e com a Lima's Locações.
+    //   deploy:  npm run deploy:staging
+    //   migrations: npm run db:migrate:staging
+    // ===========================================================================
+    "staging": {
+      "name": "limas-saas-staging",
+      "main": "custom-worker.ts",
+      "compatibility_date": "2026-09-03",
+      "compatibility_flags": ["nodejs_compat"],
+      "vars": {
+        "NOMINATIM_URL": "https://nominatim.openstreetmap.org/",
+        "OSRM_URL": "https://routing.openstreetmap.de/routed-car",
+        "VAPID_SUBJECT": "mailto:uericlislima@gmail.com"
+      },
+      "triggers": { "crons": ["* * * * *"] },
+      "secrets": { "required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"] },
+      "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+      "assets": {
+        "directory": ".open-next/assets",
+        "binding": "ASSETS"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "limas-saas-staging-db",
+          "database_id": "74c709de-e5a4-4985-ae5f-4ae03e991ba4"
+        }
+      ]
+    },
+    // ===========================================================================
+    // PRODUÇÃO do SaaS — banco NOVO e VAZIO (somente migrations; nenhum dado
+    // da Lima's Locações é copiado). O primeiro acesso real nasce do fluxo de
+    // onboarding, sem seed de credenciais.
+    //   deploy:  npm run deploy:production
+    //   migrations: npm run db:migrate
+    // ===========================================================================
+    "production": {
+      "name": "limas-saas",
+      "main": "custom-worker.ts",
+      "compatibility_date": "2026-09-03",
+      "compatibility_flags": ["nodejs_compat"],
+      "vars": {
+        "NOMINATIM_URL": "https://nominatim.openstreetmap.org/",
+        "OSRM_URL": "https://routing.openstreetmap.de/routed-car",
+        "VAPID_SUBJECT": "mailto:uericlislima@gmail.com"
+      },
+      "triggers": { "crons": ["* * * * *"] },
+      "secrets": { "required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"] },
+      "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+      "assets": {
+        "directory": ".open-next/assets",
+        "binding": "ASSETS"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "limas-saas-db",
+          "database_id": "8f5a97e8-fe8c-42c7-869d-b1d7ed709969"
+        }
+      ]
+    }
+  }
 }
