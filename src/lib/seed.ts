@@ -14,17 +14,17 @@ function hash(password: string) {
 /**
  * Cria usuarios, categorias e dados de demonstracao na primeira execucao.
  *
- * Producao: NUNCA cria credenciais automaticamente. A base comercial comeca
- * sem usuarios; o primeiro acesso e o fluxo de onboarding (etapa futura),
- * que criara o proprietario com senha propria. Desenvolvimento e testes
- * (NODE_ENV !== 'production' ou flag explicita) mantem o seed de demonstracao
- * com as credenciais locais de sempre.
+ * Producao: NUNCA cria credenciais — nem com a base vazia. A instalacao nova
+ * do SaaS comeca sem usuarios e o primeiro acesso acontece pelo fluxo real
+ * /setup (src/lib/primeiro-acesso.ts), que cria o proprietario com a senha
+ * escolhida. O seed de demonstracao (admin/admin123) so roda fora de
+ * producao; o flag SEED_DEMO_DATA=1 continua existindo como saida EXPLICITA
+ * para ambientes de demonstracao, nunca como padrao.
  */
 export async function ensureSeed() {
-  const jaTemUsuario = await scalar<number>("SELECT COUNT(*) FROM users") > 0;
-  const emProducao = process.env.NODE_ENV === "production" && process.env.SEED_DEMO_DATA !== "1";
-  if (jaTemUsuario && !emProducao) return;
-  if (jaTemUsuario && emProducao) return;
+  if (process.env.NODE_ENV === "production" && process.env.SEED_DEMO_DATA !== "1") return;
+  const jaTemUsuario = (await scalar<number>("SELECT COUNT(*) FROM users")) > 0;
+  if (jaTemUsuario) return;
 
   await tx(async () => {
     const admin = await insert(
