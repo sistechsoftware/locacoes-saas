@@ -158,41 +158,41 @@ describe("mesma consulta em todos os consumidores", () => {
 describe("gravacao atomica e concorrencia", () => {
   const header = () => ({ customer_id:c.clienteId,status:"confirmada",event_date:"2026-09-06",delivery_at:rental.from,pickup_at:rental.to });
   it("grava cabecalho, linhas e componentes juntos", async () => {
-    const {id} = await writeRental(await stockVersion(),header(),[{product_id:c.kitId,qty:5}]);
+    const {id} = await writeRental(1,await stockVersion(),header(),[{product_id:c.kitId,qty:5}]);
     assert.equal(await available(at("12:00"),false),0);
     assert.equal(await scalar("SELECT COUNT(*) FROM reservation_item_components WHERE reservation_id=?",[id]),2);
   });
   it("duas criacoes com a mesma revisao: apenas uma confirma", async () => {
     const version = await stockVersion();
-    await writeRental(version,header(),[{product_id:c.kitId,qty:5}]);
-    await assert.rejects(writeRental(version,header(),[{product_id:c.kitId,qty:5}]),{message:STOCK_CHANGED});
+    await writeRental(1,version,header(),[{product_id:c.kitId,qty:5}]);
+    await assert.rejects(writeRental(1,version,header(),[{product_id:c.kitId,qty:5}]),{message:STOCK_CHANGED});
     assert.equal(await scalar("SELECT COUNT(*) FROM reservations"),1);
   });
   it("edicao com revisao vencida conserva os itens originais", async () => {
     const id = await reserve(3);
     const version = await stockVersion();
     await reserve(1);
-    await assert.rejects(writeRental(version,header(),[{product_id:c.kitId,qty:5}],id),{message:STOCK_CHANGED});
+    await assert.rejects(writeRental(1,version,header(),[{product_id:c.kitId,qty:5}],id),{message:STOCK_CHANGED});
     assert.equal(await scalar("SELECT qty FROM reservation_items WHERE reservation_id=?",[id]),3);
   });
   it("falha depois de atualizar cabecalho desfaz tudo, inclusive DELETE de itens", async () => {
     const id = await reserve(3);
     const before = await all("SELECT * FROM reservation_items WHERE reservation_id=?",[id]);
-    await assert.rejects(writeRental(await stockVersion(),{...header(),notes:"nao salvar"},[{product_id:999999,qty:1}],id));
+    await assert.rejects(writeRental(1,await stockVersion(),{...header(),notes:"nao salvar"},[{product_id:999999,qty:1}],id));
     assert.deepEqual(await all("SELECT * FROM reservation_items WHERE reservation_id=?",[id]),before);
     assert.equal(await scalar("SELECT notes FROM reservations WHERE id=?",[id]),null);
   });
   it("mudanca de estoque, composicao ou configuracao invalida a verificacao anterior", async () => {
-    for (const sql of ["UPDATE products SET maintenance_qty=1 WHERE kind='simples'", "UPDATE product_components SET quantity=quantity+1", "UPDATE settings SET value='120' WHERE key='stock_preparation_minutes'"]) {
+    for (const sql of ["UPDATE products SET maintenance_qty=1 WHERE kind='simples'", "UPDATE product_components SET quantity=quantity+1", "UPDATE company_settings SET value='120' WHERE company_id=1 AND key='stock_preparation_minutes'"]) {
       const v = await stockVersion();
       await run(sql);
-      await assert.rejects(commitStockBatch(v,[]),{message:STOCK_CHANGED});
+      await assert.rejects(commitStockBatch(1,v,[]),{message:STOCK_CHANGED});
     }
   });
   it("IDs de reservas removidas nao sao reutilizados", async () => {
     const id = await reserve();
     await run("DELETE FROM reservations WHERE id=?",[id]);
-    const next = await writeRental(await stockVersion(),header(),[{product_id:c.kitId,qty:1}]);
+    const next = await writeRental(1,await stockVersion(),header(),[{product_id:c.kitId,qty:1}]);
     assert.ok(next.id>id);
   });
 });

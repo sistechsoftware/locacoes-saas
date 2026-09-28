@@ -44,7 +44,7 @@ async function cenario() {
 
 async function config(chave: string, valor: string) {
   await run(
-    `INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+    `INSERT INTO company_settings(company_id,key,value) VALUES (1,?,?) ON CONFLICT(company_id,key) DO UPDATE SET value=excluded.value`,
     [chave, valor],
   );
 }

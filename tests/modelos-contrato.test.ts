@@ -20,7 +20,7 @@ let reserva = 0;
 
 async function cenario() {
   createTestDb();
-  await run(`DELETE FROM settings`);
+  await run(`DELETE FROM company_settings`);
   await insert(`INSERT INTO users (id, name, username, password_hash, role) VALUES (1,'Op','op','x','admin')`);
   cliente = await insert(`INSERT INTO customers (name, phone) VALUES ('Joao Ribeiro','11999990000')`);
   reserva = await insert(
@@ -55,7 +55,7 @@ describe("separacao dos modelos", () => {
 
   it("sem o digital salvo, salvar o impresso nao grava o digital no banco", async () => {
     await setSettings({ contract_template: "PAPEL NOVO" });
-    const linha = await one<any>(`SELECT value FROM settings WHERE key = 'contract_template_digital'`);
+    const linha = await one<any>(`SELECT value FROM company_settings WHERE company_id = 1 AND key = 'contract_template_digital'`);
     assert.equal(linha, undefined, "heranca fica na leitura, sem escrever nada");
     const s = await getSettings();
     assert.equal(s.contract_template_digital, "PAPEL NOVO");

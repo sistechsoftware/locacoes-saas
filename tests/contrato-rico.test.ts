@@ -166,7 +166,7 @@ describe("geracao do contrato", () => {
   beforeEach(async () => {
     createTestDb();
     const settings = (await import("../src/lib/settings.ts")).DEFAULT_SETTINGS;
-    await run(`INSERT INTO settings (key, value) VALUES ('contract_template', ?)`, [settings.contract_template]);
+    await run(`INSERT INTO company_settings (company_id, key, value) VALUES (1, 'contract_template', ?)`, [settings.contract_template]);
     await insert(`INSERT INTO users (id, name, username, password_hash, role) VALUES (1,'Op','op','x','admin')`);
     cliente = await insert(`INSERT INTO customers (name, doc, phone, city) VALUES ('Joao <Silva>','12345678909','11999990000','Uberlândia')`);
     reserva = await insert(
@@ -191,7 +191,7 @@ describe("geracao do contrato", () => {
 
   it("modelo formatado preserva as marcas e as variaveis", async () => {
     await run(
-      `UPDATE settings SET value = ? WHERE key = 'contract_template'`,
+      `UPDATE company_settings SET value = ? WHERE company_id = 1 AND key = 'contract_template'`,
       [
         "<p style=\"text-align: justify\"><b>CONTRATO</b> N. {{contrato}}</p>" +
           "<p>Cliente: <i>{{cliente}}</i>, CPF {{cliente_doc}}</p>" +
@@ -210,7 +210,7 @@ describe("geracao do contrato", () => {
 
   it("dado nao cadastrado vira linha tambem no formato rico", async () => {
     await run(
-      `UPDATE settings SET value = ? WHERE key = 'contract_template'`,
+      `UPDATE company_settings SET value = ? WHERE company_id = 1 AND key = 'contract_template'`,
       ["<p>Endereço: {{endereco_empresa}}</p>"],
     );
     const corpo = await buildContractBody(reserva, "CTR-002");

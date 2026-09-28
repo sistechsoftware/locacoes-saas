@@ -24,7 +24,7 @@ import {
 import { stockVersion } from "../src/lib/stock-write";
 
 let c: Cenario;
-let user = { id: 0, name: "Auditor", username: "auditor", role: "admin" as const, avatar_url: null };
+let user = { id: 0, name: "Auditor", username: "auditor", role: "admin" as const, company_id: 1, avatar_url: null };
 
 beforeEach(async () => {
   createTestDb();
@@ -281,7 +281,7 @@ describe("Seguranca e integracao", () => {
 
     await assert.rejects(
       () =>
-        commitStockBatch(version, [
+        commitStockBatch(1, version, [
           { sql: `UPDATE products SET total_qty = total_qty - 2 WHERE id = ?`, params: [c.cadeiraId] },
         ]),
       /O estoque ou a reserva mudou/,

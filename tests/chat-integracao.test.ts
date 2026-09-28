@@ -30,8 +30,8 @@ import type { SessionUser } from "../src/lib/auth";
 
 let seq = 0;
 
-function usuario(role: "admin" | "operador" = "operador"): SessionUser & { id: number } {
-  return { id: ++seq, name: `User ${seq}`, username: `u${seq}`, role, avatar_url: null };
+function usuario(role: "admin" | "operacional" = "operacional"): SessionUser & { id: number } {
+  return { id: ++seq, name: `User ${seq}`, username: `u${seq}`, role, company_id: 1, avatar_url: null };
 }
 
 async function gravarUsuario(u: SessionUser) {

@@ -33,7 +33,7 @@ async function cliente(nome: string, nascimento: string | null, telefone = "1199
 }
 
 async function config(chave: string, valor: string) {
-  await run(`INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, [
+  await run(`INSERT INTO company_settings(company_id,key,value) VALUES (1,?,?) ON CONFLICT(company_id,key) DO UPDATE SET value=excluded.value`, [
     chave,
     valor,
   ]);
@@ -137,7 +137,7 @@ describe("rotina diaria", () => {
   beforeEach(cenario);
 
   it("cria o aviso do dia para cada usuario ativo", async () => {
-    await insert(`INSERT INTO users (id, name, username, password_hash, role) VALUES (2,'Dois','dois','x','operador')`);
+    await insert(`INSERT INTO users (id, name, username, password_hash, role) VALUES (2,'Dois','dois','x','operacional')`);
     await cliente("Joao Ribeiro", "1990-09-07");
 
     const r = await rotinaAniversarios(HOJE);

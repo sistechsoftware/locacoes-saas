@@ -18,13 +18,13 @@ import { gerarLink, assinar, documentoAssinado } from "../src/lib/assinatura-db.
 const PNG_VALIDO =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
-const ADMIN = { id: 1, name: "Dono", username: "dono", role: "admin" as const, avatar_url: null };
+const ADMIN = { id: 1, name: "Dono", username: "dono", role: "admin" as const, company_id: 1, avatar_url: null };
 
 async function base() {
   const settings = (await import("../src/lib/settings.ts")).DEFAULT_SETTINGS;
   for (const [k, v] of Object.entries(settings)) {
     // OR IGNORE: chaves como signature_link_days ja nascem das migrations
-    await run(`INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)`, [k, String(v)]);
+    await run(`INSERT OR IGNORE INTO company_settings (company_id, key, value) VALUES (1,?,?)`, [k, String(v)]);
   }
   await insert(`INSERT INTO users (id, name, username, password_hash, role) VALUES (1,'Dono','dono','x','admin')`);
 }
@@ -220,7 +220,7 @@ describe("assinatura da empresa no contrato assinado virtualmente", () => {
   async function cenario() {
     const settings = (await import("../src/lib/settings.ts")).DEFAULT_SETTINGS;
     for (const [k, v] of Object.entries(settings)) {
-      await run(`INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)`, [k, String(v)]);
+      await run(`INSERT OR IGNORE INTO company_settings (company_id, key, value) VALUES (1,?,?)`, [k, String(v)]);
     }
     await insert(`INSERT INTO users (id, name, username, password_hash, role) VALUES (1,'Dono','dono','x','admin')`);
     const cliente = await insert(`INSERT INTO customers (name, phone) VALUES ('Joao Ribeiro','11999990000')`);
