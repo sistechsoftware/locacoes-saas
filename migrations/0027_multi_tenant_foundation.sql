@@ -8,7 +8,9 @@
 --    linhas existentes; a empresa 1 (Lima's Locações) herda todo o histórico.
 --  * A coluna nasce com DEFAULT 1 + backfill: nenhuma linha fica sem empresa.
 --  * Rebuilds de tabela (users, settings, stock_revision) usam a receita
---    oficial SQLite (12 passos) com PRAGMA defer_foreign_keys + SAVEPOINT:
+--    oficial SQLite (12 passos), com PRAGMA defer_foreign_keys. NAO usa
+--    SAVEPOINT: o D1 remoto rejeita transacoes SQL explicitas (erro 7500) —
+--    cada migration ja roda como um lote atomico proprio.
 --    os ids são preservados e as FKs dos filhos continuam válidas.
 --  * Triggers e índices recriados exatamente como eram (com escopo novo).
 --  * PRAGMA foreign_key_check no fim: o arquivo só "passa" se o banco ficar
@@ -114,7 +116,8 @@ DROP TRIGGER IF EXISTS stock_revision_settings_insert;
 DROP TRIGGER IF EXISTS stock_revision_settings_update;
 DROP TRIGGER IF EXISTS stock_revision_settings_delete;
 
-SAVEPOINT rebuild_stock_revision;
+-- (sem SAVEPOINT: D1 remoto nao aceita transacao SQL explicita; o lote da
+-- migration e o proprio ponto de restauracao em caso de falha.)
 CREATE TABLE stock_revision_new (
   id       INTEGER PRIMARY KEY CHECK (id >= 1),
   revision INTEGER NOT NULL
@@ -125,7 +128,7 @@ INSERT OR IGNORE INTO stock_revision_new (id, revision) SELECT id, 0 FROM compan
 DROP TABLE stock_revision;
 ALTER TABLE stock_revision_new RENAME TO stock_revision;
 PRAGMA foreign_key_check;
-RELEASE rebuild_stock_revision;
+
 
 -- ----------------------------------------------------------------------------
 -- 4) SETTINGS POR EMPRESA (company_settings)
@@ -136,7 +139,7 @@ RELEASE rebuild_stock_revision;
 -- preservados em company_settings (empresa 1), apenas o contêiner global
 -- some, pois não deve mais receber escrita. Os triggers
 -- stock_revision_settings_* já foram removidos na seção 3.
-SAVEPOINT rebuild_settings;
+
 CREATE TABLE company_settings (
   company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   key        TEXT NOT NULL,
@@ -147,7 +150,7 @@ INSERT INTO company_settings (company_id, key, value)
   SELECT 1, key, value FROM settings;
 DROP TABLE settings;
 PRAGMA foreign_key_check;
-RELEASE rebuild_settings;
+
 
 -- Mudança de configuração invalida a revisão de disponibilidade da empresa.
 CREATE TRIGGER stock_revision_company_settings_insert AFTER INSERT ON company_settings
@@ -282,7 +285,7 @@ UPDATE error_logs               SET company_id = 1 WHERE company_id IS NULL;
 -- CHECK antigo ('admin','operador') exige rebuild da tabela. Receita SQLite
 -- com FKs deferidas: nova tabela -> copiar (mesmos ids) -> dropar -> renomear.
 -- As sessões existentes continuam válidas: o id do usuário não muda.
-SAVEPOINT rebuild_users;
+
 CREATE TABLE users_new (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT NOT NULL,
@@ -302,7 +305,7 @@ INSERT INTO users_new (id, name, username, email, phone, password_hash, role, ac
 DROP TABLE users;
 ALTER TABLE users_new RENAME TO users;
 PRAGMA foreign_key_check;
-RELEASE rebuild_users;
+
 
 -- Conversão de papéis: o primeiro administrador existente vira `owner`
 -- (mesmo poder, novo nome). Os demais `admin` continuam `admin` e os

@@ -38,7 +38,13 @@ const SESSION_DAYS = 30;
 async function cookiesDaRequest() {
   try {
     return await cookies();
-  } catch {
+  } catch (e: any) {
+    // O bailout de estaticidade do Next chega aqui como erro comum. Se for
+    // engolido, o build trata a pagina como estatica e prerenderiza rotas que
+    // leem cookie/banco — derrubando o build do OpenNext (getCloudflareContext
+    // sync em rota estatica). Re-lanca; fora de request (teste/cron) o erro
+    // e outro, sem esse digest, e segue tratado como "sem sessao".
+    if (String(e?.digest ?? "").includes("DYNAMIC_SERVER_USAGE")) throw e;
     return null;
   }
 }
