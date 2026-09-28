@@ -1,6 +1,7 @@
 import "server-only";
 import { promocoesAtivasPorProduto } from "./promocoes-db";
 import { all, one, run, batch } from "./db";
+import { tenantCompanyId } from "./tenant";
 import { addMinutes, normalizeStamp, timeWindow } from "./availability-time";
 import { stockOptions, type StockOptions } from "./availability-settings";
 import { commitStockBatch } from "./stock-write";
@@ -34,6 +35,15 @@ import {
  */
 
 const HOLD = HOLDING_STATUSES.map((s) => `'${s}'`).join(",");
+
+/**
+ * Empresa do contexto (sessão) ou a padrão do banco (cron/testes). Toda
+ * consulta do motor de estoque leva o escopo — disponibilidade nunca cruza
+ * empresas: reservas de B não ocupam o estoque de A.
+ */
+async function empresa(companyId?: number): Promise<number> {
+  return companyId ?? (await tenantCompanyId());
+}
 
 export type Hold = {
   reservation_id: number;
@@ -93,12 +103,16 @@ export function holdWindow(r: {
 /* Fichas de produto (composicao)                                      */
 /* ------------------------------------------------------------------ */
 
-/** Carrega a ficha de composicao de todos os produtos. */
-export async function loadSpecs(): Promise<SpecMap> {
+/** Carrega a ficha de composicao dos produtos da empresa. */
+export async function loadSpecs(companyId?: number): Promise<SpecMap> {
+  const cid = await empresa(companyId);
   const [products, components] = await Promise.all([
-    all<{ id: number; name: string; kind: string }>(`SELECT id, name, kind FROM products`),
+    all<{ id: number; name: string; kind: string }>(`SELECT id, name, kind FROM products WHERE company_id = ?`, [cid]),
     all<{ parent_product_id: number; component_product_id: number; quantity: number }>(
-      `SELECT parent_product_id, component_product_id, quantity FROM product_components`,
+      `SELECT pc.parent_product_id, pc.component_product_id, pc.quantity
+         FROM product_components pc JOIN products p ON p.id = pc.parent_product_id
+        WHERE p.company_id = ?`,
+      [cid],
     ),
   ]);
   return buildSpecMap(products, components);
@@ -108,18 +122,24 @@ export async function loadSpecs(): Promise<SpecMap> {
  * Catalogo vendavel: produtos simples e kits, com a composicao ja resumida.
  * Usado pelos formularios de reserva e orcamento.
  */
-export async function sellableProducts() {
+export async function sellableProducts(companyId?: number) {
+  const cid = await empresa(companyId);
   const [rows, comps, promocoes] = await Promise.all([
     all<any>(
       `SELECT p.id, p.code, p.name, p.kind, p.rent_price_cents, p.total_qty, c.name AS category
          FROM products p LEFT JOIN categories c ON c.id = p.category_id
-        WHERE p.active = 1
+        WHERE p.company_id = ? AND p.active = 1
         ORDER BY c.name, p.name`,
+      [cid],
     ),
     all<any>(
       `SELECT pc.parent_product_id, pc.quantity, p.name
-         FROM product_components pc JOIN products p ON p.id = pc.component_product_id
+         FROM product_components pc
+         JOIN products parent ON parent.id = pc.parent_product_id
+         JOIN products p ON p.id = pc.component_product_id
+        WHERE parent.company_id = ?
         ORDER BY p.name`,
+      [cid],
     ),
     // a promocao viaja junto com o produto para o formulario decidir o preco
     // sem uma consulta por linha; a vigencia por data e avaliada la, contra a
@@ -140,26 +160,29 @@ export async function sellableProducts() {
 }
 
 /** Componentes de um kit, com nome e codigo, para exibicao. */
-export async function componentsOf(productId: number) {
+export async function componentsOf(productId: number, companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
     `SELECT pc.*, p.name AS component_name, p.code AS component_code, p.total_qty, p.maintenance_qty
        FROM product_components pc
        JOIN products p ON p.id = pc.component_product_id
-      WHERE pc.parent_product_id = ?
+       JOIN products parent ON parent.id = pc.parent_product_id
+      WHERE pc.parent_product_id = ? AND parent.company_id = ?
       ORDER BY p.name`,
-    [productId],
+    [productId, cid],
   );
 }
 
 /** Kits que utilizam o produto informado como componente. */
-export async function kitsUsing(productId: number) {
+export async function kitsUsing(productId: number, companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
     `SELECT pc.quantity, p.id, p.name, p.code
        FROM product_components pc
        JOIN products p ON p.id = pc.parent_product_id
-      WHERE pc.component_product_id = ?
+      WHERE pc.component_product_id = ? AND p.company_id = ?
       ORDER BY p.name`,
-    [productId],
+    [productId, cid],
   );
 }
 
@@ -180,17 +203,19 @@ export async function holdsForProduct(
   excludeReservationId?: number | null,
   maxReservationId?: number | null,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Hold[]> {
-  return loadHoldsInner(from, to, options, excludeReservationId, productId, maxReservationId);
+  return loadHoldsInner(from, to, options, excludeReservationId, productId, maxReservationId, companyId);
 }
 
 /** Single source of physical commitments. Normalize before comparing: SQL text
  * comparisons cannot safely compare local clocks, spaces and explicit offsets.
  * Only stock-holding statuses are loaded; historic/completed rows are excluded.
  */
-async function loadHoldsInner(from: string, to: string, options: StockOptions = {}, excludeId?: number | null, productId?: number | null, maxId?: number | null) {
+async function loadHoldsInner(from: string, to: string, options: StockOptions = {}, excludeId?: number | null, productId?: number | null, maxId?: number | null, companyId?: number) {
   const w = timeWindow(from, to, true);
   const config = await stockOptions(options);
+  const cid = await empresa(companyId);
   const rows = await all<Hold & { product_id: number; event_date: string; delivery_at: string; pickup_at: string; stock_override: number }>(
     `SELECT ric.product_id, r.id AS reservation_id, r.number, c.name AS customer, r.status,
             ric.qty, prod.name AS via_product, ri.product_id AS via_product_id, ri.id AS via_item_id, ri.qty AS via_qty, r.event_date, r.delivery_at, r.pickup_at, r.stock_override
@@ -199,12 +224,13 @@ async function loadHoldsInner(from: string, to: string, options: StockOptions = 
        JOIN customers c ON c.id = r.customer_id
        LEFT JOIN reservation_items ri ON ri.id = ric.reservation_item_id
        LEFT JOIN products prod ON prod.id = ri.product_id
-      WHERE r.status IN (${HOLD})
+      WHERE r.company_id = ? AND r.status IN (${HOLD})
         AND (? IS NULL OR ric.product_id = ?)
         AND (? IS NULL OR r.id <> ?)
         AND (? IS NULL OR r.id <= ?)
       ORDER BY r.id`,
     [
+      cid,
       productId ?? null, productId ?? -1,
       excludeId ?? null, excludeId ?? -1,
       maxId ?? null, maxId ?? -1,
@@ -225,8 +251,9 @@ export async function loadHolds(
   excludeId?: number | null,
   productId?: number | null,
   maxId?: number | null,
+  companyId?: number,
 ) {
-  return loadHoldsInner(from, to, options, excludeId, productId, maxId);
+  return loadHoldsInner(from, to, options, excludeId, productId, maxId, companyId);
 }
 
 /** Pico de uso simultaneo dentro da janela (varredura de intervalos). */
@@ -357,17 +384,19 @@ export async function availabilityFor(
   to: string,
   excludeReservationId?: number | null,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Availability> {
   ({ from, to } = timeWindow(from, to, true));
+  const cid = await empresa(companyId);
   const p = await one<any>(
     `SELECT p.id, p.code, p.name, p.kind, p.total_qty, p.maintenance_qty, p.min_qty, c.name AS category
-       FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?`,
-    [productId],
+       FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ? AND p.company_id = ?`,
+    [productId, cid],
   );
   if (!p) throw new Error("Produto não encontrado: " + productId);
 
   if (p.kind === "kit") {
-    const specs = await loadSpecs();
+    const specs = await loadSpecs(cid);
     const spec = specs.get(productId);
     const physical = await physicalAvailability(from, to, excludeReservationId, options);
     const capacity = spec ? kitCapacity(spec, physical) : 0;
@@ -387,7 +416,7 @@ export async function availabilityFor(
     };
   }
 
-  const holds = await holdsForProduct(productId, from, to, excludeReservationId, null, options);
+  const holds = await holdsForProduct(productId, from, to, excludeReservationId, null, options, cid);
   return availabilityRow(p, peakUsage(holds, from, to));
 }
 
@@ -409,30 +438,33 @@ export async function availabilityForDays(
   to: string,
   days: number,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Availability[]> {
   ({ from, to } = timeWindow(from, to, true));
   const n = Math.max(1, Math.floor(days));
   const config = await stockOptions(options);
+  const cid = await empresa(companyId);
   const fimTotal = addMinutes(to, (n - 1) * 1440);
 
   const p = await one<any>(
     `SELECT p.id, p.code, p.name, p.kind, p.total_qty, p.maintenance_qty, p.min_qty, c.name AS category
-       FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?`,
-    [productId],
+       FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ? AND p.company_id = ?`,
+    [productId, cid],
   );
   if (!p) throw new Error("Produto não encontrado: " + productId);
 
   if (p.kind === "kit") {
-    const spec = (await loadSpecs()).get(productId);
+    const spec = (await loadSpecs(cid)).get(productId);
     // ocupacoes de TODOS os produtos fisicos da janela inteira: a capacidade
     // do kit em cada dia e derivada dos componentes, como em availabilityFor
     const [products, holds] = await Promise.all([
       all<any>(
         `SELECT p.id, p.code, p.name, p.kind, p.total_qty, p.maintenance_qty, p.min_qty, c.name AS category
            FROM products p LEFT JOIN categories c ON c.id = p.category_id
-          WHERE p.active = 1 AND p.kind <> 'kit'`,
+          WHERE p.company_id = ? AND p.active = 1 AND p.kind <> 'kit'`,
+        [cid],
       ),
-      loadHoldsInner(from, fimTotal, config),
+      loadHoldsInner(from, fimTotal, config, null, null, null, cid),
     ]);
     const efetivo = new Map<number, number>(products.map((x) => [x.id, Math.max(0, x.total_qty - x.maintenance_qty)]));
     const porProduto = new Map<number, Hold[]>();
@@ -466,7 +498,7 @@ export async function availabilityForDays(
     });
   }
 
-  const holds = await loadHoldsInner(from, fimTotal, config, null, productId);
+  const holds = await loadHoldsInner(from, fimTotal, config, null, productId, null, cid);
   return Array.from({ length: n }, (_, i) => {
     const f = addMinutes(from, i * 1440);
     const t = addMinutes(to, i * 1440);
@@ -483,16 +515,19 @@ export async function availabilityAll(
   to: string,
   excludeReservationId?: number | null,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Availability[]> {
   ({ from, to } = timeWindow(from, to, true));
+  const cid = await empresa(companyId);
   const [products, rows] = await Promise.all([
     all<any>(
       `SELECT p.id, p.code, p.name, p.kind, p.total_qty, p.maintenance_qty, p.min_qty, c.name AS category
          FROM products p LEFT JOIN categories c ON c.id = p.category_id
-        WHERE p.active = 1 AND p.kind <> 'kit'
+        WHERE p.company_id = ? AND p.active = 1 AND p.kind <> 'kit'
         ORDER BY c.name, p.name`,
+      [cid],
     ),
-    loadHoldsInner(from, to, options, excludeReservationId),
+    loadHoldsInner(from, to, options, excludeReservationId, null, null, cid),
   ]);
   const byProduct = new Map<number, Hold[]>();
   for (const r of rows) {
@@ -509,8 +544,9 @@ export async function physicalAvailability(
   to: string,
   excludeReservationId?: number | null,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Map<number, number>> {
-  const rows = await availabilityAll(from, to, excludeReservationId, options);
+  const rows = await availabilityAll(from, to, excludeReservationId, options, companyId);
   return new Map(rows.map((r) => [r.product_id, r.available]));
 }
 
@@ -527,16 +563,18 @@ export async function physicalAvailability(
  * (product_components), entao qualquer kit novo passa a aparecer sozinho, sem
  * precisar de codigo.
  */
-export async function kitsFromPhysical(physical: Availability[]): Promise<Availability[]> {
+export async function kitsFromPhysical(physical: Availability[], companyId?: number): Promise<Availability[]> {
+  const cid = await empresa(companyId);
   const disponivel = new Map(physical.map((r) => [r.product_id, r.available]));
   const [kits, specs] = await Promise.all([
     all<any>(
       `SELECT p.id, p.code, p.name, p.kind, p.min_qty, c.name AS category
          FROM products p LEFT JOIN categories c ON c.id = p.category_id
-        WHERE p.active = 1 AND p.kind = 'kit'
+        WHERE p.company_id = ? AND p.active = 1 AND p.kind = 'kit'
         ORDER BY c.name, p.name`,
+      [cid],
     ),
-    loadSpecs(),
+    loadSpecs(cid),
   ]);
 
   const nomes = new Map(physical.map((r) => [r.product_id, r.name]));
@@ -570,9 +608,10 @@ export async function availabilityAllWithKits(
   to: string,
   excludeReservationId?: number | null,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Availability[]> {
-  const physical = await availabilityAll(from, to, excludeReservationId, options);
-  return [...physical, ...(await kitsFromPhysical(physical))];
+  const physical = await availabilityAll(from, to, excludeReservationId, options, companyId);
+  return [...physical, ...(await kitsFromPhysical(physical, companyId))];
 }
 
 /* ------------------------------------------------------------------ */
@@ -593,17 +632,19 @@ export async function checkConflicts(
   to: string,
   excludeReservationId?: number | null,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Conflict[]> {
   ({ from, to } = timeWindow(from, to));
   const config = await stockOptions(options);
+  const cid = await empresa(companyId);
   // A proposed rental also needs preparation before the NEXT commitment.
   // Generic availability queries never extend their requested interval.
   to = addMinutes(to, config.preparationMinutes);
   const lines = items.filter((i) => i.product_id && Number(i.qty) > 0);
   if (!lines.length) return [];
 
-  const specs = await loadSpecs();
-  const available = await physicalAvailability(from, to, excludeReservationId, config);
+  const specs = await loadSpecs(cid);
+  const available = await physicalAvailability(from, to, excludeReservationId, config, cid);
   const conflicts = computeConflicts(lines, specs, available);
 
   const out: Conflict[] = [];
@@ -612,10 +653,10 @@ export async function checkConflicts(
     let holds: Hold[] = [];
     if (isKit(spec)) {
       for (const comp of c.components) {
-        holds = holds.concat(await holdsForProduct(comp.product_id, from, to, excludeReservationId, null, config));
+        holds = holds.concat(await holdsForProduct(comp.product_id, from, to, excludeReservationId, null, config, cid));
       }
     } else {
-      holds = await holdsForProduct(c.product_id, from, to, excludeReservationId, null, config);
+      holds = await holdsForProduct(c.product_id, from, to, excludeReservationId, null, config, cid);
     }
     out.push({ ...c, holds });
   }
@@ -642,7 +683,7 @@ export async function checkReservationConflicts(reservationId: number, options: 
    */
   const [usage, disponibilidade] = await Promise.all([
     reservationPhysicalUsage(reservationId),
-    availabilityAll(w.from, to, reservationId, config),
+    availabilityAll(w.from, to, reservationId, config, r.company_id),
   ]);
   const porProduto = new Map(disponibilidade.map((a) => [a.product_id, a]));
 
@@ -660,7 +701,7 @@ export async function checkReservationConflicts(reservationId: number, options: 
         available: a.available,
         missing: u.qty - a.available,
         components: [],
-        holds: await holdsForProduct(u.product_id, w.from, to, reservationId, null, config),
+        holds: await holdsForProduct(u.product_id, w.from, to, reservationId, null, config, r.company_id),
       });
     }
   }
@@ -683,12 +724,12 @@ export function conflictsMessage(conflicts: LineConflict[]): string {
  * partir da composicao vigente NAQUELE momento, uma alteracao posterior no kit
  * nao mexe em reservas ja gravadas.
  */
-export async function rebuildReservationComponents(reservationId: number, version?: number) {
+export async function rebuildReservationComponents(reservationId: number, version?: number, companyId?: number) {
   const items = await all<{ id: number; product_id: number; qty: number }>(
     `SELECT id, product_id, qty FROM reservation_items WHERE reservation_id = ?`,
     [reservationId],
   );
-  const specs = await loadSpecs();
+  const specs = await loadSpecs(companyId);
 
   const statements: { sql: string; params: any[] }[] = [{ sql: `DELETE FROM reservation_item_components WHERE reservation_id = ?`, params: [reservationId] }];
 
@@ -704,8 +745,10 @@ export async function rebuildReservationComponents(reservationId: number, versio
          VALUES (?,?,?,?,?)`, params: [reservationId, item.id, part.product_id, perUnit, part.qty] });
     }
   }
-  if (version !== undefined) await commitStockBatch(version, statements);
-  else await batch(statements);
+  if (version !== undefined) {
+    const cid = await empresa(companyId);
+    await commitStockBatch(cid, version, statements);
+  } else await batch(statements);
 }
 
 /**
@@ -794,11 +837,12 @@ export type ConflictScanRow = {
  * varredura da linha do tempo: sempre que o uso simultaneo passa do estoque,
  * as reservas ativas naquele instante entram no resultado.
  */
-export async function scanConflicts(fromDate: string, options: StockOptions = {}, until = "9999-12-31T23:59"): Promise<ConflictScanRow[]> {
+export async function scanConflicts(fromDate: string, options: StockOptions = {}, until = "9999-12-31T23:59", companyId?: number): Promise<ConflictScanRow[]> {
   const from = stamp(fromDate);
+  const cid = await empresa(companyId);
   const [holds, produtos] = await Promise.all([
-    loadHoldsInner(from, until, options),
-    all<any>(`SELECT id, name, total_qty, maintenance_qty FROM products WHERE kind <> 'kit'`),
+    loadHoldsInner(from, until, options, null, null, null, cid),
+    all<any>(`SELECT id, name, total_qty, maintenance_qty FROM products WHERE company_id = ? AND kind <> 'kit'`, [cid]),
   ]);
   if (!holds.length) return [];
 
@@ -872,7 +916,7 @@ export async function scanConflicts(fromDate: string, options: StockOptions = {}
  */
 export async function findOverbookings(reservationId: number, options: StockOptions = {}): Promise<Overbooking[]> {
   const r = await one<any>(
-    `SELECT id, event_date, delivery_at, pickup_at, status FROM reservations WHERE id = ?`,
+    `SELECT id, company_id, event_date, delivery_at, pickup_at, status FROM reservations WHERE id = ?`,
     [reservationId],
   );
   if (!r) return [];
@@ -889,12 +933,12 @@ export async function findOverbookings(reservationId: number, options: StockOpti
   const out: Overbooking[] = [];
   for (const u of usage) {
     const p = await one<any>(
-      `SELECT id, name, total_qty, maintenance_qty FROM products WHERE id = ?`,
-      [u.product_id],
+      `SELECT id, name, total_qty, maintenance_qty FROM products WHERE id = ? AND company_id = ?`,
+      [u.product_id, r.company_id],
     );
     if (!p) continue;
     const effective = Math.max(0, p.total_qty - p.maintenance_qty);
-    const holds = await holdsForProduct(u.product_id, from, to, null, reservationId, config);
+    const holds = await holdsForProduct(u.product_id, from, to, null, reservationId, config, r.company_id);
     const used = peakUsage(holds, from, to);
     if (used > effective) {
       out.push({ product_id: p.id, product: p.name, effective, used, excess: used - effective });
@@ -914,13 +958,16 @@ export async function timelinesByProduct(
   from: string,
   to: string,
   options: StockOptions = {},
+  companyId?: number,
 ): Promise<Map<number, Trecho[]>> {
   ({ from, to } = timeWindow(from, to, true));
+  const cid = await empresa(companyId);
   const [produtos, rows] = await Promise.all([
     all<any>(
-      `SELECT id, total_qty, maintenance_qty FROM products WHERE active = 1 AND kind <> 'kit'`,
+      `SELECT id, total_qty, maintenance_qty FROM products WHERE company_id = ? AND active = 1 AND kind <> 'kit'`,
+      [cid],
     ),
-    loadHoldsInner(from, to, options),
+    loadHoldsInner(from, to, options, null, null, null, cid),
   ]);
 
   const porProduto = new Map<number, Hold[]>();
@@ -946,8 +993,8 @@ export async function timelinesByProduct(
  * Resumo por categoria para a tela de disponibilidade.
  * Os totais somam apenas produtos fisicos; kits entram como linha derivada.
  */
-export async function availabilityByCategory(from: string, to: string, options: StockOptions = {}) {
-  const rows = await availabilityAllWithKits(from, to, null, options);
+export async function availabilityByCategory(from: string, to: string, options: StockOptions = {}, companyId?: number) {
+  const rows = await availabilityAllWithKits(from, to, null, options, companyId);
   const groups = new Map<string, Availability[]>();
   for (const r of rows) {
     const key = r.category ?? "Sem categoria";

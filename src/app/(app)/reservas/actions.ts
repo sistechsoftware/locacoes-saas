@@ -4,7 +4,8 @@ import { stockVersion, writeRental, commitStockBatch, STOCK_CHANGED } from "@/li
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, currentUser, requireUser } from "@/lib/auth";
+import { assertAdmin, currentUser, PermissionError, requireCompanyContext, requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { removeAttachment } from "@/lib/uploads";
 import { recalcReservation, reservationMoney, syncOperations, getReservation } from "@/lib/reservations";
@@ -73,25 +74,25 @@ const conflictMessage = conflictsMessage;
 /* ------------------------------------------------------------------ */
 
 export async function createReservation(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
-  const version = await stockVersion();
+  const { user, companyId } = await requireCompanyContext();
+  const version = await stockVersion(companyId);
   let h: ReturnType<typeof readHeader>;
   try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
   const options = { considerPreparation: fd.get("consider_preparation") !== "0" };
   const items = readItems(fd);
-  const override = fd.get("override") === "1" && user.role === "admin";
+  const override = fd.get("override") === "1" && ehAdmin(user.role);
   if (!h.customer_id) return "Selecione o cliente.";
   if (!h.event_date) return "Informe a data do evento.";
   if (!items.length) return "Adicione ao menos um item a reserva.";
   const invalid = windowError(h.delivery_at, h.pickup_at);
   if (invalid) return invalid;
   if ((HOLDING_STATUSES as readonly string[]).includes(h.status)) {
-    const conflicts = await checkConflicts(items, h.delivery_at, h.pickup_at, null, options);
+    const conflicts = await checkConflicts(items, h.delivery_at, h.pickup_at, null, options, companyId);
     if (conflicts.length && !override) return conflictMessage(conflicts);
   }
   let saved: { id: number; number: string };
   try {
-    saved = await writeRental(version, { ...h, stock_override: override ? 1 : 0,
+    saved = await writeRental(companyId, version, { ...h, stock_override: override ? 1 : 0,
       stock_consider_preparation: options.considerPreparation ? 1 : 0, created_by: user.id }, items);
   } catch (e) { if ((e as Error).message === STOCK_CHANGED) return STOCK_CHANGED; throw e; }
   const { id, number } = saved;
@@ -121,26 +122,27 @@ export async function createReservation(_prev: string | null, fd: FormData): Pro
 }
 
 export async function updateReservation(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
-  const version = await stockVersion();
+  const { user, companyId } = await requireCompanyContext();
+  const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
-  const current = await one<any>("SELECT * FROM reservations WHERE id=?", [id]);
+  // Isolamento: reserva de outra empresa e "nao encontrada".
+  const current = await one<any>("SELECT * FROM reservations WHERE id=? AND company_id=?", [id, companyId]);
   if (!current) return "Reserva não encontrada.";
   let h: ReturnType<typeof readHeader>;
   try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
   const items = readItems(fd);
   const options = { considerPreparation: fd.get("consider_preparation") !== "0" };
-  const override = fd.get("override") === "1" && user.role === "admin";
+  const override = fd.get("override") === "1" && ehAdmin(user.role);
   if (!h.customer_id) return "Selecione o cliente.";
   if (!items.length) return "A reserva precisa ter ao menos um item.";
   const invalid = windowError(h.delivery_at, h.pickup_at);
   if (invalid) return invalid;
   if ((HOLDING_STATUSES as readonly string[]).includes(h.status)) {
-    const conflicts = await checkConflicts(items, h.delivery_at, h.pickup_at, id, options);
+    const conflicts = await checkConflicts(items, h.delivery_at, h.pickup_at, id, options, companyId);
     if (conflicts.length && !override) return conflictMessage(conflicts);
   }
   try {
-    await writeRental(version, { ...h, stock_override: override ? 1 : current.stock_override,
+    await writeRental(companyId, version, { ...h, stock_override: override ? 1 : current.stock_override,
       stock_consider_preparation: options.considerPreparation ? 1 : 0 }, items, id);
   } catch (e) { if ((e as Error).message === STOCK_CHANGED) return STOCK_CHANGED; throw e; }
   const dep = await one<any>("SELECT id FROM deposits WHERE reservation_id=? ORDER BY id DESC LIMIT 1", [id]);
@@ -158,14 +160,14 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
 /* ------------------------------------------------------------------ */
 
 export async function changeStatus(fd: FormData) {
-  const user = await requireUser();
-  const version = await stockVersion();
+  const { user, companyId } = await requireCompanyContext();
+  const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
-  const r = await one<any>(`SELECT * FROM reservations WHERE id = ?`, [id]);
+  const r = await one<any>(`SELECT * FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!r) return;
 
-  if (status === "cancelada" && user.role !== "admin") {
+  if (status === "cancelada" && !ehAdmin(user.role)) {
     redirect(`/reservas/${id}?erro=${encodeURIComponent("Somente o administrador pode cancelar reservas.")}`);
   }
 
@@ -178,13 +180,13 @@ export async function changeStatus(fd: FormData) {
   }
 
   try {
-    await commitStockBatch(version, [{ sql: `UPDATE reservations SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?`, params: [status,id] }]);
+    await commitStockBatch(companyId, version, [{ sql: `UPDATE reservations SET status = ?, updated_at = datetime('now','localtime') WHERE id = ? AND company_id = ?`, params: [status,id,companyId] }]);
   } catch (e) {
     if ((e as Error).message === STOCK_CHANGED) redirect(`/reservas/${id}?erro=${encodeURIComponent(STOCK_CHANGED)}`);
     throw e;
   }
   if (status === "cancelada") {
-    await run(`UPDATE reservations SET cancel_reason = ? WHERE id = ?`, [String(fd.get("reason") ?? ""), id]);
+    await run(`UPDATE reservations SET cancel_reason = ? WHERE id = ? AND company_id = ?`, [String(fd.get("reason") ?? ""), id, companyId]);
   }
   // cancelar libera o estoque automaticamente: a reserva deixa de ocupar a
   // janela, e a expansao fisica deixa de ser contabilizada pelo motor.
@@ -209,16 +211,16 @@ export async function changeStatus(fd: FormData) {
 /* ------------------------------------------------------------------ */
 
 export async function addPayment(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("reservation_id"));
   const amount = parseMoney(String(fd.get("amount") ?? ""));
   if (amount <= 0) redirect(`/reservas/${id}?erro=${encodeURIComponent("Informe um valor válido.")}`);
 
-  const r = await one<any>(`SELECT number FROM reservations WHERE id = ?`, [id]);
+  const r = await one<any>(`SELECT number FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
   // a conta corrente acompanha o dinheiro na origem: sem ela o lancamento entra
   // no caixa de ninguem e o saldo da conta nao fecha com o extrato
   await insert(
-    `INSERT INTO payments (reservation_id, amount_cents, method, paid_at, notes, account_id, created_by) VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO payments (reservation_id, amount_cents, method, paid_at, notes, account_id, created_by, company_id) VALUES (?,?,?,?,?,?,?,?)`,
     [
       id,
       amount,
@@ -227,6 +229,7 @@ export async function addPayment(fd: FormData) {
       String(fd.get("notes") ?? ""),
       Number(fd.get("account_id")) || null,
       user.id,
+      companyId,
     ],
   );
   await logAction(user, "pagamento", "reserva", id, `${user.name} registrou pagamento de ${money(amount)} na reserva ${r?.number}`);
@@ -235,11 +238,12 @@ export async function addPayment(fd: FormData) {
 }
 
 export async function deletePayment(fd: FormData) {
-  const user = await assertAdmin();
+  const { user, companyId } = await requireCompanyContext();
+  if (!ehAdmin(user.role)) throw new PermissionError();
   const paymentId = Number(fd.get("payment_id"));
-  const p = await one<any>(`SELECT * FROM payments WHERE id = ?`, [paymentId]);
+  const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ?`, [paymentId, companyId]);
   if (!p) return;
-  await run(`DELETE FROM payments WHERE id = ?`, [paymentId]);
+  await run(`DELETE FROM payments WHERE id = ? AND company_id = ?`, [paymentId, companyId]);
   await logAction(user, "excluir", "reserva", p.reservation_id, `${user.name} removeu um pagamento de ${money(p.amount_cents)}`);
   revalidatePath(`/reservas/${p.reservation_id}`);
 }
@@ -284,9 +288,10 @@ export async function saveDeposit(fd: FormData) {
 /* ------------------------------------------------------------------ */
 
 export async function deleteReservation(fd: FormData) {
-  const user = await assertAdmin();
+  const { user, companyId } = await requireCompanyContext();
+  if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
-  const r = await one<any>(`SELECT number FROM reservations WHERE id = ?`, [id]);
+  const r = await one<any>(`SELECT number FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!r) redirect("/reservas");
 
   // O orcamento de origem aponta para a reserva sem ON DELETE CASCADE, entao
@@ -306,7 +311,7 @@ export async function deleteReservation(fd: FormData) {
   const anexosDano = await all<any>(`SELECT id FROM attachments WHERE entity = 'dano' AND entity_id = ?`, [id]);
   for (const a of anexosDano) await removeAttachment(a.id);
 
-  await run(`DELETE FROM reservations WHERE id = ?`, [id]);
+  await run(`DELETE FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
   await logAction(
     user,
     "excluir",
@@ -333,7 +338,7 @@ export async function checkStock(payload: {
   considerPreparation?: boolean;
 }) {
   await requireUser();
-  const conflicts = await checkConflicts(payload.items, payload.from, payload.to, payload.excludeId ?? null, { considerPreparation: payload.considerPreparation !== false });
+  const conflicts = await checkConflicts(payload.items, payload.from, payload.to, payload.excludeId ?? null, { considerPreparation: payload.considerPreparation !== false }, undefined);
   return conflicts.map((c) => ({
     product_id: c.product_id,
     product: c.product,
@@ -364,20 +369,20 @@ export async function logWhatsApp(fd: FormData) {
  * continuam como estao.
  */
 export async function refreshComposition(fd: FormData) {
-  const user = await requireUser();
-  const version = await stockVersion();
+  const { user, companyId } = await requireCompanyContext();
+  const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
-  const r = await one<any>(`SELECT * FROM reservations WHERE id = ?`, [id]);
+  const r = await one<any>(`SELECT * FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!r) return;
 
   if ((HOLDING_STATUSES as readonly string[]).includes(r.status)) {
     const items = await all<any>(`SELECT product_id, qty FROM reservation_items WHERE reservation_id = ?`, [id]);
     const w = holdWindow(r);
-    const conflicts = await checkConflicts(items, w.from, w.to, id, { considerPreparation: fd.has("consider_preparation") ? fd.get("consider_preparation") !== "0" : r.stock_consider_preparation !== 0 });
+    const conflicts = await checkConflicts(items, w.from, w.to, id, { considerPreparation: fd.has("consider_preparation") ? fd.get("consider_preparation") !== "0" : r.stock_consider_preparation !== 0 }, companyId);
     if (conflicts.length && !r.stock_override) redirect(`/reservas/${id}?erro=${encodeURIComponent(conflictsMessage(conflicts))}`);
   }
 
-  try { await rebuildReservationComponents(id, version); }
+  try { await rebuildReservationComponents(id, version, companyId); }
   catch (e) {
     if ((e as Error).message === STOCK_CHANGED) redirect(`/reservas/${id}?erro=${encodeURIComponent(STOCK_CHANGED)}`);
     throw e;

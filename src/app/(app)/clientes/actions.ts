@@ -2,7 +2,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getDb, insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, PermissionError, requireCompanyContext, requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { validarDocumento } from "@/lib/assinatura";
 import { valida } from "@/lib/aniversarios";
@@ -26,15 +27,15 @@ function readCustomer(fd: FormData) {
 }
 
 export async function createCustomer(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const c = readCustomer(fd);
   if (!c.name) return "Informe o nome do cliente.";
   if (c.birth_date && !valida(c.birth_date)) return "Data de nascimento inválida.";
 
   const id = await insert(
-    `INSERT INTO customers (name, doc, phone, whatsapp, email, address, district, city, zip, birth_date, notes)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    [c.name, c.doc, c.phone, c.whatsapp || c.phone, c.email, c.address, c.district, c.city, c.zip, c.birth_date, c.notes],
+    `INSERT INTO customers (name, doc, phone, whatsapp, email, address, district, city, zip, birth_date, notes, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [c.name, c.doc, c.phone, c.whatsapp || c.phone, c.email, c.address, c.district, c.city, c.zip, c.birth_date, c.notes, companyId],
   );
   await logAction(user, "criar", "cliente", id, `${user.name} cadastrou o cliente ${c.name}`);
   revalidatePath("/clientes");
@@ -50,11 +51,12 @@ export async function updateCustomer(_prev: string | null, fd: FormData): Promis
   if (!c.name) return "Informe o nome do cliente.";
   if (c.birth_date && !valida(c.birth_date)) return "Data de nascimento inválida.";
 
+  const { companyId } = await requireCompanyContext();
   await run(
     `UPDATE customers SET name=?, doc=?, phone=?, whatsapp=?, email=?, address=?, district=?, city=?, zip=?,
             birth_date=?, notes=?, updated_at = datetime('now','localtime')
-      WHERE id = ?`,
-    [c.name, c.doc, c.phone, c.whatsapp || c.phone, c.email, c.address, c.district, c.city, c.zip, c.birth_date, c.notes, id],
+      WHERE id = ? AND company_id = ?`,
+    [c.name, c.doc, c.phone, c.whatsapp || c.phone, c.email, c.address, c.district, c.city, c.zip, c.birth_date, c.notes, id, companyId],
   );
   await logAction(user, "editar", "cliente", id, `${user.name} alterou o cliente ${c.name}`);
   revalidatePath(`/clientes/${id}`);
@@ -63,31 +65,34 @@ export async function updateCustomer(_prev: string | null, fd: FormData): Promis
 
 /** Inativacao logica: preserva o historico de locacoes do cliente. */
 export async function toggleCustomer(fd: FormData) {
-  const user = await assertAdmin();
+  const { user, companyId } = await requireCompanyContext();
+  if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
-  const c = await one<any>(`SELECT * FROM customers WHERE id = ?`, [id]);
+  const c = await one<any>(`SELECT * FROM customers WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!c) return;
   const active = c.active ? 0 : 1;
-  await run(`UPDATE customers SET active = ? WHERE id = ?`, [active, id]);
+  await run(`UPDATE customers SET active = ? WHERE id = ? AND company_id = ?`, [active, id, companyId]);
   await logAction(user, active ? "reativar" : "inativar", "cliente", id, `${user.name} ${active ? "reativou" : "inativou"} o cliente ${c.name}`);
   revalidatePath(`/clientes/${id}`);
 }
 
 /** Exclusao definitiva, permitida apenas quando o cliente nao tem historico. */
 export async function deleteCustomer(fd: FormData) {
-  const user = await assertAdmin();
+  const { user, companyId } = await requireCompanyContext();
+  if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
   const usados = await scalar<number>(
     `SELECT (SELECT COUNT(*) FROM reservations WHERE customer_id = ?) + (SELECT COUNT(*) FROM quotes WHERE customer_id = ?)`,
     [id, id],
   );
-  const c = await one<any>(`SELECT name FROM customers WHERE id = ?`, [id]);
+  const c = await one<any>(`SELECT name FROM customers WHERE id = ? AND company_id = ?`, [id, companyId]);
+  if (!c) redirect("/clientes");
   if (usados > 0) {
-    await run(`UPDATE customers SET active = 0 WHERE id = ?`, [id]);
+    await run(`UPDATE customers SET active = 0 WHERE id = ? AND company_id = ?`, [id, companyId]);
     await logAction(user, "inativar", "cliente", id, `${user.name} inativou o cliente ${c?.name} (possui historico)`);
     redirect(`/clientes/${id}?aviso=inativado`);
   }
-  await run(`DELETE FROM customers WHERE id = ?`, [id]);
+  await run(`DELETE FROM customers WHERE id = ? AND company_id = ?`, [id, companyId]);
   await logAction(user, "excluir", "cliente", id, `${user.name} excluiu o cliente ${c?.name}`);
   redirect("/clientes");
 }
@@ -103,8 +108,11 @@ export async function deleteCustomer(fd: FormData) {
  * porque um cliente acumula contratos ao longo dos anos.
  */
 export async function adicionarDocumento(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const customerId = Number(fd.get("customer_id"));
+  // cliente precisa ser da empresa: upload nao pode virar ponte entre tenants
+  const dono = await one<any>(`SELECT id FROM customers WHERE id = ? AND company_id = ?`, [customerId, companyId]);
+  if (!dono) redirect("/clientes");
   const arquivo = fd.get("file");
   const voltar = `/clientes/${customerId}`;
 
@@ -117,13 +125,13 @@ export async function adicionarDocumento(fd: FormData) {
   const id = crypto.randomUUID().replace(/-/g, "");
   const bytes = new Uint8Array(await arquivo.arrayBuffer());
   await getDb()
-    .prepare(`INSERT INTO files (id, mime, size, data, created_by) VALUES (?,?,?,?,?)`)
-    .bind(id, arquivo.type.toLowerCase(), bytes.length, bytes, user.id)
+    .prepare(`INSERT INTO files (id, mime, size, data, created_by, company_id) VALUES (?,?,?,?,?,?)`)
+    .bind(id, arquivo.type.toLowerCase(), bytes.length, bytes, user.id, companyId)
     .run();
 
   await insert(
-    `INSERT INTO customer_documents (customer_id, contract_id, title, source, file_id, mime, size, notes, created_by)
-     VALUES (?,?,?, 'upload_manual', ?,?,?,?,?)`,
+    `INSERT INTO customer_documents (customer_id, contract_id, title, source, file_id, mime, size, notes, created_by, company_id)
+     VALUES (?,?,?, 'upload_manual', ?,?,?,?,?,?)`,
     [
       customerId,
       Number(fd.get("contract_id")) || null,
@@ -133,6 +141,7 @@ export async function adicionarDocumento(fd: FormData) {
       bytes.length,
       String(fd.get("notes") ?? "").trim().slice(0, 300) || null,
       user.id,
+      companyId,
     ],
   );
 
@@ -142,9 +151,10 @@ export async function adicionarDocumento(fd: FormData) {
 
 /** Remove um documento anexado, deixando rastro na auditoria. */
 export async function removerDocumento(fd: FormData) {
-  const user = await assertAdmin();
+  const { user, companyId } = await requireCompanyContext();
+  if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
-  const doc = await one<any>(`SELECT * FROM customer_documents WHERE id = ?`, [id]);
+  const doc = await one<any>(`SELECT * FROM customer_documents WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!doc) return;
   // documento de assinatura virtual e prova: nao se apaga pela tela
   if (doc.source === "assinatura_virtual") {

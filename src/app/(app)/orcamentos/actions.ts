@@ -8,6 +8,7 @@ import { assertAdmin, requireUser } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { recalcQuote, recalcReservation, syncOperations } from "@/lib/reservations";
 import { checkConflicts, conflictsMessage, rebuildReservationComponents, stamp } from "@/lib/stock";
+import { tenantCompanyId } from "@/lib/tenant";
 import { parseMoney } from "@/lib/format";
 
 type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
@@ -179,7 +180,8 @@ export async function setQuoteStatus(fd: FormData) {
 /** Converte o orcamento em reserva mantendo todos os dados e itens. */
 export async function convertQuote(fd: FormData) {
   const user = await requireUser();
-  const version = await stockVersion();
+  const companyId = await tenantCompanyId();
+  const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
   const force = fd.get("override") === "1";
   const q = await one<any>(`SELECT * FROM quotes WHERE id = ?`, [id]);
@@ -206,7 +208,7 @@ export async function convertQuote(fd: FormData) {
   const considerPreparation = fd.has("consider_preparation") ? fd.get("consider_preparation") !== "0" : q.stock_consider_preparation !== 0;
   let saved: { id: number; number: string };
   try {
-    saved = await writeRental(version, { ...q, status: "confirmada", quote_id: id, created_by: user.id,
+    saved = await writeRental(companyId, version, { ...q, status: "confirmada", quote_id: id, created_by: user.id,
       needs_delivery: 1, needs_pickup: 1, needs_assembly: q.assembly_cents > 0 ? 1 : 0,
       needs_disassembly: q.disassembly_cents > 0 ? 1 : 0, stock_override: force && user.role === "admin" ? 1 : 0,
       stock_consider_preparation: considerPreparation ? 1 : 0 }, items, undefined, id);

@@ -85,8 +85,9 @@ export async function salvarAssinaturaEmpresa(
     .run();
 
   await run(
-    `INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ["company_signature_file_id", fileId],
+    `INSERT INTO company_settings (company_id, key, value) VALUES (?,?,?)
+       ON CONFLICT(company_id, key) DO UPDATE SET value = excluded.value`,
+    [ator.company_id, "company_signature_file_id", fileId],
   );
 
   if (anterior && anterior !== fileId) {
@@ -113,7 +114,7 @@ export async function salvarAssinaturaEmpresa(
 export async function removerAssinaturaEmpresa(ator: SessionUser): Promise<void> {
   const anterior = await fileIdAtual();
   if (!anterior) return;
-  await run(`UPDATE settings SET value = '' WHERE key = 'company_signature_file_id'`);
+  await run(`UPDATE company_settings SET value = '' WHERE company_id = ? AND key = 'company_signature_file_id'`, [ator.company_id]);
   await removeFileByUrl(`/api/arquivo/${anterior}`);
   await logAction(
     ator,

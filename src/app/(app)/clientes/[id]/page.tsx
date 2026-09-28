@@ -14,6 +14,7 @@ import { DocumentosCliente } from "@/components/DocumentosCliente";
 import { documentosDoCliente } from "@/lib/assinatura-db";
 import { painelDoCliente, historicoDe, mensagensDoCliente } from "@/lib/fidelidade-db";
 import { today } from "@/lib/format";
+import { getSettings } from "@/lib/settings";
 import { deleteCustomer, toggleCustomer } from "../actions";
 import { gerarAcessoPortal } from "../portal-actions";
 import { acessoPortalDe } from "@/lib/portal-auth";
@@ -33,6 +34,7 @@ export default async function ClientePage({
   const { aviso, portal_link, portal_wa } = await searchParams;
   const c = await getCustomer(Number(id));
   if (!c) notFound();
+  const s = await getSettings();
 
   /*
    * Leitura do painel do cliente em paralelo.
@@ -62,7 +64,7 @@ export default async function ClientePage({
   ]);
   historico.length = Math.min(historico.length, 10);
 
-  const wa = waLink(c.whatsapp || c.phone, `Olá, ${c.name.split(" ")[0]}! Aqui é da Lima's Locações.`);
+  const wa = waLink(c.whatsapp || c.phone, `Olá, ${c.name.split(" ")[0]}! Aqui é da ${s.company_name || "empresa"}.`);
   const maps = mapsLink(c.address, c.district, c.city);
 
   return (
@@ -100,7 +102,7 @@ export default async function ClientePage({
           <div className="mt-2 flex flex-wrap gap-2">
             {portal_wa && (
               <a
-                href={`${portal_wa}?text=${encodeURIComponent(`Olá! Este é seu acesso ao Portal do Cliente ${"Lima's"}: ${portal_link}`)}`}
+                href={`${portal_wa}?text=${encodeURIComponent(`Olá! Este é seu acesso ao Portal do Cliente ${s.company_name || "da empresa"}: ${portal_link}`)}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"

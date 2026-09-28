@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { all, run } from "./db";
+import { tenantCompanyId } from "./tenant";
 import { esc, sanitizeContractHtml, type MarcaConfiavel } from "./contract-html";
 
 export type Settings = Record<string, string>;
@@ -31,7 +32,7 @@ TOTAL: {{valor_total}}
 Caucao: {{valor_caucao}}
 
 4. CAUCAO
-A caucao e distinta do valor da locacao e sera devolvida integralmente em ate 5 dias uteis apos a retirada, desde que os equipamentos sejam devolvidos na mesma quantidade e estado em que foram entregues. Havendo avaria, falta ou sujeira excessiva, o valor correspondente sera retido, com discriminacao por escrito.
+A caucao e distinta do valor da locacao e sera devolvida integralmente em ate 5 dias uteis após a retirada, desde que os equipamentos sejam devolvidos na mesma quantidade e estado em que foram entregues. Havendo avaria, falta ou sujeira excessiva, o valor correspondente sera retido, com discriminacao por escrito.
 
 5. RESPONSABILIDADE
 O LOCATARIO responde pela guarda e conservacao dos equipamentos desde a entrega ate a retirada, incluindo furto, extravio, quebra e danos causados por terceiros presentes no evento. Os equipamentos nao podem ser sublocados, transportados para outro endereco ou utilizados de forma diversa da sua finalidade.
@@ -52,46 +53,30 @@ _______________________________          _______________________________
 {{empresa}}                               {{cliente}}
 LOCADORA                                  LOCATARIO`;
 
+/**
+ * Padrões da plataforma. Específicos da empresa (nome, logo, PIX, templates,
+ * mensagens) saem de company_settings; o que sobra aqui é default técnico
+ * neutro, sem marca.
+ */
 export const DEFAULT_SETTINGS: Settings = {
   stock_preparation_minutes: "0",
-  company_name: "Lima's Locacoes",
+  company_name: "",
   company_tagline: "Gestao de Locacoes e Eventos",
   company_doc: "",
   company_phone: "",
   company_whatsapp: "",
-  company_email: "",
+  company_email: "contato@exemplo.com.br",
   company_address: "",
   company_city: "",
   company_logo: "",
   pix_key: "",
   bank_info: "",
   contract_template: DEFAULT_CONTRACT,
-  /*
-   * Modelo do contrato DIGITAL, usado apenas no fluxo de assinatura online
-   * (link /assinar/[token]). Nasce com o mesmo conteúdo do modelo de impressão,
-   * preservando o que já estava configurado: a partir daqui os dois modelos são
-   * editados e salvos de forma independente. Fica na tabela settings, KV como
-   * os demais ajustes — nenhuma migration nova é necessária.
-   */
   contract_template_digital: DEFAULT_CONTRACT,
   default_deposit_cents: "0",
-
-  /*
-   * Tamanho do recibo: vive na tabela settings (KV), como os demais ajustes.
-   * O padrão A4 preserva o comportamento das instalações existentes; a
-   * escolha fica em Configurações → Recibos e vale para todos os tipos de
-   * recibo (pagamento, adiantamento, caução e quitação). Medidas em mm são
-   * usadas pelo CSS (@page size e folha), então o tamanho configurado é o
-   * que sai no papel.
-   */
   recibo_tamanho: "a4",
   recibo_largura_mm: "105",
   recibo_altura_mm: "148",
-
-  /*
-   * Calculadora de frete. Ficam aqui, na tabela settings, em vez de numa tabela
-   * nova: sao parametros unicos da empresa, o mesmo formato dos demais ajustes.
-   */
   freight_fuel_type: "Etanol",
   freight_fuel_price_cents: "332",
   freight_consumption: "10",
@@ -110,22 +95,57 @@ export const DEFAULT_SETTINGS: Settings = {
     "Ola, {{cliente}}! Identificamos um saldo de {{saldo}} referente a sua locacao {{reserva}}. Pix: {{pix}}",
   wa_quote:
     "Ola, {{cliente}}! Segue o orcamento {{orcamento}} da {{empresa}} para o dia {{data_evento}}:\n{{itens}}\nTotal: {{valor_total}}",
+  /* Chaves dos modulos de fidelidade e aniversarios. Vazias, o comportamento
+   * e o padrao historico (modulo ligado, mensagem modelo, hora 08). Entram
+   * aqui para a whitelist de setSettings aceita-las por empresa. */
+  fidelity_active: "",
+  fidelity_goal: "",
+  fidelity_kits: "",
+  fidelity_validity_days: "",
+  fidelity_accumulate: "",
+  fidelity_count_free_rental: "",
+  fidelity_return_on_cancel: "",
+  fidelity_min_value_cents: "",
+  fidelity_eligible_status: "",
+  fidelity_expiry_reminders: "",
+  fidelity_window_start: "",
+  fidelity_window_end: "",
+  fidelity_notify_progress: "",
+  fidelity_notify_almost: "",
+  fidelity_notify_earned: "",
+  fidelity_notify_used: "",
+  fidelity_notify_expiring: "",
+  fidelity_notify_expired: "",
+  fidelity_msg_progress: "",
+  fidelity_msg_quase_la: "",
+  fidelity_msg_conquista: "",
+  fidelity_msg_uso: "",
+  fidelity_msg_vencendo: "",
+  fidelity_msg_expirada: "",
+  birthday_active: "",
+  birthday_days_ahead: "",
+  birthday_notify_today: "",
+  birthday_notify_upcoming: "",
+  birthday_push: "",
+  birthday_hour: "",
 };
 
+const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
+
 /**
- * Deduplicacao por requisicao (React cache).
+ * Configurações da empresa autenticada.
  *
- * Uma tela consulta as settings 2 a 3 vezes (layout pega logo/nome, a pagina
- * pega regras de estoque, modelos, etc). Sem cache, cada getSettings() era uma
- * ida e volta ao D1 — no Workers isso e latencia de rede de verdade. Com o
- * cache do React, a primeira chamada busca uma vez e as demais da MESMA
- * requisicao reutilizam o resultado: zero risco de dado velho entre telas,
- * porque o escopo morre junto com a request. Escritas (setSettings) continuam
- * gravando no banco na hora; a releitura fresca acontece na proxima request.
+ * A fonte é `company_settings` (migration 0027) escopada pelo company_id da
+ * sessão — nunca da requisição. Cada empresa possui seus próprios textos,
+ * templates, PIX e preferências; os defaults técnicos vêm daqui.
  */
 export const getSettings = cache(async function (): Promise<Settings> {
-  const rows = await all<{ key: string; value: string }>("SELECT key, value FROM settings");
+  const companyId = await tenantCompanyId();
   const out: Settings = { ...DEFAULT_SETTINGS };
+  const rows = await all<{ key: string; value: string | null }>(
+    "SELECT key, value FROM company_settings WHERE company_id = ?",
+    [companyId],
+  );
   for (const r of rows) if (r.value !== null && r.value !== undefined) out[r.key] = r.value;
   /**
    * O modelo digital herda o modelo de impressao enquanto nao existir um
@@ -144,12 +164,24 @@ export async function getSetting(key: string): Promise<string> {
   return (await getSettings())[key] ?? "";
 }
 
-export async function setSettings(values: Settings) {
+/** Chaves de configuração reconhecidas (protege contra lixo via request). */
+export function isKnownSetting(key: string): boolean {
+  return SETTING_KEYS.includes(key);
+}
+
+/**
+ * Grava configurações da empresa informada — sempre a do contexto autenticado
+ * em telas; o parâmetro existe para seed/cron/onboarding.
+ */
+export async function setSettings(values: Settings, companyId?: number) {
+  const cid = companyId ?? (await tenantCompanyId());
   for (const [key, value] of Object.entries(values)) {
-    await run("INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [
-      key,
-      value ?? "",
-    ]);
+    if (!isKnownSetting(key)) continue;
+    await run(
+      `INSERT INTO company_settings (company_id, key, value) VALUES (?,?,?)
+         ON CONFLICT(company_id, key) DO UPDATE SET value = excluded.value`,
+      [cid, key, value ?? ""],
+    );
   }
 }
 

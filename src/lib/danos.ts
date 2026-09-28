@@ -3,6 +3,7 @@ import { all, one, run } from "./db";
 import { explodeLine, isKit, type SpecMap } from "./kits";
 import { loadSpecs } from "./stock";
 import { commitStockBatch, stockVersion } from "./stock-write";
+import { tenantCompanyId } from "./tenant";
 import { logAction } from "./audit";
 import type { SessionUser } from "./auth";
 import { today } from "./format";
@@ -119,7 +120,8 @@ export async function resolveDamage(
   const parts = expandDamageLine(d.product_id, d.qty, specs);
   if (!parts.length) return { ok: false, erro: "Quantidade do dano inválida." };
 
-  const version = await stockVersion();
+  const companyId = await tenantCompanyId();
+  const version = await stockVersion(companyId);
   const nowLocal = agoraLocal();
   const origem = d.reservation_id ? `reserva #${d.reservation_id}` : "sem reserva vinculada";
   const destino = action === "baixa" ? "baixa definitiva" : "manutenção";
@@ -191,7 +193,7 @@ export async function resolveDamage(
   });
 
   try {
-    await commitStockBatch(version, statements);
+    await commitStockBatch(companyId, version, statements);
   } catch (e) {
     const msg = String((e as Error).message ?? e);
     if (msg.includes("stock_version_matches")) return { ok: false, erro: "O estoque mudou durante a operação. Nada foi alterado; tente novamente." };
@@ -253,9 +255,10 @@ export async function completeDamageMaintenance(user: SessionUser, damageId: num
   }
   if (m.status !== "aberta") return { ok: false, erro: "A manutenção já foi concluída." };
 
-  const version = await stockVersion();
+  const companyId = await tenantCompanyId();
+  const version = await stockVersion(companyId);
   try {
-    await commitStockBatch(version, [
+    await commitStockBatch(companyId, version, [
       { sql: `UPDATE maintenance SET status = 'concluida', ended_at = ? WHERE id = ? AND status = 'aberta'`, params: [today(), d.maintenance_id] },
       { sql: `UPDATE products SET maintenance_qty = MAX(0, maintenance_qty - ?) WHERE id = ?`, params: [m.qty, d.product_id] },
       { sql: `UPDATE damage_reports SET resolution_status = 'consertada', resolved_at = ?, resolved_by = ? WHERE id = ? AND resolution_status = 'em_manutencao'`, params: [agoraLocal(), user.id, d.id] },
@@ -289,7 +292,8 @@ export async function revertDamageWriteOff(user: SessionUser, damageId: number, 
   );
   if (!baixas.length) return { ok: false, erro: "Movimentação de baixa não encontrada para este dano." };
 
-  const version = await stockVersion();
+  const companyId = await tenantCompanyId();
+  const version = await stockVersion(companyId);
   const statements: { sql: string; params?: any[] }[] = [];
   for (const m of baixas) {
     const devolve = Math.abs(m.qty_delta);
@@ -317,7 +321,7 @@ export async function revertDamageWriteOff(user: SessionUser, damageId: number, 
   });
 
   try {
-    await commitStockBatch(version, statements);
+    await commitStockBatch(companyId, version, statements);
   } catch (e) {
     const msg = String((e as Error).message ?? e);
     if (msg.includes("stock_version_matches")) return { ok: false, erro: "O estoque mudou durante a operação. Nada foi alterado; tente novamente." };

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { insert, one, run, scalar } from "@/lib/db";
 import { assertAdmin, hashPassword, requireUser, verifyPassword, type SessionUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { getSettings, setSettings } from "@/lib/settings";
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
 import { validarDimensoesRecibo } from "@/lib/recibo-visual";
@@ -36,7 +37,7 @@ export async function saveCompanySettings(fd: FormData): Promise<void> {
   }
 
   const values: Record<string, string> = {
-    company_name: String(fd.get("company_name") ?? "").trim() || "Lima's Locacoes",
+    company_name: String(fd.get("company_name") ?? "").trim(),
     company_tagline: String(fd.get("company_tagline") ?? "").trim(),
     company_doc: String(fd.get("company_doc") ?? "").trim(),
     company_phone: String(fd.get("company_phone") ?? "").trim(),
@@ -145,14 +146,15 @@ export async function createUser(_prev: string | null, fd: FormData): Promise<st
     }
   }
 
-  const id = await insert(`INSERT INTO users (name, username, email, phone, password_hash, role, avatar_url) VALUES (?,?,?,?,?,?,?)`, [
+  const id = await insert(`INSERT INTO users (name, username, email, phone, password_hash, role, avatar_url, company_id) VALUES (?,?,?,?,?,?,?,?)`, [
     name,
     username,
     String(fd.get("email") ?? ""),
     String(fd.get("phone") ?? ""),
     hashPassword(password),
-    role === "admin" ? "admin" : "operador",
+    ehAdmin(role as any) ? "admin" : "operacional",
     avatarPath,
+    user.company_id,
   ]);
   await logAction(user, "criar", "usuario", id, `${user.name} criou o usuario ${name} (${role})`);
   revalidatePath("/configuracoes");
@@ -163,9 +165,9 @@ export async function toggleUser(fd: FormData) {
   const admin = await assertAdmin();
   const id = Number(fd.get("id"));
   if (id === admin.id) return; // nao permite se autodesativar
-  const u = await one<any>(`SELECT * FROM users WHERE id = ?`, [id]);
+  const u = await one<any>(`SELECT * FROM users WHERE id = ? AND company_id = ?`, [id, admin.company_id]);
   if (!u) return;
-  await run(`UPDATE users SET active = ? WHERE id = ?`, [u.active ? 0 : 1, id]);
+  await run(`UPDATE users SET active = ? WHERE id = ? AND company_id = ?`, [u.active ? 0 : 1, id, admin.company_id]);
   await logAction(admin, u.active ? "inativar" : "reativar", "usuario", id, `${admin.name} ${u.active ? "inativou" : "reativou"} ${u.name}`);
   revalidatePath("/configuracoes");
 }
@@ -177,8 +179,11 @@ export async function resetPassword(fd: FormData): Promise<void> {
   if (password.length < 6) {
     redirect(`/configuracoes?aba=usuarios&erro=${encodeURIComponent("A senha deve ter ao menos 6 caracteres.")}`);
   }
-  const u = await one<any>(`SELECT name FROM users WHERE id = ?`, [id]);
-  await run(`UPDATE users SET password_hash = ? WHERE id = ?`, [hashPassword(password), id]);
+  const u = await one<any>(`SELECT name FROM users WHERE id = ? AND company_id = ?`, [id, admin.company_id]);
+  if (!u) {
+    redirect(`/configuracoes?aba=usuarios&erro=${encodeURIComponent("Usuário não encontrado.")}`);
+  }
+  await run(`UPDATE users SET password_hash = ? WHERE id = ? AND company_id = ?`, [hashPassword(password), id, admin.company_id]);
   await logAction(admin, "editar", "usuario", id, `${admin.name} redefiniu a senha de ${u?.name}`);
   revalidatePath("/configuracoes");
 }
@@ -205,8 +210,8 @@ export async function changeOwnPassword(_prev: string | null, fd: FormData): Pro
  * sem apagar imagem compartilhada (removeFileByUrl confere o uso em anexos).
  */
 async function aplicarAvatar(userId: number, file: File, ator: SessionUser, quandoAdmin = false): Promise<string | null> {
-  if (quandoAdmin && ator.role !== "admin") return "Somente o administrador pode alterar a foto de outro usuário.";
-  if (userId !== ator.id && ator.role !== "admin") return "Você só pode alterar a sua própria foto.";
+  if (quandoAdmin && !ehAdmin(ator.role)) return "Somente o administrador pode alterar a foto de outro usuário.";
+  if (userId !== ator.id && !ehAdmin(ator.role)) return "Você só pode alterar a sua própria foto.";
   let nova: string | null = null;
   try {
     nova = await saveUpload(file, ator.id);

@@ -1,6 +1,12 @@
 import "server-only";
 import { all } from "./db";
+import { tenantCompanyId } from "./tenant";
 import { ordenar, precoUnitario, type Faixa, type Promocao } from "./promocoes";
+
+/** Empresa do contexto (sessão) ou padrão do banco (cron/testes). */
+async function empresa(companyId?: number): Promise<number> {
+  return companyId ?? (await tenantCompanyId());
+}
 
 /**
  * Acesso a dados das promocoes.
@@ -50,9 +56,10 @@ const SELECT = `
     FROM promotions pr JOIN products p ON p.id = pr.product_id`;
 
 /** Todas as promocoes cadastradas, para a tela de administracao. */
-export async function listarPromocoes(filtro: { busca?: string; situacao?: string } = {}) {
-  const where: string[] = [];
-  const params: any[] = [];
+export async function listarPromocoes(filtro: { busca?: string; situacao?: string } = {}, companyId?: number) {
+  const cid = await empresa(companyId);
+  const where: string[] = ["pr.company_id = ?"];
+  const params: any[] = [cid];
   if (filtro.busca) {
     where.push("(p.name LIKE ? OR p.code LIKE ? OR pr.name LIKE ?)");
     const like = `%${filtro.busca}%`;
@@ -74,18 +81,20 @@ export async function listarPromocoes(filtro: { busca?: string; situacao?: strin
   return [...montar(linhas, faixas).values()];
 }
 
-export async function getPromocao(id: number): Promise<PromocaoComProduto | null> {
-  const linhas = await all<any>(`${SELECT} WHERE pr.id = ?`, [id]);
+export async function getPromocao(id: number, companyId?: number): Promise<PromocaoComProduto | null> {
+  const cid = await empresa(companyId);
+  const linhas = await all<any>(`${SELECT} WHERE pr.id = ? AND pr.company_id = ?`, [id, cid]);
   if (linhas.length === 0) return null;
   const faixas = await all<any>(`SELECT * FROM promotion_tiers WHERE promotion_id = ? ORDER BY min_qty`, [id]);
   return montar(linhas, faixas).get(id) ?? null;
 }
 
 /** Outras promocoes do mesmo produto, para checar conflito antes de gravar. */
-export async function promocoesDoProduto(productId: number, exceto?: number) {
+export async function promocoesDoProduto(productId: number, exceto?: number, companyId?: number) {
+  const cid = await empresa(companyId);
   const linhas = await all<any>(
-    `${SELECT} WHERE pr.product_id = ? AND pr.active = 1 ${exceto ? "AND pr.id <> ?" : ""}`,
-    exceto ? [productId, exceto] : [productId],
+    `${SELECT} WHERE pr.company_id = ? AND pr.product_id = ? AND pr.active = 1 ${exceto ? "AND pr.id <> ?" : ""}`,
+    exceto ? [cid, productId, exceto] : [cid, productId],
   );
   const faixas = linhas.length
     ? await all<any>(
@@ -102,15 +111,16 @@ export async function promocoesDoProduto(productId: number, exceto?: number) {
  * Devolve no maximo uma promocao por produto: o cadastro ja recusa promocoes
  * conflitantes, entao aqui basta pegar a que vale.
  */
-export async function promocoesVigentes(dataISO: string): Promise<Map<number, Promocao>> {
+export async function promocoesVigentes(dataISO: string, companyId?: number): Promise<Map<number, Promocao>> {
   const dia = dataISO.slice(0, 10);
+  const cid = await empresa(companyId);
   const linhas = await all<any>(
     `${SELECT}
-      WHERE pr.active = 1
+      WHERE pr.company_id = ? AND pr.active = 1
         AND (pr.starts_on IS NULL OR pr.starts_on <= ?)
         AND (pr.ends_on IS NULL OR pr.ends_on >= ?)
       ORDER BY pr.id`,
-    [dia, dia],
+    [cid, dia, dia],
   );
   const faixas = linhas.length
     ? await all<any>(
@@ -134,8 +144,9 @@ export async function promocoesVigentes(dataISO: string): Promise<Map<number, Pr
  * reserva usa a data do evento, que pode ser daqui a dois meses, e nao a de
  * hoje. Uma promocao por produto, porque o cadastro ja recusa conflitos.
  */
-export async function promocoesAtivasPorProduto(): Promise<Map<number, Promocao>> {
-  const linhas = await all<any>(`${SELECT} WHERE pr.active = 1 ORDER BY pr.id`);
+export async function promocoesAtivasPorProduto(companyId?: number): Promise<Map<number, Promocao>> {
+  const cid = await empresa(companyId);
+  const linhas = await all<any>(`${SELECT} WHERE pr.company_id = ? AND pr.active = 1 ORDER BY pr.id`, [cid]);
   if (linhas.length === 0) return new Map();
   const faixas = await all<any>(
     `SELECT * FROM promotion_tiers WHERE promotion_id IN (${linhas.map(() => "?").join(",")}) ORDER BY min_qty`,
@@ -155,8 +166,9 @@ export async function promocoesAtivasPorProduto(): Promise<Map<number, Promocao>
  * Mesma regra usada pelo formulario; existe para quem precisar do preco no
  * servidor sem passar pela tela.
  */
-export async function precoSugerido(productId: number, qty: number, dataISO: string) {
-  const [produto] = await all<any>(`SELECT rent_price_cents FROM products WHERE id = ?`, [productId]);
-  const vigentes = await promocoesVigentes(dataISO);
+export async function precoSugerido(productId: number, qty: number, dataISO: string, companyId?: number) {
+  const cid = await empresa(companyId);
+  const [produto] = await all<any>(`SELECT rent_price_cents FROM products WHERE id = ? AND company_id = ?`, [productId, cid]);
+  const vigentes = await promocoesVigentes(dataISO, cid);
   return precoUnitario(produto?.rent_price_cents ?? 0, vigentes.get(productId), qty, dataISO);
 }

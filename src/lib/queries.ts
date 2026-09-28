@@ -2,6 +2,7 @@ import "server-only";
 import { availabilityQuery, type AvailabilityQuery } from "./availability-time";
 import { type StockOptions } from "./availability-settings";
 import { all, one, scalar } from "./db";
+import { currentCompanyId } from "./db";
 import { addDays, cutoff3h, endOfMonth, startOfMonth, startOfWeek, today } from "./format";
 import { availabilityAll, kitsFromPhysical } from "./stock";
 import { ACTIVE_STATUSES, HOLDING_STATUSES, OPEN_OPERATION_STATUS } from "./domain";
@@ -10,6 +11,15 @@ const list = (arr: readonly string[]) => arr.map((s) => `'${s}'`).join(",");
 const HOLD = list(HOLDING_STATUSES);
 const ACTIVE = list(ACTIVE_STATUSES);
 const OPEN_OPS = list(OPEN_OPERATION_STATUS);
+
+/**
+ * Empresa padrão do banco para chamadas sem contexto (cron/testes).
+ * Páginas e actions SEMPRE passam o companyId do contexto autenticado — o
+ * fallback existe apenas para as rotinas de plataforma manterem funcionando.
+ */
+async function empresa(companyId?: number): Promise<number> {
+  return companyId ?? (await currentCompanyId());
+}
 
 /* --------------------------- operacoes por periodo --------------------------- */
 
@@ -26,34 +36,36 @@ export const OPERATION_SELECT = `
     LEFT JOIN customers c ON c.id = r.customer_id
     LEFT JOIN vehicles v ON v.id = o.vehicle_id`;
 
-export async function operationsBetween(from: string, to: string, kinds?: string[]) {
+export async function operationsBetween(from: string, to: string, kinds?: string[], companyId?: number) {
+  const cid = await empresa(companyId);
   const kindFilter = kinds?.length ? `AND o.kind IN (${kinds.map((k) => `'${k}'`).join(",")})` : "";
-  /* Janela fechada por prefixo de carimbo (sargable, usa idx_op_sched):
+  /* Janela fechada por prefixo de carimbo (sargable, usa idx_operations_company_sched):
      scheduled_at <= '<dia>T23:59' cobre todo o dia final sem recortar a
      coluna com substr(), que invalidava o indice. */
   return await all<any>(
     `${OPERATION_SELECT}
-      WHERE o.scheduled_at BETWEEN ? AND ?
+      WHERE o.company_id = ? AND o.scheduled_at BETWEEN ? AND ?
         AND o.status <> 'cancelada' ${kindFilter}
       ORDER BY o.scheduled_at`,
-    [`${from}T00:00`, `${to}T23:59`],
+    [cid, `${from}T00:00`, `${to}T23:59`],
   );
 }
 
-export function operationsOn(date: string, kinds?: string[]) {
-  return operationsBetween(date, date, kinds);
+export async function operationsOn(date: string, kinds?: string[], companyId?: number) {
+  return operationsBetween(date, date, kinds, companyId);
 }
 
-export async function lateOperations(kind?: string) {
+export async function lateOperations(kind?: string, companyId?: number) {
+  const cid = await empresa(companyId);
   const k = kind ? `AND o.kind = '${kind}'` : "";
   /* Comparacao direta na coluna (sargable): 'YYYY-MM-DD' < 'YYYY-MM-DDTHH:MM'
-     vale exatamente "dia anterior a hoje" e deixa o SQLite usar o indice
-     idx_op_sched — substr() na coluna forca varredura completa. */
+     vale exatamente "dia anterior a hoje" e deixa o SQLite usar o indice —
+     substr() na coluna forcaria varredura completa. */
   return await all<any>(
     `${OPERATION_SELECT}
-      WHERE o.scheduled_at < ? AND o.status IN (${OPEN_OPS}) ${k}
+      WHERE o.company_id = ? AND o.scheduled_at < ? AND o.status IN (${OPEN_OPS}) ${k}
       ORDER BY o.scheduled_at`,
-    [`${today()}T00:00`],
+    [cid, `${today()}T00:00`],
   );
 }
 
@@ -66,13 +78,14 @@ const OPEN_FREIGHTS = list(["orcamento", "agendado", "em_rota"]);
  * nao exige mais execucao (concluido e cancelado). O kind permite misturar
  * com as operacoes de locacao na mesma lista, ordenada por data/horario.
  */
-export async function lateFreights() {
+export async function lateFreights(companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
     `SELECT f.*, 'frete' AS kind, c.name AS customer, c.phone, c.whatsapp
        FROM freights f LEFT JOIN customers c ON c.id = f.customer_id
-      WHERE f.date < ? AND f.status IN (${OPEN_FREIGHTS})
+      WHERE f.company_id = ? AND f.date < ? AND f.status IN (${OPEN_FREIGHTS})
       ORDER BY f.date, f.time`,
-    [today()],
+    [cid, today()],
   );
 }
 
@@ -88,8 +101,9 @@ export function ordenarOperacoesMistas<T extends { scheduled_at?: string | null;
   );
 }
 
-export async function getOperation(id: number) {
-  return await one<any>(`${OPERATION_SELECT} WHERE o.id = ?`, [id]);
+export async function getOperation(id: number, companyId?: number) {
+  const cid = await empresa(companyId);
+  return await one<any>(`${OPERATION_SELECT} WHERE o.id = ? AND o.company_id = ?`, [id, cid]);
 }
 
 /**
@@ -100,13 +114,14 @@ export async function getOperation(id: number) {
  * O ate opcional cobre o mesmo periodo da aba Fretes da tela de entregas e
  * retiradas, exatamente como operationsBetween cobre as operacoes de locacao.
  */
-export async function freightsOn(date: string, ate: string = date) {
+export async function freightsOn(date: string, ate: string = date, companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
     `SELECT f.*, 'frete' AS kind, c.name AS customer, c.phone, c.whatsapp
        FROM freights f LEFT JOIN customers c ON c.id = f.customer_id
-      WHERE f.date BETWEEN ? AND ? AND f.status <> 'cancelado'
+      WHERE f.company_id = ? AND f.date BETWEEN ? AND ? AND f.status <> 'cancelado'
       ORDER BY f.date, f.time`,
-    [date, ate],
+    [cid, date, ate],
   );
 }
 
@@ -125,18 +140,19 @@ export type AgendaEvent = {
 };
 
 /** Une operacoes, fretes e eventos de reserva numa linha do tempo unica. */
-export async function agendaEvents(from: string, to: string): Promise<AgendaEvent[]> {
+export async function agendaEvents(from: string, to: string, companyId?: number): Promise<AgendaEvent[]> {
+  const cid = await empresa(companyId);
   const [opsRaw, freightsRaw, eventsRaw] = await Promise.all([
-    operationsBetween(from, to),
+    operationsBetween(from, to, undefined, cid),
     all<any>(
       `SELECT f.*, c.name AS customer_name FROM freights f LEFT JOIN customers c ON c.id = f.customer_id
-        WHERE f.date BETWEEN ? AND ? AND f.status <> 'cancelado' ORDER BY f.date, f.time`,
-      [from, to],
+        WHERE f.company_id = ? AND f.date BETWEEN ? AND ? AND f.status <> 'cancelado' ORDER BY f.date, f.time`,
+      [cid, from, to],
     ),
     all<any>(
       `SELECT r.*, c.name AS customer_name FROM reservations r JOIN customers c ON c.id = r.customer_id
-        WHERE r.event_date BETWEEN ? AND ? AND r.status <> 'cancelada' ORDER BY r.event_date`,
-      [from, to],
+        WHERE r.company_id = ? AND r.event_date BETWEEN ? AND ? AND r.status <> 'cancelada' ORDER BY r.event_date`,
+      [cid, from, to],
     ),
   ]);
 
@@ -183,7 +199,8 @@ export async function agendaEvents(from: string, to: string): Promise<AgendaEven
 
 /* -------------------------------- indicadores -------------------------------- */
 
-export async function dashboardStats(query: AvailabilityQuery = availabilityQuery(), options: StockOptions = query) {
+export async function dashboardStats(query: AvailabilityQuery = availabilityQuery(), options: StockOptions = query, companyId?: number) {
+  const cid = await empresa(companyId);
   const d0 = today();
   const weekStart = startOfWeek(d0);
   const weekEnd = addDays(weekStart, 6);
@@ -195,44 +212,45 @@ export async function dashboardStats(query: AvailabilityQuery = availabilityQuer
    * necessariamente perto do usuario. Por isso os indicadores do painel sao
    * agrupados em poucas consultas com subselects, em vez de uma por numero:
    * o custo passa a ser dominado pela latencia de uma chamada, e nao de vinte.
+   * Todo subselect leva company_id = empresa autenticada.
    */
   const [contagens, financeiro, ops, stock] = await Promise.all([
     one<any>(
     `SELECT
-       (SELECT COUNT(*) FROM reservations WHERE event_date = ?1 AND status <> 'cancelada') AS reservas_hoje,
-       (SELECT COUNT(*) FROM reservations WHERE event_date BETWEEN ?2 AND ?3 AND status <> 'cancelada') AS reservas_semana,
-       (SELECT COUNT(*) FROM reservations WHERE event_date > ?1 AND status IN (${HOLD})) AS proximas,
-       (SELECT COUNT(*) FROM reservations WHERE status = 'confirmada') AS confirmadas,
-       (SELECT COUNT(*) FROM quotes WHERE status IN ('rascunho','enviado','aguardando')) AS orcamentos_pendentes,
-       (SELECT COUNT(*) FROM notifications WHERE type = 'conflito') AS conflitos,
-       (SELECT COUNT(*) FROM notifications WHERE type = 'pagamento') AS pagamentos_pendentes,
-       (SELECT COUNT(*) FROM notifications WHERE type = 'contrato') AS contratos_pendentes`,
-      [d0, weekStart, weekEnd],
+       (SELECT COUNT(*) FROM reservations WHERE company_id = ?4 AND event_date = ?1 AND status <> 'cancelada') AS reservas_hoje,
+       (SELECT COUNT(*) FROM reservations WHERE company_id = ?4 AND event_date BETWEEN ?2 AND ?3 AND status <> 'cancelada') AS reservas_semana,
+       (SELECT COUNT(*) FROM reservations WHERE company_id = ?4 AND event_date > ?1 AND status IN (${HOLD})) AS proximas,
+       (SELECT COUNT(*) FROM reservations WHERE company_id = ?4 AND status = 'confirmada') AS confirmadas,
+       (SELECT COUNT(*) FROM quotes WHERE company_id = ?4 AND status IN ('rascunho','enviado','aguardando')) AS orcamentos_pendentes,
+       (SELECT COUNT(*) FROM notifications WHERE company_id = ?4 AND type = 'conflito') AS conflitos,
+       (SELECT COUNT(*) FROM notifications WHERE company_id = ?4 AND type = 'pagamento') AS pagamentos_pendentes,
+       (SELECT COUNT(*) FROM notifications WHERE company_id = ?4 AND type = 'contrato') AS contratos_pendentes`,
+      [d0, weekStart, weekEnd, cid],
     ),
     one<any>(
     `SELECT
-       (SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE paid_at BETWEEN ?1 AND ?2) AS recebido,
+       (SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE company_id = ?3 AND paid_at BETWEEN ?1 AND ?2) AS recebido,
        (SELECT COALESCE(SUM(total_cents),0) FROM reservations
-         WHERE event_date BETWEEN ?1 AND ?2 AND status IN (${ACTIVE})) AS faturamento,
+         WHERE company_id = ?3 AND event_date BETWEEN ?1 AND ?2 AND status IN (${ACTIVE})) AS faturamento,
        (SELECT COALESCE(SUM(amount_cents),0) FROM freights
-         WHERE date BETWEEN ?1 AND ?2 AND status IN ('agendado','em_rota','concluido')) AS fretes,
-       (SELECT COALESCE(SUM(amount_cents),0) FROM expenses WHERE date BETWEEN ?1 AND ?2) AS despesas,
+         WHERE company_id = ?3 AND date BETWEEN ?1 AND ?2 AND status IN ('agendado','em_rota','concluido')) AS fretes,
+       (SELECT COALESCE(SUM(amount_cents),0) FROM expenses WHERE company_id = ?3 AND date BETWEEN ?1 AND ?2) AS despesas,
        (SELECT COALESCE(SUM(r.total_cents - COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.reservation_id = r.id),0)),0)
-          FROM reservations r WHERE r.status IN (${ACTIVE})) AS receber_reservas,
+          FROM reservations r WHERE r.company_id = ?3 AND r.status IN (${ACTIVE})) AS receber_reservas,
        (SELECT COALESCE(SUM(f.amount_cents - COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.freight_id = f.id),0)),0)
-          FROM freights f WHERE f.status IN ('agendado','em_rota','concluido')) AS receber_fretes`,
-      [mStart, mEnd],
+          FROM freights f WHERE f.company_id = ?3 AND f.status IN ('agendado','em_rota','concluido')) AS receber_fretes`,
+      [mStart, mEnd, cid],
     ),
     /* uma unica leitura resolve as seis contagens de operacao (comparacao
        sargable na coluna, sem substr()) */
     all<{ kind: string; hoje: number; atrasadas: number }>(
     `SELECT kind,
-            SUM(CASE WHEN scheduled_at BETWEEN ?1 AND ?2 AND status <> 'cancelada' THEN 1 ELSE 0 END) AS hoje,
-            SUM(CASE WHEN scheduled_at < ?1 AND status IN (${OPEN_OPS}) THEN 1 ELSE 0 END) AS atrasadas
-       FROM operations GROUP BY kind`,
-      [d0, `${d0}T23:59`],
+            SUM(CASE WHEN scheduled_at BETWEEN ?2 AND ?3 AND status <> 'cancelada' THEN 1 ELSE 0 END) AS hoje,
+            SUM(CASE WHEN scheduled_at < ?2 AND status IN (${OPEN_OPS}) THEN 1 ELSE 0 END) AS atrasadas
+       FROM operations WHERE company_id = ?1 GROUP BY kind`,
+      [cid, d0, `${d0}T23:59`],
     ),
-    availabilityAll(query.from, query.to, null, options),
+    availabilityAll(query.from, query.to, null, options, cid),
   ]);
 
   const porTipo = new Map(ops.map((o) => [o.kind, o]));
@@ -292,17 +310,19 @@ export async function dashboardStats(query: AvailabilityQuery = availabilityQuer
 // Brasilia apontava para o dia seguinte) e a aritmetica na coluna impedia o
 // uso do indice idx_res_event — varredura de customers x reservations a cada
 // leitura de lista.
+// Escopo: os subselects filtram por r.company_id = c.company_id, herdando o
+// filtro principal — nenhuma linha de outra empresa entra no agregado.
 export const CUSTOMER_SELECT = `
   SELECT c.*,
-         (SELECT COUNT(*) FROM reservations r WHERE r.customer_id = c.id AND r.status <> 'cancelada') AS locacoes,
-         (SELECT COUNT(*) FROM reservations r WHERE r.customer_id = c.id AND r.status = 'cancelada') AS canceladas,
-         (SELECT COALESCE(SUM(r.total_cents),0) FROM reservations r WHERE r.customer_id = c.id AND r.status IN (${ACTIVE})) AS total_cents,
+         (SELECT COUNT(*) FROM reservations r WHERE r.customer_id = c.id AND r.company_id = c.company_id AND r.status <> 'cancelada') AS locacoes,
+         (SELECT COUNT(*) FROM reservations r WHERE r.customer_id = c.id AND r.company_id = c.company_id AND r.status = 'cancelada') AS canceladas,
+         (SELECT COALESCE(SUM(r.total_cents),0) FROM reservations r WHERE r.customer_id = c.id AND r.company_id = c.company_id AND r.status IN (${ACTIVE})) AS total_cents,
          /* limite das 3h vem pronto do JS (cutoff3h): comparacao pura entre
             coluna e constante, com uso do indice idx_res_event */
-         (SELECT MAX(r.event_date) FROM reservations r WHERE r.customer_id = c.id AND r.event_date <= ?1 AND r.status <> 'cancelada') AS ultima,
-         (SELECT MIN(r.event_date) FROM reservations r WHERE r.customer_id = c.id AND r.event_date > ?1 AND r.status <> 'cancelada') AS proxima,
+         (SELECT MAX(r.event_date) FROM reservations r WHERE r.customer_id = c.id AND r.company_id = c.company_id AND r.event_date <= ?1 AND r.status <> 'cancelada') AS ultima,
+         (SELECT MIN(r.event_date) FROM reservations r WHERE r.customer_id = c.id AND r.company_id = c.company_id AND r.event_date > ?1 AND r.status <> 'cancelada') AS proxima,
          (SELECT COALESCE(SUM(r.total_cents - COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.reservation_id = r.id),0)),0)
-            FROM reservations r WHERE r.customer_id = c.id AND r.status IN (${ACTIVE})) AS saldo_cents
+            FROM reservations r WHERE r.customer_id = c.id AND r.company_id = c.company_id AND r.status IN (${ACTIVE})) AS saldo_cents
     FROM customers c`;
 
 /**
@@ -310,8 +330,9 @@ export const CUSTOMER_SELECT = `
  */
 const customerCutoff = () => cutoff3h();
 
-export async function getCustomer(id: number) {
-  return await one<any>(`${CUSTOMER_SELECT} WHERE c.id = ?`, [customerCutoff(), id]);
+export async function getCustomer(id: number, companyId?: number) {
+  const cid = await empresa(companyId);
+  return await one<any>(`${CUSTOMER_SELECT} WHERE c.id = ? AND c.company_id = ?`, [customerCutoff(), id, cid]);
 }
 
 /**
@@ -325,53 +346,56 @@ export async function getCustomer(id: number) {
 export const CUSTOMER_PICK_COLUMNS = `
   c.id, c.name, c.doc, c.phone, c.address, c.district, c.city,
   (SELECT group_concat(r2.number) FROM reservations r2
-    WHERE r2.customer_id = c.id AND r2.status <> 'cancelada') AS reserva_numeros`;
+    WHERE r2.customer_id = c.id AND r2.company_id = c.company_id AND r2.status <> 'cancelada') AS reserva_numeros`;
 
 /* ------------------------------- busca global -------------------------------- */
 
-export async function globalSearch(q: string) {
+export async function globalSearch(q: string, companyId?: number) {
+  const cid = await empresa(companyId);
   const like = `%${q}%`;
   const digits = q.replace(/\D/g, "");
   const phoneLike = digits ? `%${digits}%` : "% %";
 
   return {
     customers: await all<any>(
-      `${CUSTOMER_SELECT} WHERE c.name LIKE ? OR c.doc LIKE ? OR replace(replace(replace(replace(c.phone,'(',''),')',''),'-',''),' ','') LIKE ?
+      /* CUSTOMER_SELECT usa ?1 (cutoff) dentro dos subselects: os placeholders
+         anônimos daqui começam no índice 2 — o cutoff entra PRIMEIRO na lista. */
+      `${CUSTOMER_SELECT} WHERE c.company_id = ? AND (c.name LIKE ? OR c.doc LIKE ? OR replace(replace(replace(replace(c.phone,'(',''),')',''),'-',''),' ','') LIKE ?)
         ORDER BY c.name LIMIT 20`,
-      [like, like, phoneLike, customerCutoff()],
+      [customerCutoff(), cid, like, like, phoneLike],
     ),
     reservations: await all<any>(
       `SELECT r.*, c.name AS customer_name FROM reservations r JOIN customers c ON c.id = r.customer_id
-        WHERE r.number LIKE ? OR c.name LIKE ? OR r.address LIKE ? OR r.district LIKE ?
+        WHERE r.company_id = ? AND (r.number LIKE ? OR c.name LIKE ? OR r.address LIKE ? OR r.district LIKE ?)
         ORDER BY r.event_date DESC LIMIT 20`,
-      [like, like, like, like],
+      [cid, like, like, like, like],
     ),
     quotes: await all<any>(
       `SELECT q.*, c.name AS customer_name FROM quotes q JOIN customers c ON c.id = q.customer_id
-        WHERE q.number LIKE ? OR c.name LIKE ? ORDER BY q.id DESC LIMIT 20`,
-      [like, like],
+        WHERE q.company_id = ? AND (q.number LIKE ? OR c.name LIKE ?) ORDER BY q.id DESC LIMIT 20`,
+      [cid, like, like],
     ),
     freights: await all<any>(
       `SELECT f.*, c.name AS customer_name FROM freights f LEFT JOIN customers c ON c.id = f.customer_id
-        WHERE f.number LIKE ? OR f.destination LIKE ? OR f.origin LIKE ? OR c.name LIKE ? OR f.contact_name LIKE ?
+        WHERE f.company_id = ? AND (f.number LIKE ? OR f.destination LIKE ? OR f.origin LIKE ? OR c.name LIKE ? OR f.contact_name LIKE ?)
         ORDER BY f.date DESC LIMIT 20`,
-      [like, like, like, like, like],
+      [cid, like, like, like, like, like],
     ),
     products: await all<any>(
       `SELECT p.*, cat.name AS category FROM products p LEFT JOIN categories cat ON cat.id = p.category_id
-        WHERE p.name LIKE ? OR p.code LIKE ? ORDER BY p.name LIMIT 20`,
-      [like, like],
+        WHERE p.company_id = ? AND (p.name LIKE ? OR p.code LIKE ?) ORDER BY p.name LIMIT 20`,
+      [cid, like, like],
     ),
     units: await all<any>(
       `SELECT u.*, p.name AS product_name FROM product_units u JOIN products p ON p.id = u.product_id
-        WHERE u.code LIKE ? ORDER BY u.code LIMIT 20`,
-      [like],
+        WHERE u.company_id = ? AND u.code LIKE ? ORDER BY u.code LIMIT 20`,
+      [cid, like],
     ),
     contracts: await all<any>(
       `SELECT ct.*, r.number AS reservation_number, c.name AS customer_name
          FROM contracts ct JOIN reservations r ON r.id = ct.reservation_id JOIN customers c ON c.id = r.customer_id
-        WHERE ct.number LIKE ? OR r.number LIKE ? OR c.name LIKE ? ORDER BY ct.id DESC LIMIT 20`,
-      [like, like, like],
+        WHERE ct.company_id = ? AND (ct.number LIKE ? OR r.number LIKE ? OR c.name LIKE ?) ORDER BY ct.id DESC LIMIT 20`,
+      [cid, like, like, like],
     ),
   };
 }
