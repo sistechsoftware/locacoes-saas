@@ -11,16 +11,27 @@ function hash(password: string) {
   return `scrypt$${salt}$${crypto.scryptSync(password, salt, 64).toString("hex")}`;
 }
 
-/** Cria usuarios, categorias e dados de demonstracao na primeira execucao. */
+/**
+ * Cria usuarios, categorias e dados de demonstracao na primeira execucao.
+ *
+ * Producao: NUNCA cria credenciais automaticamente. A base comercial comeca
+ * sem usuarios; o primeiro acesso e o fluxo de onboarding (etapa futura),
+ * que criara o proprietario com senha propria. Desenvolvimento e testes
+ * (NODE_ENV !== 'production' ou flag explicita) mantem o seed de demonstracao
+ * com as credenciais locais de sempre.
+ */
 export async function ensureSeed() {
-  if (await scalar<number>("SELECT COUNT(*) FROM users") > 0) return;
+  const jaTemUsuario = await scalar<number>("SELECT COUNT(*) FROM users") > 0;
+  const emProducao = process.env.NODE_ENV === "production" && process.env.SEED_DEMO_DATA !== "1";
+  if (jaTemUsuario && !emProducao) return;
+  if (jaTemUsuario && emProducao) return;
 
   await tx(async () => {
     const admin = await insert(
-      `INSERT INTO users (name, username, password_hash, role) VALUES (?,?,?,'admin')`,
+      `INSERT INTO users (name, username, password_hash, role) VALUES (?,?,?,'owner')`,
       ["Administrador", "admin", hash("admin123")],
     );
-    await insert(`INSERT INTO users (name, username, password_hash, role) VALUES (?,?,?,'operador')`, [
+    await insert(`INSERT INTO users (name, username, password_hash, role) VALUES (?,?,?,'operacional')`, [
       "Operador",
       "operador",
       hash("operador123"),
