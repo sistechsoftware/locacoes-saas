@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { all, one, run } from "./db";
 import { canEdit, canView, type Module, type Role } from "./roles";
+import { hashPassword, verifyPassword } from "./password";
 
 export type { Role } from "./roles";
 
@@ -53,20 +54,8 @@ async function cookiesDaRequest() {
 
 /* ------------------------------ senhas ------------------------------ */
 
-export function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-  return `scrypt$${salt}$${hash}`;
-}
-
-export function verifyPassword(password: string, stored: string): boolean {
-  const [algo, salt, hash] = stored.split("$");
-  if (algo !== "scrypt" || !salt || !hash) return false;
-  const candidate = crypto.scryptSync(password, salt, 64);
-  const expected = Buffer.from(hash, "hex");
-  if (candidate.length !== expected.length) return false;
-  return crypto.timingSafeEqual(candidate, expected);
-}
+/** Implementação única vive em password.ts (importável por testes/cron). */
+export { hashPassword, verifyPassword };
 
 /* ------------------------------ sessao ------------------------------ */
 

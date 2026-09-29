@@ -86,16 +86,21 @@ export async function planoPorSlug(slug: string): Promise<Plan | undefined> {
 /**
  * Assinatura da empresa, criando o trial automaticamente na primeira
  * consulta se a empresa ainda não tiver nenhuma (instalação nova ou empresa
- * recém-criada pelo painel). Nunca lança: sem planos ativos no catálogo,
- * devolve null e a camada comercial trata a ausência.
+ * recém-criada pelo painel/checkout). `planoSlug` fixa o plano inicial — é o
+ * que o checkout público usa para o trial nascer no plano contratado; sem
+ * ele vale o primeiro do catálogo (comportamento antigo). Nunca lança: sem
+ * planos ativos no catálogo, devolve null e a camada comercial trata a
+ * ausência.
  */
-export async function assinaturaDaEmpresa(companyId: number): Promise<Subscription | null> {
+export async function assinaturaDaEmpresa(companyId: number, planoSlug?: string): Promise<Subscription | null> {
   const atual = await one<Subscription>(`SELECT * FROM subscriptions WHERE company_id = ?`, [companyId]);
   if (atual) return atual;
 
-  const plano = await one<Plan>(
-    `SELECT * FROM plans WHERE active = 1 ORDER BY sort_order, id LIMIT 1`,
-  );
+  const plano = planoSlug
+    ? await one<Plan>(`SELECT * FROM plans WHERE slug = ? AND active = 1`, [planoSlug])
+    : await one<Plan>(
+        `SELECT * FROM plans WHERE active = 1 ORDER BY sort_order, id LIMIT 1`,
+      );
   if (!plano) return null;
 
   const hoje = hojeISO();

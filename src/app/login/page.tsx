@@ -27,6 +27,11 @@ export default async function LoginPage() {
         </div>
 
         <p className="mt-5 text-center text-xs leading-relaxed text-stone-500">
+          Não é cliente ainda?{" "}
+          <a href="/planos" className="font-semibold text-marca-600 underline">
+            Conheça os planos
+          </a>
+          <br />
           Instalação nova?{" "}
           <a href="/setup" className="font-semibold text-marca-600 underline">
             Configurar o primeiro acesso aqui
