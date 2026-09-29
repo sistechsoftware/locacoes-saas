@@ -15,6 +15,8 @@ export type SessionUser = {
   company_id: number;
   /** Foto de perfil (URL /api/arquivo/<id>) ou null quando nao tem. */
   avatar_url: string | null;
+  /** Operador do SaaS (migration 0029): acessa o painel /saas. */
+  platform_admin: boolean;
 };
 
 /** Contexto autenticado: o company_id vem SEMPRE daqui — nunca do cliente. */
@@ -107,12 +109,13 @@ export async function destroySession() {
     role: Role;
     company_id: number;
     avatar_url: string | null;
+    platform_admin: number;
     user_active: number;
     company_active: number;
     company_name: string;
     expires_at: string;
   }>(
-    `SELECT u.id, u.name, u.username, u.role, u.company_id, u.avatar_url,
+    `SELECT u.id, u.name, u.username, u.role, u.company_id, u.avatar_url, u.platform_admin,
             u.active AS user_active, c.active AS company_active, c.name AS company_name,
             s.expires_at
        FROM sessions s JOIN users u ON u.id = s.user_id
@@ -140,6 +143,7 @@ export async function currentUser(): Promise<SessionUser | null> {
     role: row.role,
     company_id: row.company_id,
     avatar_url: row.avatar_url,
+    platform_admin: !!row.platform_admin,
   };
 }
 
@@ -168,6 +172,7 @@ export async function companyContext(): Promise<CompanyContext | null> {
       role: row.role,
       company_id: row.company_id,
       avatar_url: row.avatar_url,
+      platform_admin: !!row.platform_admin,
     },
     company: { id: row.company_id, name: row.company_name, active: row.company_active },
     role: row.role,
@@ -255,6 +260,24 @@ export class PermissionError extends Error {
 export async function assertAdmin(): Promise<SessionUser> {
   const u = await requireUser();
   if (!isAdminRole(u.role)) throw new PermissionError();
+  return u;
+}
+
+/**
+ * Exige operador da PLATAFORMA (painel /saas) — distinto do admin da empresa.
+ * O admin de uma empresa NAO acessa o painel do SaaS: só quem tem
+ * users.platform_admin = 1 (migration 0029).
+ */
+export async function requirePlatformAdmin(): Promise<SessionUser> {
+  const u = await requireUser();
+  if (!u.platform_admin) redirect("/dashboard?erro=permissao");
+  return u;
+}
+
+/** Versão para server actions: lança em vez de redirecionar. */
+export async function assertPlatformAdmin(): Promise<SessionUser> {
+  const u = await requireUser();
+  if (!u.platform_admin) throw new PermissionError("Somente o operador da plataforma pode executar esta acao.");
   return u;
 }
 

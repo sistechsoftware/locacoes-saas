@@ -70,9 +70,11 @@ export async function criarPrimeiroOwner(entrada: {
   // Import dinamico de auth (next/*) para manter este modulo carregavel fora
   // de request — mesmo padrao de tenant.ts.
   const { hashPassword } = await import("./auth");
+  // O primeiro acesso de uma instalacao nova e o operador da PLATAFORMA
+  // (platform_admin, migration 0029): acessa o painel /saas alem do sistema.
   const userId = await insert(
-    `INSERT INTO users (name, username, password_hash, role, active, company_id)
-     VALUES (?,?,?,'owner',1,1)`,
+    `INSERT INTO users (name, username, password_hash, role, active, company_id, platform_admin)
+     VALUES (?,?,?,'owner',1,1,1)`,
     [nomeUsuario, username, hashPassword(senha)],
   );
   await run(

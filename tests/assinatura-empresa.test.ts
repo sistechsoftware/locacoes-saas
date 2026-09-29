@@ -18,7 +18,7 @@ import { gerarLink, assinar, documentoAssinado } from "../src/lib/assinatura-db.
 const PNG_VALIDO =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
-const ADMIN = { id: 1, name: "Dono", username: "dono", role: "admin" as const, company_id: 1, avatar_url: null };
+const ADMIN = { id: 1, name: "Dono", username: "dono", role: "admin" as const, company_id: 1, avatar_url: null, platform_admin: false };
 
 async function base() {
   const settings = (await import("../src/lib/settings.ts")).DEFAULT_SETTINGS;

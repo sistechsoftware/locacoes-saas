@@ -24,7 +24,7 @@ import {
 import { stockVersion } from "../src/lib/stock-write";
 
 let c: Cenario;
-let user = { id: 0, name: "Auditor", username: "auditor", role: "admin" as const, company_id: 1, avatar_url: null };
+let user = { id: 0, name: "Auditor", username: "auditor", role: "admin" as const, company_id: 1, avatar_url: null, platform_admin: false };
 
 beforeEach(async () => {
   createTestDb();

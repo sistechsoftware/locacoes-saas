@@ -1,4 +1,6 @@
 import { requireUser } from "@/lib/auth";
+import { estadoAssinatura } from "@/lib/billing";
+import { redirect } from "next/navigation";
 import PushRegistration from "@/components/PushRegistration";
 import { scalar } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
@@ -11,6 +13,18 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  /*
+   * Gate comercial (Etapa 3): assinatura expirada/suspensa/cancelada bloqueia
+   * TODA a area autenticada. Falha ao consultar (ex.: banco indisponivel) NAO
+   * bloqueia — o gate e fail-open por design, para nunca derrubar a operacao
+   * por um erro transitorio da camada comercial.
+   */
+  const estado = await estadoAssinatura(user.company_id).catch(() => null);
+  const bloqueado = estado?.bloqueioDuro === true;
+  if (bloqueado && user.platform_admin === false) {
+    return <AssinaturaBloqueada />;
+  }
+
   // Os alertas sao recalculados no dashboard e na tela de notificacoes, e nao
   // aqui: rodar a varredura em toda navegacao deixava cada clique lento.
   const [settings, unread, chat] = await Promise.all([
@@ -37,6 +51,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
       <BottomNav />
       <FloatingAction />
+      {estado?.avisoVencimento && <AvisoVencimento dias={estado.diasRestantes} />}
+    </div>
+  );
+}
+
+/** Redireciona a area bloqueada para a tela explicativa (fora do gate). */
+function AssinaturaBloqueada(): never {
+  redirect("/assinatura-bloqueada");
+}
+
+/** Banner fixo de vencimento proximo (5 dias) — servia de aviso antes do gate. */
+function AvisoVencimento({ dias }: { dias: number | null }) {
+  if (dias === null) return null;
+  return (
+    <div className="fixed bottom-16 left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-lg sm:bottom-5">
+      ⏳ Sua assinatura vence em {dias} dia{dias === 1 ? "" : "s"}. Renove em /faturamento.
     </div>
   );
 }

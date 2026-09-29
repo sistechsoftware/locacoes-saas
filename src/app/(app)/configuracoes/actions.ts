@@ -136,6 +136,15 @@ export async function createUser(_prev: string | null, fd: FormData): Promise<st
   if (password.length < 6) return "A senha deve ter ao menos 6 caracteres.";
   if (await scalar<number>(`SELECT COUNT(*) FROM users WHERE username = ?`, [username]) > 0) return "Usuario ja existe.";
 
+  // Limite de usuários do plano vigente (Etapa 3): server-side, independe da
+  // interface — o formulário pode ser chamado diretamente.
+  const { limiteUsuarios } = await import("@/lib/billing");
+  const [limite, atuais] = await Promise.all([
+    limiteUsuarios(user.company_id),
+    scalar<number>(`SELECT COUNT(*) FROM users WHERE company_id = ? AND active = 1`, [user.company_id]),
+  ]);
+  if (atuais >= limite) return `Limite do plano atingido (${limite} usuários ativos). Faça upgrade em Assinatura.`;
+
   let avatarPath: string | null = null;
   const avatarFile = fd.get("avatar_file");
   if (avatarFile instanceof File && avatarFile.size > 0) {

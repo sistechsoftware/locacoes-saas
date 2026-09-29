@@ -31,7 +31,7 @@ export async function setupAction(_prev: string | null, formData: FormData): Pro
 
   await createSession(resultado.userId);
   await logAction(
-    { id: resultado.userId, name: "", username: "", role: "owner", company_id: 1, avatar_url: null },
+    { id: resultado.userId, name: "", username: "", role: "owner", company_id: 1, avatar_url: null, platform_admin: true },
     "setup",
     "usuario",
     resultado.userId,

@@ -101,6 +101,35 @@ export default {
           );
         }),
     );
+    // Camada comercial (Etapa 3): trial/periodo/inadimplencia — PLATAFORMA,
+    // uma vez por dia (marca global, nao por empresa). A rotina cobre todas as
+    // empresas internamente.
+    ctx.waitUntil(
+      runWithDb(env.DB, async () => {
+        const { rotinaDiariaBilling } = await import("./src/lib/billing");
+        const hoje = new Date((now - 10800) * 1000).toISOString().slice(0, 10); // America/Sao_Paulo
+        const marca = `billing_last_day`;
+        const row = await env.DB.prepare("SELECT value FROM scheduler_state WHERE key = ?").bind(marca).first<{ value: string }>();
+        if (row?.value === hoje) return;
+        await env.DB
+          .prepare("INSERT INTO scheduler_state(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+          .bind(marca, hoje)
+          .run();
+        const r = await rotinaDiariaBilling();
+        console.log(JSON.stringify({ event: "billing_cron", ...r }));
+      })
+        .catch((e) => {
+          console.error("billing_cron_error:", e);
+          return runWithDb(env.DB, () =>
+            registrarErro({
+              source: "cron", kind: "server",
+              message: mensagemDeErro(e),
+              route: "cron/billing",
+              context: { rotina: "rotinaDiariaBilling" },
+            }),
+          );
+        }),
+    );
     // limpezas GLOBAIS, uma unica vez por ciclo (sairam do laco por empresa):
     // cache de rotas e rate limits nao pertencem a nenhuma empresa
     ctx.waitUntil(
