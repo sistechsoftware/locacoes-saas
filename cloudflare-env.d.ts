@@ -9,6 +9,11 @@ interface __BaseEnv_CloudflareEnv {
 	VAPID_SUBJECT: "mailto:uericlislima@gmail.com";
 	VAPID_PUBLIC_KEY: string;
 	VAPID_PRIVATE_KEY: string;
+	/* Secrets da camada comercial (Etapa 3) — definidos por ambiente via
+	   `wrangler secret put`; vazios quando o Asaas ainda nao esta configurado. */
+	ASAAS_API_KEY: string;
+	ASAAS_ENVIRONMENT: string;
+	ASAAS_WEBHOOK_TOKEN: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
