@@ -15,6 +15,18 @@ async function ipDaRequisicao(): Promise<string> {
   }
 }
 
+/** Origem da requisição para montar links de e-mail ('' fora de request). */
+async function baseUrl(): Promise<string | null> {
+  try {
+    const h = await headers();
+    const host = h.get("x-forwarded-host") || h.get("host") || "";
+    const proto = h.get("x-forwarded-proto") || "https";
+    return host ? `${proto}://${host}` : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function criarEmpresaAction(_prev: string | null, formData: FormData): Promise<string | null> {
   // Bucket por IP mais apertado que o setup: rota aberta cria banco de dados.
   const ip = await ipDaRequisicao();
@@ -27,11 +39,21 @@ export async function criarEmpresaAction(_prev: string | null, formData: FormDat
     username: String(formData.get("username") ?? ""),
     senha: String(formData.get("senha") ?? ""),
     plano: String(formData.get("plano") ?? ""),
+    email: String(formData.get("email") ?? ""),
   });
   if (!resultado.ok) return resultado.erro;
 
   // Já entra: o trial nasceu, o sistema está utilizável imediatamente.
   await createSession(resultado.userId);
+
+  // Boas-vindas — fail-open: se falhar, o cadastro segue íntegro.
+  const { emailBoasVindas, enviarEmail } = await import("@/lib/email");
+  void enviarEmail({
+    to: resultado.email,
+    subject: "Bem-vindo(a) à Lima's Locações",
+    html: emailBoasVindas(resultado.nome, resultado.empresa, resultado.trialEndsAt, (await baseUrl()) ?? ""),
+    text: `Conta criada! Trial até ${resultado.trialEndsAt}. Entre em ${await baseUrl() ?? ""}/login.`,
+  }).catch(() => false);
 
   // Auditoria com company_id da NOVA empresa (null no campo user, porque a
   // sessão do logAction ainda não existe; os dados de rede vêm do headers).

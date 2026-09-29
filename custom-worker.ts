@@ -116,7 +116,10 @@ export default {
           .bind(marca, hoje)
           .run();
         const r = await rotinaDiariaBilling();
-        console.log(JSON.stringify({ event: "billing_cron", ...r }));
+        // Etapa 5: tokens de recuperação vencidos saem do banco junto.
+        const { limparTokensExpirados } = await import("./src/lib/recuperacao");
+        const tokensApagados = await limparTokensExpirados().catch(() => -1);
+        console.log(JSON.stringify({ event: "billing_cron", ...r, tokensApagados }));
       })
         .catch((e) => {
           console.error("billing_cron_error:", e);

@@ -14,6 +14,11 @@ interface __BaseEnv_CloudflareEnv {
 	ASAAS_API_KEY: string;
 	ASAAS_ENVIRONMENT: string;
 	ASAAS_WEBHOOK_TOKEN: string;
+	/* E-mail transacional (Etapa 5): Resend. PUBLIC_URL e var do wrangler.jsonc;
+	   os outros dois sao secrets via --secrets-file. */
+	RESEND_API_KEY: string;
+	RESEND_FROM: string;
+	PUBLIC_URL: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

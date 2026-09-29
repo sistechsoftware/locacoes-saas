@@ -23,7 +23,16 @@ import type { ResultadoSetup } from "./primeiro-acesso";
 export const DIAS_TRIAL_PADRAO = 14;
 
 export type ResultadoOnboarding =
-  | { ok: true; userId: number; companyId: number; trialEndsAt: string }
+  | {
+      ok: true;
+      userId: number;
+      companyId: number;
+      trialEndsAt: string;
+      /** E-mail do owner (canal dos avisos comerciais). */
+      email: string;
+      nome: string;
+      empresa: string;
+    }
   | { ok: false; erro: string };
 
 function texto(v: unknown, max: number): string {
@@ -35,9 +44,12 @@ function diaISO(offsetDays: number): string {
   return new Date(Date.now() - 3 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
 }
 
+const EMAIL_RX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 /**
  * Valida e normaliza os dados do checkout. Separada da gravação para poder
- * ser exercitada isoladamente nos testes.
+ * ser exercitada isoladamente nos testes. O e-mail é OBRIGATÓRIO: é o canal
+ * dos avisos (boas-vindas, fim de trial, cobrança) e da recuperação de senha.
  */
 export function validarCadastro(entrada: {
   empresa?: unknown;
@@ -45,12 +57,14 @@ export function validarCadastro(entrada: {
   username?: unknown;
   senha?: unknown;
   plano?: unknown;
-}): { empresa: string; nome: string; username: string; senha: string; plano: string } | { erro: string } {
+  email?: unknown;
+}): { empresa: string; nome: string; username: string; senha: string; plano: string; email: string } | { erro: string } {
   const empresa = texto(entrada.empresa, 120);
   const nome = texto(entrada.nome, 80);
   const username = texto(entrada.username, 40).toLowerCase();
   const senha = String(entrada.senha ?? "");
   const plano = texto(entrada.plano, 40).toLowerCase();
+  const email = texto(entrada.email, 120).toLowerCase();
 
   if (!empresa) return { erro: "Informe o nome da empresa." };
   if (!nome) return { erro: "Informe o seu nome." };
@@ -58,8 +72,9 @@ export function validarCadastro(entrada: {
     return { erro: "Usuário inválido: use 3+ caracteres (letras, números, ponto, hífen ou _)." };
   if (senha.length < 8) return { erro: "A senha precisa ter pelo menos 8 caracteres." };
   if (!plano) return { erro: "Escolha um plano." };
+  if (!EMAIL_RX.test(email)) return { erro: "Informe um e-mail válido — é para lá que vão os avisos da conta." };
 
-  return { empresa, nome, username, senha, plano };
+  return { empresa, nome, username, senha, plano, email };
 }
 
 /**
@@ -79,6 +94,7 @@ export async function criarEmpresaComTrial(entrada: {
   username?: unknown;
   senha?: unknown;
   plano?: unknown;
+  email?: unknown;
 }): Promise<ResultadoOnboarding> {
   const dados = validarCadastro(entrada);
   if ("erro" in dados) return { ok: false, erro: dados.erro };
@@ -103,14 +119,18 @@ export async function criarEmpresaComTrial(entrada: {
       erro: "Já existe uma empresa ativa com este nome. Escolha outro nome ou fale com o suporte.",
     };
 
-  // Gravação: empresa -> usuário (owner, sem platform_admin) -> settings -> trial.
-  const companyId = await insert(`INSERT INTO companies (name, active) VALUES (?, 1)`, [dados.empresa]);
+  // Gravação: empresa (com e-mail de contato) -> usuário (owner, com e-mail,
+  // sem platform_admin) -> settings -> trial.
+  const companyId = await insert(`INSERT INTO companies (name, active, email) VALUES (?, 1, ?)`, [
+    dados.empresa,
+    dados.email,
+  ]);
 
   const { hashPassword } = await import("./password");
   const userId = await insert(
-    `INSERT INTO users (name, username, password_hash, role, active, company_id, platform_admin)
-     VALUES (?,?,?,'owner',1,?,0)`,
-    [dados.nome, dados.username, hashPassword(dados.senha), companyId],
+    `INSERT INTO users (name, username, password_hash, role, active, company_id, platform_admin, email)
+     VALUES (?,?,?,'owner',1,?,0,?)`,
+    [dados.nome, dados.username, hashPassword(dados.senha), companyId, dados.email],
   );
 
   // Numeração de documentos 'LOC' (regra da 0028 para empresas ≠ 1) + nome.
@@ -130,7 +150,7 @@ export async function criarEmpresaComTrial(entrada: {
     [companyId, plano.id, diaISO(dias), hoje, diaISO(dias)],
   );
 
-  return { ok: true, userId, companyId, trialEndsAt: diaISO(dias) };
+  return { ok: true, userId, companyId, trialEndsAt: diaISO(dias), email: dados.email, nome: dados.nome, empresa: dados.empresa };
 }
 
 /** Contadores para o rodapé da landing (prova social honesta, sem PII). */

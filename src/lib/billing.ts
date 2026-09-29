@@ -14,6 +14,18 @@
 
 import { all, insert, one, run, scalar } from "./db";
 import { AsaasError, asaasClient, asaasEnvironment, ASAAS_SANDBOX, ASAAS_PRODUCAO } from "./asaas";
+import {
+  emailCobrancaGerada,
+  emailPagamentoConfirmado,
+  emailTrialExpirado,
+  emailTrialExpirando,
+  enviarEmail,
+  publicUrlDaPlataforma,
+} from "./email";
+
+function dinheiroFmt(centavos: number): string {
+  return (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 export type SubscriptionStatus = "trial" | "active" | "past_due" | "suspended" | "canceled";
 
@@ -316,6 +328,17 @@ export async function gerarCobrancaPeriodo(
        VALUES (?,?,?,?,?,'pending',?,?,?,?)`,
     [companyId, sub.id, payment.id, plano.price_cents, payment.billingType || "PIX", vencimento, periodStart, periodEnd, payment.invoiceUrl ?? null],
     );
+
+    // Aviso ao owner (fail-open): cobrança à disposição com link da fatura.
+    const owner = await ownerDaEmpresa(companyId);
+    if (owner?.email) {
+      void enviarEmail({
+        to: owner.email,
+        subject: "Cobrança gerada — Lima's Locações",
+        html: emailCobrancaGerada(empresa.name, plano.name, dinheiroFmt(plano.price_cents), vencimento, payment.invoiceUrl ?? null),
+      }).catch(() => false);
+    }
+
     return { ok: true, paymentId: payment.id, dueDate: vencimento, invoiceUrl: payment.invoiceUrl ?? null, amountCents: plano.price_cents };
   } catch (e) {
     if (e instanceof AsaasError) return { ok: false, motivo: "sem_dados_bancarios", erro: e.message };
@@ -399,7 +422,7 @@ function normalizarStatus(event: string, statusAsaas?: string): string {
 }
 
 /** Recebimento confirmado: assinatura ativa e período renovado (+30 dias). */
-async function ativarAssinatura(companyId: number, subscriptionId: number, _amountCents: number, billingType?: string) {
+async function ativarAssinatura(companyId: number, subscriptionId: number, amountCents: number, billingType?: string) {
   const hoje = hojeISO();
   const atual = await one<{ current_period_end: string | null }>(
     `SELECT current_period_end FROM subscriptions WHERE id = ?`,
@@ -418,6 +441,76 @@ async function ativarAssinatura(companyId: number, subscriptionId: number, _amou
       WHERE id = ? AND company_id = ?`,
     [novoInicio, novoFim, billingType ?? null, subscriptionId, companyId],
   );
+
+  // Aviso de pagamento confirmado (fail-open): acalma o "paguei, chegou?".
+  const empresa = await one<{ name: string }>(`SELECT name FROM companies WHERE id = ?`, [companyId]);
+  const plano = await one<{ name: string }>(
+    `SELECT p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.id = ?`,
+    [subscriptionId],
+  );
+  const owner = await ownerDaEmpresa(companyId);
+  if (empresa && plano && owner?.email) {
+    void enviarEmail({
+      to: owner.email,
+      subject: "Pagamento confirmado — Lima's Locações",
+      html: emailPagamentoConfirmado(empresa.name, plano.name, dinheiroFmt(amountCents), novoFim),
+    }).catch(() => false);
+  }
+}
+
+/** Owner da empresa: destinatário dos avisos comerciais (1º owner ativo). */
+export async function ownerDaEmpresa(companyId: number) {
+  return await one<{ id: number; name: string; email: string | null }>(
+    `SELECT id, name, email FROM users WHERE company_id = ? AND role = 'owner' AND active = 1 ORDER BY id LIMIT 1`,
+    [companyId],
+  );
+}
+
+/**
+ * Aviso de trial ao owner, com deduplicação em billing_alerts (o rebuild da
+ * notifications APAGA chaves fora do conjunto dela, então não serve de
+ * memória). Chave única por tipo/janela: reenvio idempotente.
+ * Devolve true só quando um e-mail novo foi realmente enviado.
+ */
+async function avisarTrial(
+  companyId: number,
+  tipo: "expirando" | "expirado",
+  fimTrial: string | null,
+  urlPublica: string,
+): Promise<boolean> {
+  const sub = await one<{ id: number; trial_ends_at: string | null }>(
+    `SELECT id, trial_ends_at FROM subscriptions WHERE company_id = ?`,
+    [companyId],
+  );
+  if (!sub) return false;
+  const chave = `trial-${tipo}:${sub.id}:${fimTrial ?? sub.trial_ends_at ?? ""}`;
+  const ja = await one<{ id: number }>(`SELECT id FROM billing_alerts WHERE chave = ?`, [chave]);
+  if (ja) return false;
+
+  const empresa = await one<{ name: string }>(`SELECT name FROM companies WHERE id = ?`, [companyId]);
+  const owner = await ownerDaEmpresa(companyId);
+  if (!empresa || !owner?.email) {
+    // Sem destinatário: marca assim mesmo para não martelar a cada minuto.
+    await run(`INSERT INTO billing_alerts (company_id, chave) VALUES (?,?)`, [companyId, chave]).catch(() => {});
+    return false;
+  }
+
+  const html =
+    tipo === "expirando"
+      ? emailTrialExpirando(empresa.name, fimTrial ?? sub.trial_ends_at ?? "", urlPublica)
+      : emailTrialExpirado(empresa.name, urlPublica);
+  const ok = await enviarEmail({
+    to: owner.email,
+    subject:
+      tipo === "expirando"
+        ? "Seu teste termina em breve — Lima's Locações"
+        : "Teste encerrado — reative seu acesso — Lima's Locações",
+    html,
+  }).catch(() => false);
+
+  // Marca enviados E falhas: e-mail é best-effort; não reenfileira a cada minuto.
+  await run(`INSERT INTO billing_alerts (company_id, chave) VALUES (?,?)`, [companyId, chave]).catch(() => {});
+  return ok;
 }
 
 /* ------------------------------------------------------------------ */
@@ -430,6 +523,7 @@ export type RotinaDiariaResultado = {
   marcadasPastDue: number;
   suspensas: number;
   cobrancasGeradas: number;
+  avisosTrialEnviados: number;
 };
 
 /**
@@ -437,6 +531,9 @@ export type RotinaDiariaResultado = {
  *  1. trial vencido e sem pagamento -> suspended;
  *  2. período ativo que venceu -> past_due e tenta gerar a próxima cobrança;
  *  3. past_due com cobrança vencida há mais de 7 dias -> suspended.
+ *
+ * Etapa 5: também avisa o owner por e-mail quando o trial está acabando
+ * (3 dias antes) e quando expira — deduplicado por dia na notifications.
  */
 export async function rotinaDiariaBilling(): Promise<RotinaDiariaResultado> {
   const hoje = hojeISO();
@@ -446,7 +543,10 @@ export async function rotinaDiariaBilling(): Promise<RotinaDiariaResultado> {
     marcadasPastDue: 0,
     suspensas: 0,
     cobrancasGeradas: 0,
+    avisosTrialEnviados: 0,
   };
+
+  const urlPublica = await publicUrlDaPlataforma();
 
   // 1) Trials expirados
   const trials = await all<{ id: number; company_id: number }>(
@@ -465,7 +565,21 @@ export async function rotinaDiariaBilling(): Promise<RotinaDiariaResultado> {
         [t.id],
       );
       r.trialsExpirados++;
+      const avisou = await avisarTrial(t.company_id, "expirado", null, urlPublica);
+      if (avisou) r.avisosTrialEnviados++;
     }
+  }
+
+  // 1b) Trials acabando (3 dias ou menos): aviso único por trial/dia.
+  const fimAviso = diaISO(3);
+  const acabando = await all<{ id: number; company_id: number; trial_ends_at: string }>(
+    `SELECT id, company_id, trial_ends_at FROM subscriptions
+      WHERE status = 'trial' AND trial_ends_at IS NOT NULL AND trial_ends_at >= ? AND trial_ends_at <= ?`,
+    [hoje, fimAviso],
+  );
+  for (const t of acabando) {
+    const avisou = await avisarTrial(t.company_id, "expirando", t.trial_ends_at, urlPublica);
+    if (avisou) r.avisosTrialEnviados++;
   }
 
   // 2) Períodos ativos vencidos: marca past_due e tenta cobrar o próximo ciclo

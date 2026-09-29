@@ -17,6 +17,17 @@ export default function AssinarForm({ planoInicial }: { planoInicial: string }) 
       <Field label="Seu nome">
         <input name="nome" className="campo" required maxLength={80} placeholder="Nome e sobrenome" />
       </Field>
+      <Field label="E-mail" hint="Para avisos da conta: fim do teste, cobranças e recuperação de senha.">
+        <input
+          name="email"
+          type="email"
+          className="campo"
+          autoComplete="email"
+          required
+          maxLength={120}
+          placeholder="voce@empresa.com.br"
+        />
+      </Field>
       <Field label="Usuário" hint="Você usará ele para entrar no sistema.">
         <input
           name="username"

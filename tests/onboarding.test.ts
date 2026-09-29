@@ -18,14 +18,18 @@ beforeEach(async () => {
 });
 
 describe("validação do cadastro público", () => {
+  const base = { empresa: "E", nome: "A", username: "abc", senha: "12345678", plano: "essencial", email: "dono@empresa.com" };
+
   it("recusa campos obrigatórios vazios ou inválidos", async () => {
     const { validarCadastro } = await import("../src/lib/onboarding.ts");
-    assert.ok("erro" in validarCadastro({ empresa: "", nome: "A", username: "abc", senha: "12345678", plano: "essencial" }));
-    assert.ok("erro" in validarCadastro({ empresa: "E", nome: "", username: "abc", senha: "12345678", plano: "essencial" }));
-    assert.ok("erro" in validarCadastro({ empresa: "E", nome: "A", username: "ab", senha: "12345678", plano: "essencial" }));
-    assert.ok("erro" in validarCadastro({ empresa: "E", nome: "A", username: "abc", senha: "curta", plano: "essencial" }));
-    assert.ok("erro" in validarCadastro({ empresa: "E", nome: "A", username: "abc", senha: "12345678", plano: "" }));
-    assert.ok(!("erro" in validarCadastro({ empresa: "E", nome: "A", username: "Abc.Def-1", senha: "12345678", plano: "Essencial" })));
+    assert.ok("erro" in validarCadastro({ ...base, empresa: "" }));
+    assert.ok("erro" in validarCadastro({ ...base, nome: "" }));
+    assert.ok("erro" in validarCadastro({ ...base, username: "ab" }));
+    assert.ok("erro" in validarCadastro({ ...base, senha: "curta" }));
+    assert.ok("erro" in validarCadastro({ ...base, plano: "" }));
+    assert.ok("erro" in validarCadastro({ ...base, email: "" }), "e-mail é obrigatório (canal dos avisos)");
+    assert.ok("erro" in validarCadastro({ ...base, email: "sem-arroba" }));
+    assert.ok(!("erro" in validarCadastro({ ...base, username: "Abc.Def-1", plano: "Essencial", email: "Dono@Empresa.COM" })));
   });
 });
 
@@ -35,7 +39,7 @@ describe("criação de empresa + trial via checkout", () => {
     await run(`DELETE FROM subscriptions`);
   });
 
-  it("cria empresa nova (id não fixo), owner sem platform_admin, settings LOC e trial no plano", async () => {
+  it("cria empresa nova (id não fixo), owner com e-mail, settings LOC e trial no plano", async () => {
     const { criarEmpresaComTrial } = await import("../src/lib/onboarding.ts");
 
     const r = await criarEmpresaComTrial({
@@ -44,6 +48,7 @@ describe("criação de empresa + trial via checkout", () => {
       username: "joao",
       senha: "senha-forte-1",
       plano: "profissional",
+      email: "dono@locadorateste.com",
     });
     assert.ok(r.ok, `esperava ok: ${JSON.stringify(r)}`);
     if (!r.ok) return;
@@ -55,6 +60,10 @@ describe("criação de empresa + trial via checkout", () => {
     assert.equal(user.company_id, r.companyId);
     assert.equal(user.role, "owner");
     assert.equal(user.platform_admin, 0, "cliente NÃO é operador da plataforma");
+    assert.equal(user.email, "dono@locadorateste.com", "owner com e-mail para avisos");
+    const empresa = await one<any>(`SELECT email FROM companies WHERE id = ?`, [r.companyId]);
+    assert.equal(empresa.email, "dono@locadorateste.com");
+    assert.equal(r.email, "dono@locadorateste.com");
 
     const settings = await one<any>(
       `SELECT value FROM company_settings WHERE company_id = ? AND key = 'company_name'`,
@@ -85,7 +94,7 @@ describe("criação de empresa + trial via checkout", () => {
 
   it("recusa username já usado, plano inativo e empresa ativa com mesmo nome", async () => {
     const { criarEmpresaComTrial } = await import("../src/lib/onboarding.ts");
-    const dados = { empresa: "Locadora A", nome: "Ana", username: "ana", senha: "senha-forte-1", plano: "essencial" };
+    const dados = { empresa: "Locadora A", nome: "Ana", username: "ana", senha: "senha-forte-1", plano: "essencial", email: "ana@locadora-a.com" };
 
     const r1 = await criarEmpresaComTrial(dados);
     assert.ok(r1.ok);
@@ -105,8 +114,8 @@ describe("criação de empresa + trial via checkout", () => {
 
   it("segundo checkout cria OUTRA empresa isolada, cada uma com seu trial", async () => {
     const { criarEmpresaComTrial } = await import("../src/lib/onboarding.ts");
-    const a = await criarEmpresaComTrial({ empresa: "Locadora A", nome: "Ana", username: "ana", senha: "senha-forte-1", plano: "essencial" });
-    const b = await criarEmpresaComTrial({ empresa: "Locadora B", nome: "Bruno", username: "bruno", senha: "senha-forte-2", plano: "empresarial" });
+    const a = await criarEmpresaComTrial({ empresa: "Locadora A", nome: "Ana", username: "ana", senha: "senha-forte-1", plano: "essencial", email: "ana@a.com" });
+    const b = await criarEmpresaComTrial({ empresa: "Locadora B", nome: "Bruno", username: "bruno", senha: "senha-forte-2", plano: "empresarial", email: "bruno@b.com" });
     assert.ok(a.ok && b.ok);
     if (!a.ok || !b.ok) return;
     assert.notEqual(a.companyId, b.companyId);

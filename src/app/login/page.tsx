@@ -3,9 +3,14 @@ import { currentUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import LoginForm from "./LoginForm";
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ redefinida?: string }>;
+}) {
   if (await currentUser()) redirect("/dashboard");
   const s = await getSettings();
+  const senhaRedefinida = (await searchParams).redefinida === "1";
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-nuvem-200 to-nuvem-100 p-5">
       <div className="w-full max-w-sm">
@@ -23,10 +28,19 @@ export default async function LoginPage() {
         </div>
 
         <div className="cartao p-5 shadow-sm">
+          {senhaRedefinida && (
+            <p className="mb-4 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              Senha redefinida com sucesso. Entre com a senha nova.
+            </p>
+          )}
           <LoginForm />
         </div>
 
         <p className="mt-5 text-center text-xs leading-relaxed text-stone-500">
+          <a href="/recuperar-senha" className="font-semibold text-marca-600 underline">
+            Esqueci minha senha
+          </a>
+          <br />
           Não é cliente ainda?{" "}
           <a href="/planos" className="font-semibold text-marca-600 underline">
             Conheça os planos
