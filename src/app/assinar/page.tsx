@@ -21,7 +21,10 @@ export default async function AssinarPage({
 }) {
   if (await currentUser()) redirect("/dashboard");
 
-  const slug = (await searchParams).plano ?? "";
+  // Sem ?plano= (links genéricos "Começar grátis"), cai no "Profissional" — o
+  // mais popular. Query inválida segue indo para /planos (plano inexistente é
+  // sinal de link quebrado, não de escolha).
+  const slug = (await searchParams).plano || "profissional";
   const plano = await planoPorSlug(slug);
   if (!plano) redirect("/planos");
 
