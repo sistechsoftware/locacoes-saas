@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/auth";
 import { asaasEnvironment } from "@/lib/asaas";
 import { Card } from "@/components/ui";
 
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
  * apenas se estão configurados e em qual ambiente (sandbox/produção).
  */
 export default async function SaasConfiguracoesPage() {
+  // Guard redundante ao layout (ver nota em saas/page.tsx).
+  await requirePlatformAdmin();
   const asaas = await asaasEnvironment();
 
   return (

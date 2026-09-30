@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/auth";
 import { listarCobrancasPainel, resumoFinanceiroPainel } from "@/lib/billing";
 import { Card, Badge, Empty } from "@/components/ui";
 
@@ -38,6 +39,8 @@ const ROTULO_COBRANCA: Record<string, string> = {
 
 /** Financeiro SaaS: todas as cobranças de todas as empresas. */
 export default async function SaasCobrancasPage() {
+  // Guard redundante ao layout (ver nota em saas/page.tsx).
+  await requirePlatformAdmin();
   const [cobrancas, fin] = await Promise.all([listarCobrancasPainel(300), resumoFinanceiroPainel()]);
 
   return (

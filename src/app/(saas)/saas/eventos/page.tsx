@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/auth";
 import { listarEventosWebhookPainel } from "@/lib/billing";
 import { Card, Empty } from "@/components/ui";
 
@@ -11,6 +12,8 @@ function dataHoraBR(sql: string | null) {
 
 /** Trilha completa de eventos recebidos do webhook do Asaas. */
 export default async function SaasEventosPage() {
+  // Guard redundante ao layout (ver nota em saas/page.tsx).
+  await requirePlatformAdmin();
   const eventos = await listarEventosWebhookPainel(100);
 
   return (

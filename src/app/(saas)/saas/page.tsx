@@ -10,6 +10,7 @@ import {
   type SubscriptionStatus,
 } from "@/lib/billing";
 import { asaasEnvironment } from "@/lib/asaas";
+import { requirePlatformAdmin } from "@/lib/auth";
 import { Card, Badge, Empty } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,11 @@ const ROTULO_COBRANCA: Record<string, string> = {
  * Nada de operação de locadora aqui (isso vive no ambiente do cliente).
  */
 export default async function SaasDashboard() {
+  // Guard redundante ao layout: no fluxo RSC layout e página renderizam em
+  // paralelo, então o redirect do layout sozinho não impede que a página
+  // consulte e emita dados — quem não é admin é barrado AQUI, antes de
+  // qualquer consulta.
+  await requirePlatformAdmin();
   const [empresas, m, fin, env, cobrancas, alertas, atividade] = await Promise.all([
     listarEmpresasPainel(),
     metricasPainel(),

@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/auth";
 import { atividadeRecentePainel } from "@/lib/billing";
 import { Card, Empty } from "@/components/ui";
 
@@ -11,6 +12,8 @@ function dataHoraBR(sql: string | null) {
 
 /** Atividade administrativa global (audit_logs) — quem fez o quê e quando. */
 export default async function SaasAtividadePage() {
+  // Guard redundante ao layout (ver nota em saas/page.tsx).
+  await requirePlatformAdmin();
   const atividade = await atividadeRecentePainel(100);
 
   return (

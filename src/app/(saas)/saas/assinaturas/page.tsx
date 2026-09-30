@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/auth";
 import { listarEmpresasPainel, STATUS_ROTULO, type SubscriptionStatus } from "@/lib/billing";
 import { Card, Badge, Empty } from "@/components/ui";
 
@@ -18,6 +19,8 @@ const TONE: Record<SubscriptionStatus | "sem", any> = {
 
 /** Todas as assinaturas da plataforma, ordenadas pelo estado crítico. */
 export default async function SaasAssinaturasPage() {
+  // Guard redundante ao layout (ver nota em saas/page.tsx).
+  await requirePlatformAdmin();
   const empresas = await listarEmpresasPainel();
   const ordem: Record<string, number> = { past_due: 0, suspended: 1, trial: 2, active: 3, canceled: 4 };
   const assinaturas = empresas

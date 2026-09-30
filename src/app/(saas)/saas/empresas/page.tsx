@@ -1,3 +1,4 @@
+import { requirePlatformAdmin } from "@/lib/auth";
 import { listarEmpresasPainel, STATUS_ROTULO, type SubscriptionStatus } from "@/lib/billing";
 import { Card, Badge, Empty } from "@/components/ui";
 import AcoesEmpresa from "../AcoesEmpresa";
@@ -24,6 +25,9 @@ const TONE: Record<SubscriptionStatus | "sem", any> = {
 
 /** Todos os clientes da plataforma, com contato, assinatura e ações. */
 export default async function SaasEmpresasPage() {
+  // Guard redundante ao layout (ver nota em saas/page.tsx): impede consulta
+  // e emissão de dados para quem não é platform_admin.
+  await requirePlatformAdmin();
   const empresas = await listarEmpresasPainel();
 
   return (
