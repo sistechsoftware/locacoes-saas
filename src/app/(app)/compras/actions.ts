@@ -47,16 +47,17 @@ export async function createPurchase(_prev: string | null, fd: FormData): Promis
   if (!items.length) return "Adicione ao menos um item a compra.";
 
   const number = await nextNumber("purchases", "COMP");
+  // company_id da sessão: sem ele a compra nasceria na empresa 1 (DEFAULT)
   const id = await insert(
-    `INSERT INTO purchases (number, supplier_id, purchase_date, discount_cents, affects_stock, kind, notes, created_by)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [number, h.supplier_id, h.purchase_date, h.discount_cents, h.affects_stock, h.kind, h.notes, user.id],
+    `INSERT INTO purchases (number, supplier_id, purchase_date, discount_cents, affects_stock, kind, notes, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [number, h.supplier_id, h.purchase_date, h.discount_cents, h.affects_stock, h.kind, h.notes, user.id, user.company_id],
   );
   for (const i of items) {
     await insert(
-      `INSERT INTO purchase_items (purchase_id, product_id, qty, unit_price_cents, discount_cents)
-       VALUES (?,?,?,?,?)`,
-      [id, i.product_id, i.qty, i.unit_price_cents, i.discount_cents],
+      `INSERT INTO purchase_items (purchase_id, product_id, qty, unit_price_cents, discount_cents, company_id)
+       VALUES (?,?,?,?,?,?)`,
+      [id, i.product_id, i.qty, i.unit_price_cents, i.discount_cents, user.company_id],
     );
   }
   const total = await recalcPurchase(id);
@@ -86,7 +87,8 @@ export async function updatePurchase(_prev: string | null, fd: FormData): Promis
   const id = Number(fd.get("id"));
   const h = readHeader(fd);
   const items = readItems(fd);
-  const atual = await one<any>(`SELECT * FROM purchases WHERE id = ?`, [id]);
+  // Isolamento: compra de outra empresa é "não encontrada".
+  const atual = await one<any>(`SELECT * FROM purchases WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!atual) return "Compra não encontrada.";
   if (atual.status === "cancelada") return "Compra cancelada não pode ser editada.";
   if (!items.length) return "A compra precisa ter ao menos um item.";
@@ -100,8 +102,8 @@ export async function updatePurchase(_prev: string | null, fd: FormData): Promis
 
   await run(
     `UPDATE purchases SET supplier_id=?, purchase_date=?, discount_cents=?, affects_stock=?, kind=?, notes=?,
-            updated_at=datetime('now','localtime') WHERE id = ?`,
-    [h.supplier_id, h.purchase_date, h.discount_cents, h.affects_stock, h.kind, h.notes, id],
+            updated_at=datetime('now','localtime') WHERE id = ? AND company_id = ?`,
+    [h.supplier_id, h.purchase_date, h.discount_cents, h.affects_stock, h.kind, h.notes, id, user.company_id],
   );
   await run(`DELETE FROM purchase_items WHERE purchase_id = ?`, [id]);
   for (const i of items) {
@@ -110,9 +112,9 @@ export async function updatePurchase(_prev: string | null, fd: FormData): Promis
     const herdado = aplicado.get(i.product_id) ?? 0;
     aplicado.set(i.product_id, 0);
     await insert(
-      `INSERT INTO purchase_items (purchase_id, product_id, qty, unit_price_cents, discount_cents, stock_applied_qty)
-       VALUES (?,?,?,?,?,?)`,
-      [id, i.product_id, i.qty, i.unit_price_cents, i.discount_cents, herdado],
+      `INSERT INTO purchase_items (purchase_id, product_id, qty, unit_price_cents, discount_cents, stock_applied_qty, company_id)
+       VALUES (?,?,?,?,?,?,?)`,
+      [id, i.product_id, i.qty, i.unit_price_cents, i.discount_cents, herdado, user.company_id],
     );
   }
 
@@ -120,11 +122,11 @@ export async function updatePurchase(_prev: string | null, fd: FormData): Promis
   // que ele havia somado ao estoque e estornado aqui
   for (const [productId, sobra] of aplicado) {
     if (sobra <= 0) continue;
-    await run(`UPDATE products SET total_qty = MAX(0, total_qty - ?) WHERE id = ?`, [sobra, productId]);
+    await run(`UPDATE products SET total_qty = MAX(0, total_qty - ?) WHERE id = ? AND company_id = ?`, [sobra, productId, user.company_id]);
     await insert(
-      `INSERT INTO stock_movements (product_id, qty_delta, reason, purchase_id, notes, created_by)
-       VALUES (?,?,'estorno_compra',?,?,?)`,
-      [productId, -sobra, id, `Item removido da compra ${atual.number}`, user.id],
+      `INSERT INTO stock_movements (product_id, qty_delta, reason, purchase_id, notes, created_by, company_id)
+       VALUES (?,?,'estorno_compra',?,?,?,?)`,
+      [productId, -sobra, id, `Item removido da compra ${atual.number}`, user.id, user.company_id],
     );
   }
 
@@ -148,7 +150,7 @@ export async function updatePurchase(_prev: string | null, fd: FormData): Promis
 export async function cancelPurchase(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const compra = await one<any>(`SELECT * FROM purchases WHERE id = ?`, [id]);
+  const compra = await one<any>(`SELECT * FROM purchases WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!compra || compra.status === "cancelada") return;
 
   const pago = await scalar<number>(
@@ -163,7 +165,7 @@ export async function cancelPurchase(fd: FormData) {
     );
   }
 
-  await run(`UPDATE purchases SET status = 'cancelada', updated_at = datetime('now','localtime') WHERE id = ?`, [id]);
+  await run(`UPDATE purchases SET status = 'cancelada', updated_at = datetime('now','localtime') WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await syncPurchaseStock(id, user.id);
   await run(`UPDATE financial_entries SET status = 'cancelada' WHERE purchase_id = ?`, [id]);
 
@@ -189,7 +191,7 @@ export async function payEntry(fd: FormData) {
   const user = await requireUser();
   const entryId = Number(fd.get("entry_id"));
   const valor = parseMoney(String(fd.get("amount") ?? ""));
-  const entry = await one<any>(`SELECT * FROM financial_entries WHERE id = ?`, [entryId]);
+  const entry = await one<any>(`SELECT * FROM financial_entries WHERE id = ? AND company_id = ?`, [entryId, user.company_id]);
   if (!entry) return;
 
   const destino = entry.purchase_id ? `/compras/${entry.purchase_id}` : "/financeiro?aba=pagar";
@@ -197,8 +199,8 @@ export async function payEntry(fd: FormData) {
 
   await insert(
     `INSERT INTO expenses (date, category, description, amount_cents, method, status, entry_id, account_id,
-                           supplier_id, purchase_id, kind, created_by)
-     VALUES (?,?,?,?,?,'pago',?,?,?,?,?,?)`,
+                           supplier_id, purchase_id, kind, created_by, company_id)
+     VALUES (?,?,?,?,?,'pago',?,?,?,?,?,?,?)`,
     [
       String(fd.get("paid_at") ?? "") || today(),
       entry.category || "Compras",
@@ -211,6 +213,7 @@ export async function payEntry(fd: FormData) {
       entry.purchase_id,
       entry.category === "Investimentos" ? "investimento" : "operacional",
       user.id,
+      user.company_id,
     ],
   );
 
@@ -228,13 +231,13 @@ export async function payEntry(fd: FormData) {
 export async function reverseExpense(fd: FormData) {
   const user = await assertAdmin();
   const expenseId = Number(fd.get("expense_id"));
-  const despesa = await one<any>(`SELECT * FROM expenses WHERE id = ?`, [expenseId]);
+  const despesa = await one<any>(`SELECT * FROM expenses WHERE id = ? AND company_id = ?`, [expenseId, user.company_id]);
   if (!despesa) return;
 
   await insert(
     `INSERT INTO expenses (date, category, description, amount_cents, method, status, entry_id, account_id,
-                           supplier_id, purchase_id, kind, created_by)
-     VALUES (?,?,?,?,?,'estorno',?,?,?,?,?,?)`,
+                           supplier_id, purchase_id, kind, created_by, company_id)
+     VALUES (?,?,?,?,?,'estorno',?,?,?,?,?,?,?)`,
     [
       today(),
       despesa.category,
@@ -247,6 +250,7 @@ export async function reverseExpense(fd: FormData) {
       despesa.purchase_id,
       despesa.kind,
       user.id,
+      user.company_id,
     ],
   );
   if (despesa.entry_id) {
@@ -272,12 +276,13 @@ export async function createSupplier(fd: FormData) {
   const user = await requireUser();
   const name = String(fd.get("name") ?? "").trim();
   if (!name) return;
-  const id = await insert(`INSERT INTO suppliers (name, doc, phone, email, notes) VALUES (?,?,?,?,?)`, [
+  const id = await insert(`INSERT INTO suppliers (name, doc, phone, email, notes, company_id) VALUES (?,?,?,?,?,?)`, [
     name,
     String(fd.get("doc") ?? "").trim(),
     String(fd.get("phone") ?? "").trim(),
     String(fd.get("email") ?? "").trim(),
     String(fd.get("notes") ?? "").trim(),
+    user.company_id,
   ]);
   await logAction(user, "criar", "fornecedor", id, `${user.name} cadastrou o fornecedor ${name}`);
   revalidatePath("/configuracoes");
@@ -289,13 +294,14 @@ export async function createAccount(fd: FormData) {
   const name = String(fd.get("name") ?? "").trim();
   if (!name) return;
   const id = await insert(
-    `INSERT INTO financial_accounts (name, kind, bank, initial_balance_cents, notes) VALUES (?,?,?,?,?)`,
+    `INSERT INTO financial_accounts (name, kind, bank, initial_balance_cents, notes, company_id) VALUES (?,?,?,?,?,?)`,
     [
       name,
       String(fd.get("kind") ?? "banco"),
       String(fd.get("bank") ?? "").trim(),
       parseMoney(String(fd.get("initial_balance") ?? "")),
       String(fd.get("notes") ?? "").trim(),
+      user.company_id,
     ],
   );
   await logAction(user, "criar", "conta", id, `${user.name} cadastrou a conta ${name}`);

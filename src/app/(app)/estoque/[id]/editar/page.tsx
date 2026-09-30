@@ -8,9 +8,10 @@ import { updateProduct } from "../../actions";
 export const dynamic = "force-dynamic";
 
 export default async function EditarProdutoPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
-  const product = await one<any>(`SELECT * FROM products WHERE id = ?`, [Number(id)]);
+  // Isolamento: produto de outra empresa é inexistente para este usuário.
+  const product = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [Number(id), user.company_id]);
   if (!product) notFound();
 
   const categories = await all<any>(`SELECT id, name FROM categories WHERE active = 1 ORDER BY name`);

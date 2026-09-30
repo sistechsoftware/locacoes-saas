@@ -4,7 +4,8 @@ import { stockVersion, writeRental, STOCK_CHANGED } from "@/lib/stock-write";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, nextNumber, one, run, tx } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { recalcQuote, recalcReservation, syncOperations } from "@/lib/reservations";
 import { checkConflicts, conflictsMessage, rebuildReservationComponents, stamp } from "@/lib/stock";
@@ -52,7 +53,7 @@ function readHeader(fd: FormData) {
 }
 
 export async function createQuote(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   let h: ReturnType<typeof readHeader>;
   try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
   const invalidWindow = windowError(h.delivery_at, h.pickup_at);
@@ -64,11 +65,12 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
   let id = 0;
   await tx(async () => {
     const number = await nextNumber("quotes", "ORC");
+    // company_id da sessão: sem ele o orçamento nasceria na empresa 1 (DEFAULT)
     id = await insert(
       `INSERT INTO quotes (number, customer_id, status, event_date, event_time, address, district, city,
         delivery_at, pickup_at, valid_until, freight_cents, assembly_cents, disassembly_cents, other_cents,
-        discount_cents, notes, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        discount_cents, notes, created_by, company_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         number,
         h.customer_id,
@@ -88,15 +90,17 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
         h.discount_cents,
         h.notes,
         user.id,
+        companyId,
       ],
     );
     for (const i of items) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents) VALUES (?,?,?,?,?)`, [
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, company_id) VALUES (?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
         i.unit_price_cents,
         i.discount_cents,
+        companyId,
       ]);
     }
     await recalcQuote(id);
@@ -109,14 +113,15 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
 }
 
 export async function updateQuote(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("id"));
   let h: ReturnType<typeof readHeader>;
   try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
   const invalidWindow = windowError(h.delivery_at, h.pickup_at);
   if (invalidWindow) return invalidWindow;
   const items = readItems(fd);
-  const q = await one<any>(`SELECT * FROM quotes WHERE id = ?`, [id]);
+  // Isolamento: orçamento de outra empresa é "não encontrado".
+  const q = await one<any>(`SELECT * FROM quotes WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!q) return "Orçamento não encontrado.";
   if (q.status === "convertido") return "Orçamento já convertido em reserva não pode ser alterado.";
   if (!items.length) return "Adicione ao menos um item.";
@@ -126,7 +131,7 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
       `UPDATE quotes SET customer_id=?, status=?, event_date=?, event_time=?, address=?, district=?, city=?,
               delivery_at=?, pickup_at=?, valid_until=?, freight_cents=?, assembly_cents=?, disassembly_cents=?,
               other_cents=?, discount_cents=?, notes=?, updated_at=datetime('now','localtime')
-        WHERE id = ?`,
+        WHERE id = ? AND company_id = ?`,
       [
         h.customer_id,
         h.status,
@@ -145,16 +150,18 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
         h.discount_cents,
         h.notes,
         id,
+        companyId,
       ],
     );
     await run(`DELETE FROM quote_items WHERE quote_id = ?`, [id]);
     for (const i of items) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents) VALUES (?,?,?,?,?)`, [
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, company_id) VALUES (?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
         i.unit_price_cents,
         i.discount_cents,
+        companyId,
       ]);
     }
     await recalcQuote(id);
@@ -167,12 +174,12 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
 }
 
 export async function setQuoteStatus(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
-  const q = await one<any>(`SELECT * FROM quotes WHERE id = ?`, [id]);
+  const q = await one<any>(`SELECT * FROM quotes WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!q || q.status === "convertido") return;
-  await run(`UPDATE quotes SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [status, id]);
+  await run(`UPDATE quotes SET status = ?, updated_at = datetime('now','localtime') WHERE id = ? AND company_id = ?`, [status, id, companyId]);
   await logAction(user, "status", "orcamento", id, `${user.name} marcou o orcamento ${q.number} como ${status}`);
   revalidatePath(`/orcamentos/${id}`);
 }
@@ -184,7 +191,8 @@ export async function convertQuote(fd: FormData) {
   const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
   const force = fd.get("override") === "1";
-  const q = await one<any>(`SELECT * FROM quotes WHERE id = ?`, [id]);
+  // Isolamento: orçamento de outra empresa é "não encontrado".
+  const q = await one<any>(`SELECT * FROM quotes WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!q) return;
   if (q.reservation_id) redirect(`/reservas/${q.reservation_id}`);
   const invalidWindow = windowError(q.delivery_at, q.pickup_at);
@@ -200,7 +208,8 @@ export async function convertQuote(fd: FormData) {
     null,
     { considerPreparation: fd.has("consider_preparation") ? fd.get("consider_preparation") !== "0" : q.stock_consider_preparation !== 0 },
   );
-  if (conflicts.length && !(force && user.role === "admin")) {
+  // override de estoque: dono E admin da empresa (ehAdmin), nunca o papel literal
+  if (conflicts.length && !(force && ehAdmin(user.role))) {
     const msg = conflictsMessage(conflicts);
     redirect(`/orcamentos/${id}?erro=${encodeURIComponent(msg)}`);
   }
@@ -210,14 +219,14 @@ export async function convertQuote(fd: FormData) {
   try {
     saved = await writeRental(companyId, version, { ...q, status: "confirmada", quote_id: id, created_by: user.id,
       needs_delivery: 1, needs_pickup: 1, needs_assembly: q.assembly_cents > 0 ? 1 : 0,
-      needs_disassembly: q.disassembly_cents > 0 ? 1 : 0, stock_override: force && user.role === "admin" ? 1 : 0,
+      needs_disassembly: q.disassembly_cents > 0 ? 1 : 0, stock_override: force && ehAdmin(user.role) ? 1 : 0,
       stock_consider_preparation: considerPreparation ? 1 : 0 }, items, undefined, id);
   } catch (e) {
     if ((e as Error).message === STOCK_CHANGED) redirect(`/orcamentos/${id}?erro=${encodeURIComponent(STOCK_CHANGED)}`);
     throw e;
   }
   const { id: reservationId, number } = saved;
-  await insert("INSERT INTO deposits (reservation_id,amount_cents,status) VALUES (?,0,'nao_recebida')", [reservationId]);
+  await insert("INSERT INTO deposits (reservation_id,amount_cents,status,company_id) VALUES (?,0,'nao_recebida',?)", [reservationId, companyId]);
   await recalcReservation(reservationId);
   await syncOperations(reservationId);
   await logAction(user, "converter", "orcamento", id, `${user.name} converteu o orcamento ${q.number} na reserva ${number}`);
@@ -231,8 +240,9 @@ export async function convertQuote(fd: FormData) {
 export async function deleteQuote(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const q = await one<any>(`SELECT number FROM quotes WHERE id = ?`, [id]);
-  await run(`DELETE FROM quotes WHERE id = ?`, [id]);
+  const q = await one<any>(`SELECT number FROM quotes WHERE id = ? AND company_id = ?`, [id, user.company_id]);
+  if (!q) return; // orçamento de outra empresa: nada a fazer
+  await run(`DELETE FROM quotes WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "orcamento", id, `${user.name} excluiu o orcamento ${q?.number}`);
   redirect("/orcamentos");
 }

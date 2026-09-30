@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all, one, scalar } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { logsFor } from "@/lib/audit";
 import { FREIGHT_STATUS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
 import { dateBR, mapsLink, money, phoneBR, timeBR, today, utcParaLocal, waLink } from "@/lib/format";
@@ -168,7 +169,7 @@ export default async function FretePage({ params }: { params: Promise<{ id: stri
         </Section>
       )}
 
-      {user.role === "admin" && (
+      {ehAdmin(user.role) && (
         <Card className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-tinta-900">Área do administrador</p>
           <form action={deleteFreight}>

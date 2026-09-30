@@ -8,6 +8,7 @@ import { dateTimeBR } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { one } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { quoteItems } from "@/lib/reservations";
 import { messageForQuote } from "@/lib/whatsapp";
 import { logsFor } from "@/lib/audit";
@@ -104,7 +105,7 @@ export default async function OrcamentoPage({
             <form action={convertQuote} className="mt-3 space-y-2">
               <input type="hidden" name="consider_preparation" value={query.considerPreparation ? "1" : "0"} />
               <input type="hidden" name="id" value={q.id} />
-              {user.role === "admin" && (
+              {ehAdmin(user.role) && (
                 <label className="flex items-center gap-2 text-xs font-semibold text-stone-600">
                   <input type="checkbox" name="override" value="1" className="h-4 w-4" />
                   Converter mesmo com estoque insuficiente (administrador)
@@ -200,7 +201,7 @@ export default async function OrcamentoPage({
         </Section>
       )}
 
-      {user.role === "admin" && q.status !== "convertido" && (
+      {ehAdmin(user.role) && q.status !== "convertido" && (
         <Card className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-tinta-900">Área do administrador</p>
           <form action={deleteQuote}>
