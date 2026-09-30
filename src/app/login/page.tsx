@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { currentUser } from "@/lib/auth";
+import { currentUser, destinoAposLogin } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import LoginForm from "./LoginForm";
 
@@ -8,7 +8,8 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ redefinida?: string }>;
 }) {
-  if (await currentUser()) redirect("/dashboard");
+  const logado = await currentUser();
+  if (logado) redirect(destinoAposLogin(logado));
   const s = await getSettings();
   const senhaRedefinida = (await searchParams).redefinida === "1";
   return (

@@ -2,7 +2,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { one } from "@/lib/db";
-import { createSession, destroySession, verifyPassword } from "@/lib/auth";
+import { createSession, destroySession, verifyPassword, destinoAposLogin } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -44,7 +44,9 @@ export async function loginAction(_prev: string | null, formData: FormData): Pro
   }
   await createSession(user.id);
   await logAction({ id: user.id, name: user.name, username: user.username, role: user.role, company_id: user.company_id, avatar_url: user.avatar_url ?? null, platform_admin: !!user.platform_admin }, "login", "usuario", user.id, `${user.name} entrou no sistema`);
-  redirect("/dashboard");
+  // Administrador da plataforma entra no ambiente SaaS; cliente/locador no
+  // dashboard operacional — destino decidido pelo perfil na SESSÃO (server).
+  redirect(destinoAposLogin({ platform_admin: !!user.platform_admin }));
 }
 
 export async function logoutAction() {

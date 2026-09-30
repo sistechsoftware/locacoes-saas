@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { criarPrimeiroOwner } from "@/lib/primeiro-acesso";
-import { createSession } from "@/lib/auth";
+import { createSession, destinoAposLogin } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -59,5 +59,5 @@ export async function setupAction(_prev: string | null, formData: FormData): Pro
     resultado.userId,
     "Primeiro acesso configurado (proprietário criado)",
   );
-  redirect("/dashboard");
+  redirect(destinoAposLogin({ platform_admin: true })); // o primeiro acesso é platform_admin
 }

@@ -636,12 +636,15 @@ export type EmpresaPainel = {
   price_cents: number | null;
   current_period_end: string | null;
   trial_ends_at: string | null;
+  owner_email: string | null;
 };
 
 export async function listarEmpresasPainel(): Promise<EmpresaPainel[]> {
   return await all<EmpresaPainel>(
     `SELECT c.id AS company_id, c.name, c.active,
             (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.active = 1) AS usuarios,
+            (SELECT u2.email FROM users u2 WHERE u2.company_id = c.id AND u2.role = 'owner' AND u2.active = 1
+              ORDER BY u2.id LIMIT 1) AS owner_email,
             s.status, p.name AS plano, p.price_cents, s.current_period_end, s.trial_ends_at
        FROM companies c
        LEFT JOIN subscriptions s ON s.company_id = c.id
@@ -786,6 +789,124 @@ export async function listarEventosWebhookPainel(limite = 20): Promise<EventoWeb
   return await all<EventoWebhookPainel>(
     `SELECT id, event, handled, error, created_at
        FROM webhook_events ORDER BY id DESC LIMIT ?`,
+    [limite],
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Alertas do painel SaaS (dashboard administrativo)                    */
+/* ------------------------------------------------------------------ */
+
+export type AlertaSaas = {
+  severidade: "critico" | "aviso" | "info";
+  titulo: string;
+  detalhe: string;
+  href: string;
+};
+
+/**
+ * Alertas consolidados da PLATAFORMA (não da empresa): trial acabando,
+ * cobranças vencidas, períodos vencendo, assinaturas suspensas, eventos de
+ * webhook com falha. Só descreve fatos já persistidos — nada inventado.
+ */
+export async function alertasSaasPainel(): Promise<AlertaSaas[]> {
+  const hoje = hojeISO();
+  const alertas: AlertaSaas[] = [];
+
+  const acabando = await all<{ name: string; trial_ends_at: string }>(
+    `SELECT c.name, s.trial_ends_at FROM subscriptions s
+       JOIN companies c ON c.id = s.company_id
+      WHERE s.status = 'trial' AND s.trial_ends_at IS NOT NULL
+        AND s.trial_ends_at >= ? AND s.trial_ends_at <= ?
+      ORDER BY s.trial_ends_at`,
+    [hoje, diaISO(7)],
+  );
+  for (const a of acabando) {
+    alertas.push({
+      severidade: "aviso",
+      titulo: `Trial acabando: ${a.name}`,
+      detalhe: `Período de teste termina em ${dataBRz(a.trial_ends_at)} — contato para converter.`,
+      href: "/saas/assinaturas",
+    });
+  }
+
+  const vencidas = await all<{ empresa: string; due_date: string; amount_cents: number }>(
+    `SELECT c.name AS empresa, sp.due_date, sp.amount_cents FROM subscription_payments sp
+       JOIN companies c ON c.id = sp.company_id
+      WHERE sp.status IN ('pending','overdue') AND sp.due_date IS NOT NULL AND sp.due_date < ?
+      ORDER BY sp.due_date`,
+    [hoje],
+  );
+  for (const v of vencidas) {
+    alertas.push({
+      severidade: "critico",
+      titulo: `Cobrança vencida: ${v.empresa}`,
+      detalhe: `${dinheiroFmt(v.amount_cents)} venceram em ${dataBRz(v.due_date)}.`,
+      href: "/saas/cobrancas",
+    });
+  }
+
+  const vencendo = await all<{ name: string; current_period_end: string }>(
+    `SELECT c.name, s.current_period_end FROM subscriptions s
+       JOIN companies c ON c.id = s.company_id
+      WHERE s.status = 'active' AND s.current_period_end IS NOT NULL
+        AND s.current_period_end >= ? AND s.current_period_end <= ?
+      ORDER BY s.current_period_end`,
+    [hoje, diaISO(7)],
+  );
+  for (const p of vencendo) {
+    alertas.push({
+      severidade: "info",
+      titulo: `Período vence em breve: ${p.name}`,
+      detalhe: `Renovação em ${dataBRz(p.current_period_end)} — a rotina diária gera a cobrança.`,
+      href: "/saas/assinaturas",
+    });
+  }
+
+  const suspensas = await scalar<number>(
+    `SELECT COUNT(*) FROM subscriptions WHERE status IN ('suspended','canceled')`,
+  );
+  if (suspensas > 0) {
+    alertas.push({
+      severidade: "aviso",
+      titulo: `${suspensas} assinatura${suspensas === 1 ? "" : "s"} bloqueada${suspensas === 1 ? "" : "s"}`,
+      detalhe: "Suspensas por inadimplência ou canceladas — reativar na tela de assinaturas.",
+      href: "/saas/assinaturas",
+    });
+  }
+
+  const falhas = await scalar<number>(
+    `SELECT COUNT(*) FROM webhook_events WHERE handled = 0`,
+  );
+  if (falhas > 0) {
+    alertas.push({
+      severidade: "critico",
+      titulo: `${falhas} evento${falhas === 1 ? "" : "s"} do Asaas sem processar`,
+      detalhe: "Verificar a trilha de eventos — pode haver pagamento confirmado não aplicado.",
+      href: "/saas/eventos",
+    });
+  }
+
+  return alertas;
+}
+
+function dataBRz(iso: string | null): string {
+  return iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—";
+}
+
+/** Atividade administrativa recente (audit_logs globais da plataforma). */
+export async function atividadeRecentePainel(limite = 12) {
+  return await all<{
+    id: number;
+    user_name: string | null;
+    action: string;
+    entity: string;
+    entity_id: number | null;
+    summary: string;
+    created_at: string;
+  }>(
+    `SELECT id, user_name, action, entity, entity_id, summary, created_at
+       FROM audit_logs ORDER BY id DESC LIMIT ?`,
     [limite],
   );
 }

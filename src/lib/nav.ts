@@ -42,6 +42,28 @@ export const NAV: NavItem[] = [
  *  Ordem pensada para o polegar: Dashboard, Agenda, Reservas, Entregas. */
 export const MOBILE_NAV = NAV.filter((n) => n.mobile);
 
+/* ------------------------------------------------------------------ */
+/* Navegação do AMBIENTE ADMINISTRATIVO (/saas)                         */
+/* ------------------------------------------------------------------ */
+/* Completamente separada da operacional: nada de reservas/estoque/agenda.
+ * O guard de acesso é server-side (layout do grupo (saas)); isto aqui é só
+ * apresentação. Ícones existentes em Icons.tsx. */
+export const SAAS_NAV = [
+  { href: "/saas", label: "Dashboard", icon: "dashboard" },
+  { href: "/saas/empresas", label: "Empresas", icon: "clientes" },
+  { href: "/saas/assinaturas", label: "Assinaturas", icon: "contratos" },
+  { href: "/saas/cobrancas", label: "Cobranças", icon: "financeiro" },
+  { href: "/saas/eventos", label: "Eventos Asaas", icon: "historico" },
+  { href: "/saas/atividade", label: "Atividade", icon: "sino" },
+  { href: "/saas/configuracoes", label: "Integrações", icon: "configuracoes" },
+] as const;
+
+/** Versão resumida para o menu hambúrguer mobile do shell SaaS. */
+export const MOBILE_SAAS_NAV: { href: string; label: string; icon: string }[] = [
+  { href: "/saas", label: "Dashboard", icon: "dashboard" },
+  ...SAAS_NAV.filter((n) => n.href !== "/saas"),
+];
+
 /** Menu "Mais" da barra inferior: tudo que nao cabe na barra, na ordem
  *  original do menu lateral (Mensagens primeiro) — sem duplicar entradas. */
 export const EXTRA_NAV = NAV.filter((n) => !n.mobile);

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { currentUser } from "@/lib/auth";
+import { currentUser, destinoAposLogin } from "@/lib/auth";
 import { estadoInstalacao } from "@/lib/primeiro-acesso";
 import SetupForm from "./SetupForm";
 
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
  * para o login — a criacao dos proximos usuarios e logada, em Configuracoes.
  */
 export default async function SetupPage() {
-  if (await currentUser()) redirect("/dashboard");
+  const logado = await currentUser();
+  if (logado) redirect(destinoAposLogin(logado));
   const estado = await estadoInstalacao();
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-nuvem-200 to-nuvem-100 p-5">

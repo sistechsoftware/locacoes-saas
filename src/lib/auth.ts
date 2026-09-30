@@ -114,6 +114,9 @@ export async function destroySession() {
   );
 }
 
+// Destino pós-login vive em destino.ts (função pura, testável sem next/*).
+export { destinoAposLogin } from "./destino";
+
 /** Usuario da requisicao atual, ou null. */
 export async function currentUser(): Promise<SessionUser | null> {
   const jar = await cookiesDaRequest();
