@@ -699,3 +699,93 @@ export async function acaoPlataforma(
     );
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Financeiro da plataforma (painel /saas)                              */
+/* ------------------------------------------------------------------ */
+
+/** Uma cobrança do painel, já enriquecida com empresa e plano. */
+export type CobrancaPainel = {
+  id: number;
+  company_id: number;
+  empresa: string;
+  plano: string | null;
+  asaas_payment_id: string | null;
+  amount_cents: number;
+  status: string;
+  due_date: string | null;
+  paid_at: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  invoice_url: string | null;
+};
+
+/**
+ * Cobranças da plataforma com nome da empresa e plano. Ordem: as mais
+ * relevantes primeiro (vencidas, a vencer) e depois as pagas antigas.
+ */
+export async function listarCobrancasPainel(limite = 200): Promise<CobrancaPainel[]> {
+  return await all<CobrancaPainel>(
+    `SELECT sp.id, sp.company_id, c.name AS empresa, p.name AS plano,
+            sp.asaas_payment_id, sp.amount_cents, sp.status, sp.due_date,
+            sp.paid_at, sp.period_start, sp.period_end, sp.invoice_url
+       FROM subscription_payments sp
+       JOIN companies c ON c.id = sp.company_id
+       LEFT JOIN subscriptions s ON s.id = sp.subscription_id
+       LEFT JOIN plans p ON p.id = s.plan_id
+      ORDER BY CASE sp.status WHEN 'pending' THEN 0 WHEN 'overdue' THEN 0 ELSE 1 END,
+               COALESCE(sp.due_date, '9999-12-31') DESC, sp.id DESC
+      LIMIT ?`,
+    [limite],
+  );
+}
+
+/** Números do mês corrente (fuso de Brasília) para os cards do painel. */
+export async function resumoFinanceiroPainel() {
+  const hoje = hojeISO();
+  const primeiroDia = `${hoje.slice(0, 7)}-01`;
+
+  // "No mês" = pago neste mês de acordo com paid_at (data do crédito).
+  const recebido = await scalar<number>(
+    `SELECT COALESCE(SUM(amount_cents),0) FROM subscription_payments
+      WHERE status IN ('received','confirmed') AND paid_at >= ?`,
+    [primeiroDia],
+  );
+  const pixPendentes = await scalar<number>(
+    `SELECT COALESCE(SUM(amount_cents),0) FROM subscription_payments WHERE status = 'pending'`,
+  );
+  const pixPendentesQtd = await scalar<number>(
+    `SELECT COUNT(*) FROM subscription_payments WHERE status = 'pending'`,
+  );
+  // Inadimplência: cobrança vencida e não paga.
+  const inadimplencia = await scalar<number>(
+    `SELECT COALESCE(SUM(amount_cents),0) FROM subscription_payments
+      WHERE status IN ('pending','overdue') AND due_date IS NOT NULL AND due_date < ?`,
+    [hoje],
+  );
+  const inadimplentesQtd = await scalar<number>(
+    `SELECT COUNT(DISTINCT company_id) FROM subscription_payments
+      WHERE status IN ('pending','overdue') AND due_date IS NOT NULL AND due_date < ?`,
+    [hoje],
+  );
+
+  return { recebido, pixPendentes, pixPendentesQtd, inadimplencia, inadimplentesQtd, primeiroDia };
+}
+
+/** Um evento do webhook do Asaas (auditoria). */
+export type EventoWebhookPainel = {
+  id: number;
+  event: string;
+  handled: number;
+  error: string | null;
+  created_at: string;
+};
+
+/** Últimos eventos recebidos do Asaas — trilha de auditoria do painel. */
+export async function listarEventosWebhookPainel(limite = 20): Promise<EventoWebhookPainel[]> {
+  return await all<EventoWebhookPainel>(
+    `SELECT id, event, handled, error, created_at
+       FROM webhook_events ORDER BY id DESC LIMIT ?`,
+    [limite],
+  );
+}
