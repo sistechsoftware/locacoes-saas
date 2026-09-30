@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { criarEmpresaComTrial } from "@/lib/onboarding";
-import { createSession } from "@/lib/auth";
+import { createSession, destinoAposLogin } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -65,5 +65,5 @@ export async function criarEmpresaAction(_prev: string | null, formData: FormDat
     `Nova empresa via checkout (empresa #${resultado.companyId}, trial até ${resultado.trialEndsAt})`,
   );
 
-  redirect("/dashboard");
+  redirect(destinoAposLogin({ platform_admin: false })); // cliente nasce como locador
 }

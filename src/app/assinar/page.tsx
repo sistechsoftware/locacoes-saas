@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { currentUser } from "@/lib/auth";
+import { currentUser, destinoAposLogin } from "@/lib/auth";
 import { planoPorSlug } from "@/lib/billing";
 import { DIAS_TRIAL_PADRAO } from "@/lib/onboarding";
 import AssinarForm from "./AssinarForm";
@@ -19,7 +19,8 @@ export default async function AssinarPage({
 }: {
   searchParams: Promise<{ plano?: string }>;
 }) {
-  if (await currentUser()) redirect("/dashboard");
+  const logado = await currentUser();
+  if (logado) redirect(destinoAposLogin(logado));
 
   // Sem ?plano= (links genéricos "Começar grátis"), cai no "Profissional" — o
   // mais popular. Query inválida segue indo para /planos (plano inexistente é
