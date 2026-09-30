@@ -26,10 +26,32 @@ export async function setupAction(_prev: string | null, formData: FormData): Pro
     nome: String(formData.get("nome") ?? ""),
     username: String(formData.get("username") ?? ""),
     senha: String(formData.get("senha") ?? ""),
+    email: String(formData.get("email") ?? ""),
   });
   if (!resultado.ok) return resultado.erro;
 
   await createSession(resultado.userId);
+
+  // Boas-vindas — fail-open: se falhar, o setup segue íntegro.
+  async function baseUrl(): Promise<string> {
+    try {
+      const h = await headers();
+      const host = h.get("x-forwarded-host") || h.get("host") || "";
+      const proto = h.get("x-forwarded-proto") || "https";
+      return host ? `${proto}://${host}` : "";
+    } catch {
+      return "";
+    }
+  }
+  const { emailBoasVindasSetup, enviarEmail } = await import("@/lib/email");
+  const url = await baseUrl();
+  void enviarEmail({
+    to: resultado.email,
+    subject: "Bem-vindo(a) à Lima's Locações",
+    html: emailBoasVindasSetup(resultado.nome, resultado.empresa, url),
+    text: `Conta criada! Entre em ${url}/login.`,
+  }).catch(() => false);
+
   await logAction(
     { id: resultado.userId, name: "", username: "", role: "owner", company_id: 1, avatar_url: null, platform_admin: true },
     "setup",

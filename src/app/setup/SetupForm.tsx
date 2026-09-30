@@ -14,6 +14,20 @@ export default function SetupForm() {
       <Field label="Seu nome">
         <input name="nome" className="campo" required maxLength={80} placeholder="Nome e sobrenome" />
       </Field>
+      <Field label="E-mail">
+        <input
+          name="email"
+          type="email"
+          className="campo"
+          autoComplete="email"
+          required
+          maxLength={120}
+          placeholder="voce@empresa.com.br"
+        />
+        <p className="mt-1 text-xs text-stone-500">
+          Para avisos da conta e recuperação de senha — guarde bem este e-mail.
+        </p>
+      </Field>
       <Field label="Usuário">
         <input
           name="username"

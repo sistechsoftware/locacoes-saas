@@ -1,4 +1,5 @@
 import "server-only";
+import { hashPassword } from "./password";
 import { one, scalar } from "./db";
 
 /**
@@ -35,14 +36,18 @@ export async function estadoInstalacao(): Promise<EstadoInstalacao> {
 }
 
 export type ResultadoSetup =
-  | { ok: true; userId: number }
+  | { ok: true; userId: number; email: string; nome: string; empresa: string }
   | { ok: false; erro: string };
+
+const EMAIL_RX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 export async function criarPrimeiroOwner(entrada: {
   empresa: string;
   nome: string;
   username: string;
   senha: string;
+  /** Obrigatório: canal dos avisos (trial, cobrança) e da recuperação de senha. */
+  email?: string;
 }): Promise<ResultadoSetup> {
   const estado = await estadoInstalacao();
 
@@ -50,12 +55,15 @@ export async function criarPrimeiroOwner(entrada: {
   const nomeUsuario = String(entrada.nome ?? "").trim().slice(0, 80);
   const username = String(entrada.username ?? "").trim().toLowerCase().slice(0, 40);
   const senha = String(entrada.senha ?? "");
+  const email = String(entrada.email ?? "").trim().toLowerCase().slice(0, 120);
 
   if (!nomeEmpresa) return { ok: false, erro: "Informe o nome da empresa." };
   if (!nomeUsuario) return { ok: false, erro: "Informe o seu nome." };
   if (!/^[a-z0-9._-]{3,}$/.test(username))
     return { ok: false, erro: "Usuário inválido: use 3+ caracteres (letras, números, ponto, hífen ou _)." };
   if (senha.length < 8) return { ok: false, erro: "A senha precisa ter pelo menos 8 caracteres." };
+  if (!email) return { ok: false, erro: "Informe o e-mail — é o canal dos avisos e da recuperação de senha." };
+  if (!EMAIL_RX.test(email)) return { ok: false, erro: "E-mail inválido." };
   if (!estado.instalacaoVazia)
     return { ok: false, erro: "Esta instalação já possui um acesso configurado. Entre com o seu usuário." };
 
@@ -67,20 +75,19 @@ export async function criarPrimeiroOwner(entrada: {
   if (existente) return { ok: false, erro: "Este nome de usuário já está em uso." };
 
   const { run, insert } = await import("./db");
-  // Import dinamico de auth (next/*) para manter este modulo carregavel fora
-  // de request — mesmo padrao de tenant.ts.
-  const { hashPassword } = await import("./auth");
   // O primeiro acesso de uma instalacao nova e o operador da PLATAFORMA
   // (platform_admin, migration 0029): acessa o painel /saas alem do sistema.
   const userId = await insert(
-    `INSERT INTO users (name, username, password_hash, role, active, company_id, platform_admin)
-     VALUES (?,?,?,'owner',1,1,1)`,
-    [nomeUsuario, username, hashPassword(senha)],
+    `INSERT INTO users (name, username, email, password_hash, role, active, company_id, platform_admin)
+     VALUES (?,?,?,?,'owner',1,1,1)`,
+    [nomeUsuario, username, email, hashPassword(senha)],
   );
   await run(
     `INSERT INTO company_settings (company_id, key, value) VALUES (1,'company_name',?)
        ON CONFLICT(company_id, key) DO UPDATE SET value = excluded.value`,
     [nomeEmpresa],
   );
-  return { ok: true, userId };
+  // E-mail da empresa = canal comercial (avisos de cobrança/trial via owner).
+  await run(`UPDATE companies SET email = ? WHERE id = 1`, [email]);
+  return { ok: true, userId, email, nome: nomeUsuario, empresa: nomeEmpresa };
 }

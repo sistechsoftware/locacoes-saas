@@ -148,6 +148,17 @@ function dataBR(iso: string | null): string {
   return iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—";
 }
 
+/** Boas-vindas do primeiro acesso (/setup) — instalação nova, sem trial. */
+export function emailBoasVindasSetup(nome: string, empresa: string, baseUrl: string): EmailMensagem["html"] {
+  return layout(
+    `Bem-vindo(a), ${nome}!`,
+    `<p>Sua conta da empresa <b>${empresa}</b> está pronta.</p>
+     <p>Entre com o usuário que você criou. Se precisar, a recuperação de senha
+     envia o link para <b>este e-mail</b>.</p>`,
+    { href: `${baseUrl}/login`, label: "Entrar no sistema" },
+  );
+}
+
 export function emailBoasVindas(nome: string, empresa: string, trialEndsAt: string, baseUrl: string): EmailMensagem["html"] {
   return layout(
     `Bem-vindo(a), ${nome}!`,
