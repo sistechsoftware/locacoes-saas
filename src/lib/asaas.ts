@@ -72,6 +72,9 @@ export function asaasClient(cfg: AsaasConfig) {
         headers: {
           access_token: cfg.apiKey,
           "Content-Type": "application/json",
+          // Obrigatório: a API do Asaas recusa requisições sem User-Agent
+          // (o fetch do Worker NÃO envia um por padrão, ao contrário do curl).
+          "User-Agent": "limas-locacoes-saas/1.0",
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });

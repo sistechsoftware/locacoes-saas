@@ -26,7 +26,10 @@ export async function gerarCobrancaAction(): Promise<{ ok: boolean; mensagem: st
     sem_empresa: "Empresa não encontrada ou inativa.",
     sem_dados_bancarios: "Não foi possível gerar a cobrança agora. Tente novamente.",
   };
-  return { ok: false, mensagem: motivos[r.motivo] ?? "Falha ao gerar a cobrança.", url: undefined };
+  // Detalhe técnico (quando o Asaas devolveu erro) ajuda o suporte a
+  // diagnosticar sem precisar de tail/stack — a mensagem vem da API deles.
+  const detalhe = "erro" in r && r.erro ? ` (detalhe: ${r.erro})` : "";
+  return { ok: false, mensagem: `${motivos[r.motivo] ?? "Falha ao gerar a cobrança."}${detalhe}`, url: undefined };
 }
 
 export async function trocarPlanoAction(slug: string): Promise<{ ok: boolean; mensagem: string }> {

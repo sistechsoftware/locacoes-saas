@@ -341,7 +341,12 @@ export async function gerarCobrancaPeriodo(
 
     return { ok: true, paymentId: payment.id, dueDate: vencimento, invoiceUrl: payment.invoiceUrl ?? null, amountCents: plano.price_cents };
   } catch (e) {
-    if (e instanceof AsaasError) return { ok: false, motivo: "sem_dados_bancarios", erro: e.message };
+    if (e instanceof AsaasError) {
+      // Log para o tail do Worker: sem isso a falha fica invisível atrás da
+      // mensagem genérica da tela.
+      console.error("[billing] AsaasError ao gerar cobrança:", e.status, e.message, JSON.stringify(e.errors ?? []));
+      return { ok: false, motivo: "sem_dados_bancarios", erro: e.message };
+    }
     throw e;
   }
 }
