@@ -115,7 +115,7 @@ export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
       try {
         const { registrarErro } = await import("./error-log");
         await registrarErro({
-          source: "api/email",
+          source: "api/log-erro",
           kind: "server",
           message: `Falha ao enviar e-mail (${res.status}): ${corpo.slice(0, 200)}`,
           context: { to: msg.to, subject: msg.subject, from: cfg.from },

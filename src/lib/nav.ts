@@ -28,6 +28,7 @@ export const NAV: NavItem[] = [
   { href: "/fidelidade", label: "Fidelidade", icon: "clientes" },
   { href: "/aniversarios", label: "Aniversariantes", icon: "agenda" },
   { href: "/financeiro", label: "Financeiro", icon: "financeiro" },
+  { href: "/faturamento", label: "Assinatura", icon: "assinatura" },
   { href: "/compras", label: "Compras", icon: "estoque" },
   { href: "/contratos", label: "Contratos", icon: "contratos" },
   { href: "/fretes", label: "Fretes", icon: "fretes" },
