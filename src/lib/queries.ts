@@ -2,7 +2,6 @@ import "server-only";
 import { availabilityQuery, type AvailabilityQuery } from "./availability-time";
 import { type StockOptions } from "./availability-settings";
 import { all, one, scalar } from "./db";
-import { currentCompanyId } from "./db";
 import { addDays, cutoff3h, endOfMonth, startOfMonth, startOfWeek, today } from "./format";
 import { availabilityAll, kitsFromPhysical } from "./stock";
 import { ACTIVE_STATUSES, HOLDING_STATUSES, OPEN_OPERATION_STATUS } from "./domain";
@@ -13,12 +12,18 @@ const ACTIVE = list(ACTIVE_STATUSES);
 const OPEN_OPS = list(OPEN_OPERATION_STATUS);
 
 /**
- * Empresa padrão do banco para chamadas sem contexto (cron/testes).
- * Páginas e actions SEMPRE passam o companyId do contexto autenticado — o
- * fallback existe apenas para as rotinas de plataforma manterem funcionando.
+ * Empresa da consulta.
+ *
+ * Em REQUEST o tenant vem da SESSÃO (tenantCompanyId) — antes, o fallback era
+ * a empresa padrão do banco (empresa 1), então páginas que não passavam
+ * companyId explícito liam sempre os dados do tenant 1 em produção (ou listas
+ * vazias, para as demais empresas). Fora de request (cron/seed/testes) vale a
+ * empresa padrão, como antes.
  */
 async function empresa(companyId?: number): Promise<number> {
-  return companyId ?? (await currentCompanyId());
+  if (companyId !== undefined) return companyId;
+  const { tenantCompanyId } = await import("./tenant");
+  return await tenantCompanyId();
 }
 
 /* --------------------------- operacoes por periodo --------------------------- */
