@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { all } from "@/lib/db";
 import { regraAtual, mensagensPendentes, importarHistorico } from "@/lib/fidelidade-db";
 import { progresso, resumoProgresso, situacao, diasAte } from "@/lib/fidelidade";
@@ -98,7 +99,7 @@ export default async function FidelidadePage({
             </details>
           )}
 
-          {user.role === "admin" ? (
+          {ehAdmin(user.role) ? (
             <form action={importarHistoricoFidelidade} className="mt-3">
               <SubmitButton
                 confirm={`Importar ${aImportar.locacoes} locação(ões) e gerar ${aImportar.recompensas} recompensa(s)? Isso concede benefício de verdade aos clientes.`}

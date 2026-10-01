@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { getOperation } from "@/lib/queries";
 import { attachmentsFor } from "@/lib/uploads";
 import { checklistFor } from "@/lib/checklists";
@@ -102,7 +103,7 @@ export default async function OperacaoDetalhePage({
               Reagendar
             </SubmitButton>
           </form>
-          {user.role === "admin" && (
+          {ehAdmin(user.role) && (
             <form action={cancelOperation}>
               <input type="hidden" name="id" value={op.id} />
               <SubmitButton variant="perigo" confirm="Cancelar esta operação?" className="px-3 py-2 text-xs">

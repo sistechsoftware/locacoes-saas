@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { reservationItems } from "@/lib/reservations";
 import { PageHeader } from "@/components/ui";
 import ReservationForm from "../../ReservationForm";
@@ -44,7 +45,7 @@ export default async function EditarReservaPage({ params }: { params: Promise<{ 
         customers={customers}
         reservation={reservation}
         items={items}
-        isAdmin={user.role === "admin"}
+        isAdmin={ehAdmin(user.role)}
         submitLabel="Salvar alterações"
         contas={contas}
       />

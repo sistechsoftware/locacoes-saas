@@ -57,12 +57,12 @@ async function validar(fd: FormData, productId: number, faixas: Faixa[], exceto?
   return null;
 }
 
-async function gravarFaixas(promotionId: number, faixas: Faixa[]) {
+async function gravarFaixas(promotionId: number, companyId: number, faixas: Faixa[]) {
   await run(`DELETE FROM promotion_tiers WHERE promotion_id = ?`, [promotionId]);
   for (const f of faixas) {
     await insert(
-      `INSERT INTO promotion_tiers (promotion_id, min_qty, max_qty, unit_price_cents) VALUES (?,?,?,?)`,
-      [promotionId, f.min_qty, f.max_qty, f.unit_price_cents],
+      `INSERT INTO promotion_tiers (promotion_id, min_qty, max_qty, unit_price_cents, company_id) VALUES (?,?,?,?,?)`,
+      [promotionId, f.min_qty, f.max_qty, f.unit_price_cents, companyId],
     );
   }
 }
@@ -73,10 +73,14 @@ export async function createPromotion(_prev: string | null, fd: FormData): Promi
   const faixas = lerFaixas(fd);
   const erro = await validar(fd, productId, faixas);
   if (erro) return erro;
+  // promoção só nasce sobre produto DA empresa do admin
+  if (!await one(`SELECT id FROM products WHERE id = ? AND company_id = ?`, [productId, user.company_id])) {
+    return "Produto não encontrado.";
+  }
 
   const id = await insert(
-    `INSERT INTO promotions (product_id, name, active, starts_on, ends_on, notes, created_by)
-     VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO promotions (product_id, name, active, starts_on, ends_on, notes, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?)`,
     [
       productId,
       String(fd.get("name") ?? "").trim().slice(0, 120),
@@ -85,9 +89,10 @@ export async function createPromotion(_prev: string | null, fd: FormData): Promi
       lerData(fd, "ends_on"),
       String(fd.get("notes") ?? "").trim().slice(0, 500) || null,
       user.id,
+      user.company_id,
     ],
   );
-  await gravarFaixas(id, faixas);
+  await gravarFaixas(id, user.company_id, faixas);
   await logAction(user, "criar", "promocao", id, `${user.name} criou uma promoção por quantidade`);
   revalidatePath("/promocoes");
   redirect(`/promocoes/${id}`);
@@ -100,10 +105,17 @@ export async function updatePromotion(_prev: string | null, fd: FormData): Promi
   const faixas = lerFaixas(fd);
   const erro = await validar(fd, productId, faixas, id);
   if (erro) return erro;
+  // Isolamento: promoção de outra empresa é "não encontrada".
+  if (!await one(`SELECT id FROM promotions WHERE id = ? AND company_id = ?`, [id, user.company_id])) {
+    return "Promoção não encontrada.";
+  }
+  if (!await one(`SELECT id FROM products WHERE id = ? AND company_id = ?`, [productId, user.company_id])) {
+    return "Produto não encontrado.";
+  }
 
   await run(
     `UPDATE promotions SET product_id=?, name=?, active=?, starts_on=?, ends_on=?, notes=?,
-            updated_at=datetime('now','localtime') WHERE id=?`,
+            updated_at=datetime('now','localtime') WHERE id=? AND company_id=?`,
     [
       productId,
       String(fd.get("name") ?? "").trim().slice(0, 120),
@@ -112,9 +124,10 @@ export async function updatePromotion(_prev: string | null, fd: FormData): Promi
       lerData(fd, "ends_on"),
       String(fd.get("notes") ?? "").trim().slice(0, 500) || null,
       id,
+      user.company_id,
     ],
   );
-  await gravarFaixas(id, faixas);
+  await gravarFaixas(id, user.company_id, faixas);
   // documentos ja salvos guardam o proprio preco: mudar a promocao nao mexe neles
   await logAction(user, "editar", "promocao", id, `${user.name} alterou a promoção`);
   revalidatePath("/promocoes");
@@ -125,10 +138,10 @@ export async function updatePromotion(_prev: string | null, fd: FormData): Promi
 export async function togglePromotion(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const promocao = await one<any>(`SELECT active FROM promotions WHERE id = ?`, [id]);
+  const promocao = await one<any>(`SELECT active FROM promotions WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!promocao) return;
   const novo = promocao.active ? 0 : 1;
-  await run(`UPDATE promotions SET active=?, updated_at=datetime('now','localtime') WHERE id=?`, [novo, id]);
+  await run(`UPDATE promotions SET active=?, updated_at=datetime('now','localtime') WHERE id=? AND company_id=?`, [novo, id, user.company_id]);
   await logAction(user, "editar", "promocao", id, `${user.name} ${novo ? "ativou" : "desativou"} a promoção`);
   revalidatePath("/promocoes");
   revalidatePath(`/promocoes/${id}`);
@@ -143,11 +156,11 @@ export async function deletePromotion(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
   const promocao = await one<any>(
-    `SELECT pr.id, p.name AS product_name FROM promotions pr JOIN products p ON p.id = pr.product_id WHERE pr.id = ?`,
-    [id],
+    `SELECT pr.id, p.name AS product_name FROM promotions pr JOIN products p ON p.id = pr.product_id WHERE pr.id = ? AND pr.company_id = ?`,
+    [id, user.company_id],
   );
   if (!promocao) return;
-  await run(`DELETE FROM promotions WHERE id = ?`, [id]);
+  await run(`DELETE FROM promotions WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "promocao", id, `${user.name} excluiu a promoção de ${promocao.product_name}`);
   revalidatePath("/promocoes");
   redirect("/promocoes");

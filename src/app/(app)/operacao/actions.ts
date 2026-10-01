@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, one, run } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { attach, removeAttachment, UploadError } from "@/lib/uploads";
 import { parseMoney, nowLocal, today } from "@/lib/format";
@@ -13,18 +13,22 @@ import { completeDamageMaintenance, resolveDamage as resolverDanoCore, revertDam
 /* ------------------------------- criar / editar ------------------------------- */
 
 export async function createOperation(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const kind = String(fd.get("kind") ?? "entrega");
   const reservationId = Number(fd.get("reservation_id")) || null;
   const scheduled = stamp(String(fd.get("scheduled_at") ?? ""), "08:00");
   if (!scheduled) return "Informe a data e o horário.";
   if (!reservationId) return "Selecione a reserva.";
+  // Isolamento: a reserva precisa ser da empresa do usuário.
+  if (!await one(`SELECT id FROM reservations WHERE id = ? AND company_id = ?`, [reservationId, companyId])) {
+    return "Reserva não encontrada.";
+  }
   const assigneeId = Number(fd.get("assignee_id")) || null;
-  if (assigneeId && !await one("SELECT id FROM users WHERE id=? AND active=1",[assigneeId])) return "Responsável inválido ou inativo.";
+  if (assigneeId && !await one("SELECT id FROM users WHERE id=? AND active=1 AND company_id=?",[assigneeId, companyId])) return "Responsável inválido ou inativo.";
 
   const id = await insert(
-    `INSERT INTO operations (kind, reservation_id, scheduled_at, status, assignee, vehicle_id, notes, assignee_id)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO operations (kind, reservation_id, scheduled_at, status, assignee, vehicle_id, notes, assignee_id, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
     [
       kind,
       reservationId,
@@ -34,9 +38,10 @@ export async function createOperation(_prev: string | null, fd: FormData): Promi
       Number(fd.get("vehicle_id")) || null,
       String(fd.get("notes") ?? ""),
       assigneeId,
+      companyId,
     ],
   );
-  const r = await one<any>(`SELECT number FROM reservations WHERE id = ?`, [reservationId]);
+  const r = await one<any>(`SELECT number FROM reservations WHERE id = ? AND company_id = ?`, [reservationId, companyId]);
   await logAction(user, "criar", "operacao", id, `${user.name} agendou ${kind} de ${r?.number} para ${scheduled}`);
   revalidatePath("/operacao");
   revalidatePath("/agenda");
@@ -44,18 +49,18 @@ export async function createOperation(_prev: string | null, fd: FormData): Promi
 }
 
 export async function updateOperation(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("id"));
-  const op = await one<any>(`SELECT * FROM operations WHERE id = ?`, [id]);
+  const op = await one<any>(`SELECT * FROM operations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!op) return;
 
   const scheduled = stamp(String(fd.get("scheduled_at") ?? op.scheduled_at), "08:00");
   const assigneeId = Number(fd.get("assignee_id")) || null;
-  if (assigneeId && !await one("SELECT id FROM users WHERE id=? AND active=1",[assigneeId])) throw new Error("Responsável inválido ou inativo.");
+  if (assigneeId && !await one("SELECT id FROM users WHERE id=? AND active=1 AND company_id=?",[assigneeId, companyId])) throw new Error("Responsável inválido ou inativo.");
   await run(
     `UPDATE operations SET scheduled_at = ?, assignee = ?, vehicle_id = ?, notes = ?, assignee_id = ?, updated_at = datetime('now','localtime')
-      WHERE id = ?`,
-    [scheduled, String(fd.get("assignee") ?? ""), Number(fd.get("vehicle_id")) || null, String(fd.get("notes") ?? ""), assigneeId, id],
+      WHERE id = ? AND company_id = ?`,
+    [scheduled, String(fd.get("assignee") ?? ""), Number(fd.get("vehicle_id")) || null, String(fd.get("notes") ?? ""), assigneeId, id, companyId],
   );
   await logAction(user, "editar", "operacao", id, `${user.name} atualizou a ${op.kind} agendada para ${scheduled}`);
   revalidatePath(`/operacao/${id}`);
@@ -63,29 +68,29 @@ export async function updateOperation(fd: FormData) {
 }
 
 export async function setOperationStatus(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   const op = await one<any>(
     `SELECT o.*, r.number, r.status AS reservation_status FROM operations o
-       LEFT JOIN reservations r ON r.id = o.reservation_id WHERE o.id = ?`,
-    [id],
+       LEFT JOIN reservations r ON r.id = o.reservation_id WHERE o.id = ? AND o.company_id = ?`,
+    [id, companyId],
   );
   if (!op) return;
 
   await run(
     `UPDATE operations SET status = ?, completed_at = CASE WHEN ? = 'concluida' THEN ? ELSE completed_at END,
-            updated_at = datetime('now','localtime') WHERE id = ?`,
-    [status, status, nowLocal(), id],
+            updated_at = datetime('now','localtime') WHERE id = ? AND company_id = ?`,
+    [status, status, nowLocal(), id, companyId],
   );
 
-  // avanca o status da reserva conforme a operacao e concluida
+  // avanca o status da reserva conforme a operacao e concluida (reserva da MESMA empresa)
   if (status === "concluida" && op.reservation_id) {
     if (op.kind === "entrega" && ["confirmada", "pre_reserva"].includes(op.reservation_status)) {
-      await run(`UPDATE reservations SET status = 'entregue' WHERE id = ?`, [op.reservation_id]);
+      await run(`UPDATE reservations SET status = 'entregue' WHERE id = ? AND company_id = ?`, [op.reservation_id, companyId]);
     }
     if (op.kind === "retirada" && ["entregue", "em_uso", "aguardando_retirada"].includes(op.reservation_status)) {
-      await run(`UPDATE reservations SET status = 'retirada' WHERE id = ?`, [op.reservation_id]);
+      await run(`UPDATE reservations SET status = 'retirada' WHERE id = ? AND company_id = ?`, [op.reservation_id, companyId]);
     }
   }
 
@@ -98,9 +103,9 @@ export async function setOperationStatus(fd: FormData) {
 export async function cancelOperation(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const op = await one<any>(`SELECT * FROM operations WHERE id = ?`, [id]);
+  const op = await one<any>(`SELECT * FROM operations WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!op) return;
-  await run(`UPDATE operations SET status = 'cancelada' WHERE id = ?`, [id]);
+  await run(`UPDATE operations SET status = 'cancelada' WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "cancelar", "operacao", id, `${user.name} cancelou a ${op.kind}`);
   revalidatePath(`/operacao/${id}`);
 }
@@ -108,9 +113,9 @@ export async function cancelOperation(fd: FormData) {
 /* --------------------------------- checklist ---------------------------------- */
 
 export async function saveChecklist(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("operation_id"));
-  const op = await one<any>(`SELECT * FROM operations WHERE id = ?`, [id]);
+  const op = await one<any>(`SELECT * FROM operations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!op) return;
 
   const itens = checklistFor(op.kind);
@@ -122,19 +127,20 @@ export async function saveChecklist(fd: FormData) {
   if (existing) {
     await run(`UPDATE checklists SET data = ?, notes = ? WHERE id = ?`, [JSON.stringify(data), notes, existing.id]);
   } else {
-    await insert(`INSERT INTO checklists (operation_id, kind, data, notes, created_by) VALUES (?,?,?,?,?)`, [
+    await insert(`INSERT INTO checklists (operation_id, kind, data, notes, created_by, company_id) VALUES (?,?,?,?,?,?)`, [
       id,
       op.kind,
       JSON.stringify(data),
       notes,
       user.id,
+      companyId,
     ]);
   }
 
   const files = fd.getAll("photos").filter((f): f is File => f instanceof File);
   if (files.length) {
     try {
-      await attach("operacao", id, files, user.id, "Checklist");
+      await attach("operacao", id, files, user.id, "Checklist", companyId);
     } catch (e) {
       const motivo = e instanceof UploadError ? e.message : "Não foi possível salvar as fotos.";
       redirect(`/operacao/${id}?erro=${encodeURIComponent(motivo)}`);
@@ -146,10 +152,10 @@ export async function saveChecklist(fd: FormData) {
 }
 
 export async function deletePhoto(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const attachmentId = Number(fd.get("attachment_id"));
   const operationId = Number(fd.get("operation_id"));
-  await removeAttachment(attachmentId);
+  await removeAttachment(attachmentId, companyId);
   await logAction(user, "excluir", "operacao", operationId, `${user.name} removeu uma foto`);
   revalidatePath(`/operacao/${operationId}`);
 }
@@ -157,9 +163,13 @@ export async function deletePhoto(fd: FormData) {
 /* ----------------------------------- danos ------------------------------------ */
 
 export async function reportDamage(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const operationId = Number(fd.get("operation_id"));
   const reservationId = Number(fd.get("reservation_id"));
+  // Isolamento: a reserva do dano precisa pertencer à empresa do usuário.
+  if (reservationId && !await one(`SELECT id FROM reservations WHERE id = ? AND company_id = ?`, [reservationId, companyId])) {
+    redirect(`/operacao?erro=${encodeURIComponent("Reserva não encontrada.")}`);
+  }
   const productId = Number(fd.get("product_id")) || null;
   const qty = Math.max(1, Number(fd.get("qty")) || 1);
   const estimated = parseMoney(String(fd.get("estimated") ?? ""));
@@ -184,8 +194,8 @@ export async function reportDamage(fd: FormData) {
   }
 
   const id = await insert(
-    `INSERT INTO damage_reports (reservation_id, product_id, qty, damage_type, description, photo, estimated_cents, charged_cents, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO damage_reports (reservation_id, product_id, qty, damage_type, description, photo, estimated_cents, charged_cents, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [
       reservationId,
       productId,
@@ -196,19 +206,21 @@ export async function reportDamage(fd: FormData) {
       estimated,
       charged,
       user.id,
+      companyId,
     ],
   );
 
   // desconta da caucao quando houver valor cobrado
   if (charged > 0) {
-    const dep = await one<any>(`SELECT * FROM deposits WHERE reservation_id = ? ORDER BY id DESC LIMIT 1`, [reservationId]);
+    const dep = await one<any>(`SELECT * FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [reservationId, companyId]);
     if (dep) {
       const retido = Math.min(dep.amount_cents, dep.retained_cents + charged);
-      await run(`UPDATE deposits SET retained_cents = ?, status = ?, reason = COALESCE(NULLIF(reason,''),?) WHERE id = ?`, [
+      await run(`UPDATE deposits SET retained_cents = ?, status = ?, reason = COALESCE(NULLIF(reason,''),?) WHERE id = ? AND company_id = ?`, [
         retido,
         retido >= dep.amount_cents ? "retida_integral" : "retida_parcial",
         String(fd.get("description") ?? "Dano registrado na retirada"),
         dep.id,
+        companyId,
       ]);
     }
   }
@@ -299,10 +311,10 @@ export async function saveVehicle(fd: FormData) {
   ];
   if (!values[0]) return;
   if (id) {
-    await run(`UPDATE vehicles SET name=?, plate=?, model=?, capacity=?, notes=? WHERE id = ?`, [...values, id]);
+    await run(`UPDATE vehicles SET name=?, plate=?, model=?, capacity=?, notes=? WHERE id = ? AND company_id = ?`, [...values, id, user.company_id]);
     await logAction(user, "editar", "veiculo", id, `${user.name} alterou o veiculo ${values[0]}`);
   } else {
-    const newId = await insert(`INSERT INTO vehicles (name, plate, model, capacity, notes) VALUES (?,?,?,?,?)`, values);
+    const newId = await insert(`INSERT INTO vehicles (name, plate, model, capacity, notes, company_id) VALUES (?,?,?,?,?,?)`, [...values, user.company_id]);
     await logAction(user, "criar", "veiculo", newId, `${user.name} cadastrou o veiculo ${values[0]}`);
   }
   revalidatePath("/configuracoes");
@@ -312,10 +324,11 @@ export async function saveVehicle(fd: FormData) {
 export async function deleteVehicle(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const v = await one<any>(`SELECT name FROM vehicles WHERE id = ?`, [id]);
-  await run(`UPDATE operations SET vehicle_id = NULL WHERE vehicle_id = ?`, [id]);
-  await run(`UPDATE freights SET vehicle_id = NULL WHERE vehicle_id = ?`, [id]);
-  await run(`DELETE FROM vehicles WHERE id = ?`, [id]);
+  const v = await one<any>(`SELECT name FROM vehicles WHERE id = ? AND company_id = ?`, [id, user.company_id]);
+  if (!v) return;
+  await run(`UPDATE operations SET vehicle_id = NULL WHERE vehicle_id = ? AND company_id = ?`, [id, user.company_id]);
+  await run(`UPDATE freights SET vehicle_id = NULL WHERE vehicle_id = ? AND company_id = ?`, [id, user.company_id]);
+  await run(`DELETE FROM vehicles WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "veiculo", id, `${user.name} removeu o veiculo ${v?.name}`);
   revalidatePath("/configuracoes");
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { assertAdmin, requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { contarErros, ERROS_POR_PAGINA, ultimosErros } from "@/lib/error-log";
 import { alternarResolvido } from "./actions";
 import { PageHeader, Badge, Empty } from "@/components/ui";
@@ -43,11 +44,18 @@ export default async function ErrosPage({
   const aba = sp.aba === "client" ? "client" : "server";
   const page = Math.max(1, Number(sp.page ?? 1));
 
+  /*
+   * Escopo do diário: o operador da plataforma (users.platform_admin) vê a
+   * visão GLOBAL; o administrador da empresa vê SOMENTE os erros da própria
+   * empresa (error_logs.company_id) — erros de outra empresa não vazam aqui.
+   */
+  const escopo = user.platform_admin ? null : user.company_id;
   const [total, rows] = await Promise.all([
-    contarErros(aba),
-    ultimosErros(aba, ERROS_POR_PAGINA, (page - 1) * ERROS_POR_PAGINA),
+    contarErros(aba, escopo),
+    ultimosErros(aba, ERROS_POR_PAGINA, (page - 1) * ERROS_POR_PAGINA, escopo),
   ]);
-  const ehAdmin = user.role === "admin";
+  // owner e admin da empresa têm o mesmo poder aqui (papéis v1, roles.ts)
+  const podeResolver = ehAdmin(user.role);
 
   return (
     <div className="space-y-4">
@@ -87,7 +95,7 @@ export default async function ErrosPage({
                     {[e.user_name, e.digest ? `digest ${e.digest}` : "", ctx].filter(Boolean).join(" · ")}
                   </p>
                 )}
-                {ehAdmin && (
+                {podeResolver && (
                   <form action={alternarResolvido} className="pt-1">
                     <input type="hidden" name="id" value={e.id} />
                     <input type="hidden" name="resolvido" value={e.resolved ? "0" : "1"} />
