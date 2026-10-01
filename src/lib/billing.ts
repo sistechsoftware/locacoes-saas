@@ -267,6 +267,37 @@ export async function estadoAssinatura(companyId: number): Promise<EstadoAssinat
 const LIMITE_TOLERANCIA_DIAS = 7;
 
 /**
+ * Valida CPF (11 dígitos) e CNPJ (14 dígitos) pelos dígitos verificadores.
+ *
+ * O Asaas rejeita documento malformado com erro genérico ("CPF/CNPJ informado
+ * é inválido"), então a barreira fica aqui — antes da chamada — para a tela
+ * poder instruir o usuário em vez de devolver "tente novamente".
+ */
+export function documentoValido(valor: string): boolean {
+  const doc = (valor ?? "").replace(/\D/g, "");
+  const digito = (base: string, pesos: number[]): number => {
+    const soma = base.split("").reduce((acc, d, i) => acc + Number(d) * pesos[i], 0);
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+  if (doc.length === 11) {
+    if (/^(\d)\1{10}$/.test(doc)) return false;
+    return (
+      digito(doc.slice(0, 9), [10, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(doc[9]) &&
+      digito(doc.slice(0, 10), [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(doc[10])
+    );
+  }
+  if (doc.length === 14) {
+    if (/^(\d)\1{13}$/.test(doc)) return false;
+    return (
+      digito(doc.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(doc[12]) &&
+      digito(doc.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(doc[13])
+    );
+  }
+  return false;
+}
+
+/**
  * Gancho de teste (mesmo padrão de globalThis.__limasTestDb em db.ts): define
  * o cliente Asaas usado por gerarCobrancaPeriodo sem tocar em secrets/rede.
  * Em produção permanece null e o módulo usa o ambiente real do Worker.
@@ -294,7 +325,7 @@ export async function gerarCobrancaPeriodo(
   opts: { vencimento?: string } = {},
 ): Promise<
   | { ok: true; paymentId: string; dueDate: string; invoiceUrl: string | null; amountCents: number }
-  | { ok: false; motivo: "asaas_nao_configurado" | "sem_empresa" | "sem_dados_bancarios"; erro?: string }
+  | { ok: false; motivo: "asaas_nao_configurado" | "sem_empresa" | "sem_dados_bancarios" | "documento_invalido"; erro?: string }
 > {
   const env = asaasTeste ? "sandbox" : await asaasEnvironment();
   if (env === "nao_configurado") return { ok: false, motivo: "asaas_nao_configurado" };
@@ -310,7 +341,6 @@ export async function gerarCobrancaPeriodo(
   const plano = await one<Plan>(`SELECT * FROM plans WHERE id = ?`, [sub.plan_id]);
   if (!plano) return { ok: false, motivo: "sem_dados_bancarios" };
 
-  const documento = (empresa.document ?? "").replace(/\D/g, "");
   const client = asaasTeste
     ? asaasClient(asaasTeste)
     : asaasClient({
@@ -320,12 +350,29 @@ export async function gerarCobrancaPeriodo(
       });
   if (!asaasTeste && !(await lerApiKey())) return { ok: false, motivo: "asaas_nao_configurado" };
 
+  /**
+   * Documento (CPF/CNPJ) da empresa. A tela Configurações grava o CNPJ em
+   * company_settings (company_doc) e empresas antigas podem ter só a coluna
+   * companies.document — vale a hierarquia entre elas. Nada de placeholder:
+   * documento ausente/inválido é recusado aqui, com motivo claro na tela,
+   * em vez de explodir dentro do Asaas (causa do erro "CPF/CNPJ inválido").
+   */
+  const docSettings = await one<{ value: string | null }>(
+    `SELECT value FROM company_settings WHERE company_id = ? AND key = 'company_doc'`,
+    [companyId],
+  );
+  const documento =
+    (empresa.document ?? "").replace(/\D/g, "") || (docSettings?.value ?? "").replace(/\D/g, "");
+  if (!documentoValido(documento)) {
+    return { ok: false, motivo: "documento_invalido" };
+  }
+
   let customerId = sub.asaas_customer_id;
   try {
     if (!customerId) {
       const cliente = await client.ensureCustomer({
         name: empresa.name,
-        cpfCnpj: documento || "00000000000",
+        cpfCnpj: documento,
         email: empresa.email,
         externalReference: `company:${companyId}`,
       });

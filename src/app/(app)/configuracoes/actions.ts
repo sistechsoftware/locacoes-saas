@@ -59,6 +59,24 @@ export async function saveCompanySettings(fd: FormData): Promise<void> {
   }
 
   await setSettings(values);
+  /**
+   * Espelho no cadastro da empresa: a cobrança (Asaas) consulta
+   * companies.document/email, e este formulário é a tela que os alimenta —
+   * um salvar, os dois lugares. Documento sai normalizado (só dígitos).
+   */
+  const docLimpo = values.company_doc.replace(/\D/g, "");
+  if (docLimpo) {
+    await run(`UPDATE companies SET document = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [
+      docLimpo,
+      user.company_id,
+    ]);
+  }
+  if (values.company_email) {
+    await run(`UPDATE companies SET email = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [
+      values.company_email,
+      user.company_id,
+    ]);
+  }
   await logAction(user, "editar", "configuracao", null, `${user.name} atualizou os dados da empresa`);
   revalidatePath("/configuracoes");
   revalidatePath("/dashboard", "layout");

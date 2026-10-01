@@ -24,8 +24,10 @@ async function cenario() {
   await run(`DELETE FROM webhook_events`);
   await run(`DELETE FROM companies`);
 
+  // CPF válido (dígitos verificadores conferidos) — a cobrança recusa
+  // documento malformado antes de chamar o Asaas.
   await run(
-    `INSERT INTO companies (id, name, active, document, email) VALUES (1, 'Empresa Demo', 1, '12345678901', 'demo@teste.com')`,
+    `INSERT INTO companies (id, name, active, document, email) VALUES (1, 'Empresa Demo', 1, '11144477735', 'demo@teste.com')`,
   );
   await insert(
     `INSERT INTO users (id, name, username, password_hash, role, active, company_id) VALUES (1,'Owner','owner','x','owner',1,1)`,
@@ -153,6 +155,73 @@ describe("cobranca PIX (Asaas fake via gancho)", () => {
     const r = await gerarCobrancaPeriodo(1);
     assert.equal(r.ok, false);
     if (!r.ok) assert.equal(r.motivo, "asaas_nao_configurado");
+  });
+
+  it("documento invalido ou ausente recusa a cobranca com motivo claro", async () => {
+    const { gerarCobrancaPeriodo, __definirAsaasTeste } = await import("../src/lib/billing.ts");
+    const chamouAsaas = false;
+    __definirAsaasTeste({
+      apiKey: "teste",
+      baseUrl: "https://asaas-fake.test",
+      fetchImpl: (async () => {
+        throw new Error("nao deveria chamar o Asaas com documento invalido");
+      }) as any,
+    });
+    try {
+      // Fixture usa 11111111111 (todos iguais = inválido).
+      await run(`UPDATE companies SET document = '11111111111' WHERE id = 1`);
+      let r = await gerarCobrancaPeriodo(1);
+      assert.equal(r.ok, false);
+      if (!r.ok) assert.equal(r.motivo, "documento_invalido");
+
+      // Sem documento em companies nem company_doc nas settings.
+      await run(`UPDATE companies SET document = NULL WHERE id = 1`);
+      r = await gerarCobrancaPeriodo(1);
+      assert.equal(r.ok, false);
+      if (!r.ok) assert.equal(r.motivo, "documento_invalido");
+      assert.equal(chamouAsaas, false);
+    } finally {
+      __definirAsaasTeste(null);
+    }
+  });
+
+  it("documento valido nas settings (company_doc) cobre companies.document vazio", async () => {
+    const { gerarCobrancaPeriodo, __definirAsaasTeste } = await import("../src/lib/billing.ts");
+    let cpfEnviado: string | null = null;
+    __definirAsaasTeste({
+      apiKey: "teste",
+      baseUrl: "https://asaas-fake.test",
+      fetchImpl: (async (url: any, init: any) => {
+        const u = String(url);
+        if (u.includes("/v3/customers?") && init?.method === "GET") {
+          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        }
+        if (u.endsWith("/v3/customers") && init?.method === "POST") {
+          const corpo = JSON.parse(init.body);
+          cpfEnviado = corpo.cpfCnpj;
+          return new Response(JSON.stringify({ id: "cus_2", name: corpo.name, cpfCnpj: corpo.cpfCnpj }), { status: 200 });
+        }
+        if (u.endsWith("/v3/payments") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({ id: "pay_10", status: "PENDING", billingType: "PIX", dueDate: diaBR(30), invoiceUrl: "https://asaas.test/f2" }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ errors: [{ code: "404", description: "rota desconhecida" }] }), { status: 404 });
+      }) as any,
+    });
+    try {
+      await run(`UPDATE companies SET document = NULL WHERE id = 1`);
+      await run(
+        `INSERT INTO company_settings (company_id, key, value) VALUES (1, 'company_doc', '11144477735')
+         ON CONFLICT(company_id, key) DO UPDATE SET value = excluded.value`,
+      );
+      const r = await gerarCobrancaPeriodo(1);
+      assert.ok(r.ok, `esperava ok, veio: ${JSON.stringify(r)}`);
+      assert.equal(cpfEnviado, "11144477735");
+    } finally {
+      __definirAsaasTeste(null);
+    }
   });
 
   it("status do asaas mapeia para status locais corretamente", async () => {

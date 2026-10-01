@@ -25,6 +25,8 @@ export async function gerarCobrancaAction(): Promise<{ ok: boolean; mensagem: st
     asaas_nao_configurado: "Cobrança ainda não configurada na plataforma (Asaas ausente). Fale com o suporte.",
     sem_empresa: "Empresa não encontrada ou inativa.",
     sem_dados_bancarios: "Não foi possível gerar a cobrança agora. Tente novamente.",
+    documento_invalido:
+      "Cadastre o CNPJ/CPF da empresa em Configurações (aba Empresa) para gerar cobranças.",
   };
   // Detalhe técnico (quando o Asaas devolveu erro) ajuda o suporte a
   // diagnosticar sem precisar de tail/stack — a mensagem vem da API deles.
