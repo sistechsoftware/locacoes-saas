@@ -80,8 +80,8 @@ export async function salvarAssinaturaEmpresa(
   // INSERT direto na tabela files: o driver aceita Uint8Array em coluna BLOB
   // (mesmo padrao de saveUpload e da assinatura do cliente)
   await getDb()
-    .prepare(`INSERT INTO files (id, mime, size, data, created_by) VALUES (?,?,?,?,?)`)
-    .bind(fileId, "image/png", bytes.length, bytes, ator.id)
+    .prepare(`INSERT INTO files (id, mime, size, data, created_by, company_id) VALUES (?,?,?,?,?,?)`)
+    .bind(fileId, "image/png", bytes.length, bytes, ator.id, ator.company_id)
     .run();
 
   await run(

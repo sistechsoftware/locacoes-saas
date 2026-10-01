@@ -1,5 +1,6 @@
 import { all } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { PageHeader } from "@/components/ui";
 import ReservationForm from "../ReservationForm";
 import { createReservation } from "../actions";
@@ -32,7 +33,7 @@ export default async function NovaReservaPage({
         action={createReservation}
         products={products}
         customers={customers}
-        isAdmin={user.role === "admin"}
+        isAdmin={ehAdmin(user.role)}
         defaultCustomerId={cliente ? Number(cliente) : undefined}
         freteInicial={frete}
         submitLabel="Criar reserva"

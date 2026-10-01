@@ -149,6 +149,28 @@ export async function limiteUsuarios(companyId: number): Promise<number> {
   return plano?.max_users ?? 3;
 }
 
+/** Usuários ativos da empresa — é isto que ocupa vaga do plano. */
+export async function usuariosAtivos(companyId: number): Promise<number> {
+  return await scalar<number>(`SELECT COUNT(*) FROM users WHERE company_id = ? AND active = 1`, [companyId]);
+}
+
+/**
+ * Verificação do limite de usuários, usada na CRIAÇÃO no backend.
+ *
+ * Regra: apenas usuários ATIVOS contam (inativado/excluído libera a vaga na
+ * hora). Server-side e independente de interface — chamar a action direto
+ * não furta o limite.
+ */
+export async function podeCriarUsuario(
+  companyId: number,
+): Promise<{ ok: boolean; limite: number; atuais: number; motivo?: string }> {
+  const [limite, atuais] = await Promise.all([limiteUsuarios(companyId), usuariosAtivos(companyId)]);
+  if (atuais >= limite) {
+    return { ok: false, limite, atuais, motivo: `Limite do plano atingido (${limite} usuários ativos). Faça upgrade em Assinatura.` };
+  }
+  return { ok: true, limite, atuais };
+}
+
 /* ------------------------------------------------------------------ */
 /* Estado efetivo — o que as telas e o gate consomem                    */
 /* ------------------------------------------------------------------ */

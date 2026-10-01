@@ -119,7 +119,7 @@ export async function pontuarReserva(reservationId: number, userId?: number): Pr
   if (!regra.ativo) return { pontuou: false, recompensasNovas: [] };
 
   const reserva = await one<any>(
-    `SELECT r.id, r.number, r.status, r.total_cents, r.customer_id,
+    `SELECT r.id, r.number, r.status, r.total_cents, r.customer_id, r.company_id,
             EXISTS (SELECT 1 FROM fidelity_rewards f WHERE f.used_reservation_id = r.id) AS usou_recompensa
        FROM reservations r WHERE r.id = ?`,
     [reservationId],
@@ -143,9 +143,9 @@ export async function pontuarReserva(reservationId: number, userId?: number): Pr
   );
   if (!jaTem) {
     await insert(
-      `INSERT INTO fidelity_events (customer_id, reservation_id, kind, delta, notes, created_by)
-       VALUES (?,?,'ponto',1,?,?)`,
-      [reserva.customer_id, reservationId, `Locacao ${reserva.number}`, userId ?? null],
+      `INSERT INTO fidelity_events (customer_id, reservation_id, kind, delta, notes, created_by, company_id)
+       VALUES (?,?,'ponto',1,?,?,?)`,
+      [reserva.customer_id, reservationId, `Locacao ${reserva.number}`, userId ?? null, reserva.company_id],
     );
   }
 
@@ -165,15 +165,17 @@ async function emitirRecompensas(customerId: number, regra: Regra, userId?: numb
   const quantas = aEmitir(pontos, jaEmitidas, regra);
   if (quantas <= 0) return [];
 
+  // empresa da recompensa = empresa do cliente (linha pai)
+  const dono = await one<{ company_id: number }>(`SELECT company_id FROM customers WHERE id = ?`, [customerId]);
   const hoje = today();
   const criadas: number[] = [];
   for (let i = 0; i < quantas; i++) {
     const ciclo = jaEmitidas + i + 1;
     try {
       const id = await insert(
-        `INSERT INTO fidelity_rewards (customer_id, kit_quantity, rule_goal, rule_validity_days, cycle, earned_at, expires_on)
-         VALUES (?,?,?,?,?,?,?)`,
-        [customerId, regra.kits, regra.meta, regra.validadeDias, ciclo, hoje, expiraEm(hoje, regra.validadeDias)],
+        `INSERT INTO fidelity_rewards (customer_id, kit_quantity, rule_goal, rule_validity_days, cycle, earned_at, expires_on, company_id)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [customerId, regra.kits, regra.meta, regra.validadeDias, ciclo, hoje, expiraEm(hoje, regra.validadeDias), dono?.company_id ?? 1],
       );
       criadas.push(id);
     } catch {
@@ -191,7 +193,7 @@ async function emitirRecompensas(customerId: number, regra: Regra, userId?: numb
  * cancelada quando o saldo nao a sustenta mais.
  */
 export async function reverterReserva(reservationId: number, userId?: number): Promise<boolean> {
-  const reserva = await one<any>(`SELECT id, number, customer_id FROM reservations WHERE id = ?`, [reservationId]);
+  const reserva = await one<any>(`SELECT id, number, customer_id, company_id FROM reservations WHERE id = ?`, [reservationId]);
   if (!reserva) return false;
 
   const ponto = await one<any>(
@@ -205,9 +207,9 @@ export async function reverterReserva(reservationId: number, userId?: number): P
   if (!ponto || jaRevertido) return false;
 
   await insert(
-    `INSERT INTO fidelity_events (customer_id, reservation_id, kind, delta, notes, created_by)
-     VALUES (?,?,'reversao',-1,?,?)`,
-    [reserva.customer_id, reservationId, `Locacao ${reserva.number} cancelada`, userId ?? null],
+    `INSERT INTO fidelity_events (customer_id, reservation_id, kind, delta, notes, created_by, company_id)
+     VALUES (?,?,'reversao',-1,?,?,?)`,
+    [reserva.customer_id, reservationId, `Locacao ${reserva.number} cancelada`, userId ?? null, reserva.company_id],
   );
 
   const regra = await regraAtual();
@@ -286,6 +288,10 @@ export async function usarRecompensa(
   ]);
   if (!reserva) return "Reserva não encontrada.";
   if (reserva.customer_id !== recompensa.customer_id) return "A recompensa é de outro cliente.";
+  // recompensa e reserva da MESMA empresa (colunas company_id)
+  if (recompensa.company_id && reserva.company_id && recompensa.company_id !== reserva.company_id) {
+    return "Recompensa não encontrada.";
+  }
 
   const b = await simularUso(rewardId, reservationId);
   if (!b || b.kitsGratis === 0) return "Esta reserva não tem kits para a recompensa cobrir.";

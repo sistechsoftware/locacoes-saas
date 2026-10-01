@@ -47,7 +47,9 @@ export async function recalcPurchase(purchaseId: number) {
  * stock_movements com a compra de origem, entao nada some do historico.
  */
 export async function syncPurchaseStock(purchaseId: number, userId?: number) {
-  const compra = await one<any>(`SELECT id, number, affects_stock, status FROM purchases WHERE id = ?`, [purchaseId]);
+  // A COMPRA é a fonte do tenant: o company_id dela (gravado pela action com o
+  // contexto da sessão) alimenta os lançamentos filhos — estoque e histórico.
+  const compra = await one<any>(`SELECT id, number, affects_stock, status, company_id FROM purchases WHERE id = ?`, [purchaseId]);
   if (!compra) return [];
 
   const itens = await all<any>(
@@ -59,10 +61,10 @@ export async function syncPurchaseStock(purchaseId: number, userId?: number) {
   const ajustes = ajusteDeEstoque(itens, aplicar);
 
   for (const a of ajustes) {
-    await run(`UPDATE products SET total_qty = MAX(0, total_qty + ?) WHERE id = ?`, [a.delta, a.product_id]);
+    await run(`UPDATE products SET total_qty = MAX(0, total_qty + ?) WHERE id = ? AND company_id = ?`, [a.delta, a.product_id, compra.company_id]);
     await insert(
-      `INSERT INTO stock_movements (product_id, qty_delta, reason, purchase_id, notes, created_by)
-       VALUES (?,?,?,?,?,?)`,
+      `INSERT INTO stock_movements (product_id, qty_delta, reason, purchase_id, notes, created_by, company_id)
+       VALUES (?,?,?,?,?,?,?)`,
       [
         a.product_id,
         a.delta,
@@ -70,6 +72,7 @@ export async function syncPurchaseStock(purchaseId: number, userId?: number) {
         purchaseId,
         `Compra ${compra.number}`,
         userId ?? null,
+        compra.company_id,
       ],
     );
   }
@@ -117,11 +120,12 @@ export async function syncPurchaseEntries(
   const parcelas = montarParcelas(compra.total_cents, opts.parcelas, opts.primeiroVencimento);
   for (const p of parcelas) {
     const numero = await nextNumber("financial_entries", "PAG");
+    // empresa da PARCELA = empresa da compra (linha pai)
     await insert(
       `INSERT INTO financial_entries
         (number, direction, origin, supplier_id, purchase_id, category, description,
-         amount_cents, due_date, installment, installments_total, account_id, created_by)
-       VALUES (?,'pagar','compra',?,?,?,?,?,?,?,?,?,?)`,
+         amount_cents, due_date, installment, installments_total, account_id, created_by, company_id)
+       VALUES (?,'pagar','compra',?,?,?,?,?,?,?,?,?,?,?)`,
       [
         numero,
         compra.supplier_id,
@@ -135,6 +139,7 @@ export async function syncPurchaseEntries(
         p.installments_total,
         opts.accountId ?? null,
         opts.userId ?? null,
+        compra.company_id,
       ],
     );
   }
@@ -154,8 +159,14 @@ export const PURCHASE_SELECT = `
     FROM purchases p
     LEFT JOIN suppliers s ON s.id = p.supplier_id`;
 
-export async function getPurchase(id: number) {
-  return await one<any>(`${PURCHASE_SELECT} WHERE p.id = ?`, [id]);
+/** Compra por id, SEMPRE escopada pela empresa (optional companyId = sessão/cron). */
+export async function getPurchase(id: number, companyId?: number) {
+  let cid = companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
+  return await one<any>(`${PURCHASE_SELECT} WHERE p.id = ? AND p.company_id = ?`, [id, cid]);
 }
 
 export async function purchaseItems(id: number) {

@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { one } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { getSettings } from "@/lib/settings";
 import { CONTRACT_STATUS } from "@/lib/domain";
 import { dateBR, dateTimeBR, dateUtcBR, utcParaLocal } from "@/lib/format";
@@ -179,7 +180,7 @@ export default async function ContratoPage({
                 Regerar Texto
               </SubmitButton>
             </form>
-            {user.role === "admin" && (
+            {ehAdmin(user.role) && (
               <Link
                 href={`/contratos/${c.id}?editar=1`}
                 className="inline-flex items-center rounded-xl border border-nuvem-300 bg-white px-4 py-2.5 text-sm font-semibold"
@@ -190,7 +191,7 @@ export default async function ContratoPage({
           </div>
         </Card>
 
-        {sp.editar === "1" && user.role === "admin" && (
+        {sp.editar === "1" && ehAdmin(user.role) && (
           <Card>
             <form action={saveContractBody} className="space-y-2">
               <input type="hidden" name="id" value={c.id} />

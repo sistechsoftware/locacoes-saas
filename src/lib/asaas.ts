@@ -97,8 +97,14 @@ export function asaasClient(cfg: AsaasConfig) {
 
   return {
     /**
-     * Cria (ou recupera) o cliente Asaas da empresa — idempotente por
-     * cpfCnpj: a busca antes do POST evita duplicar cadastro em retries.
+     * Cria (ou recupera) o cliente Asaas da empresa — idempotente.
+     *
+     * A busca PRIMEIRO pelo externalReference (`company:<id>`, o vínculo do
+     * sistema): garante um cliente por EMPRESA mesmo quando duas empresas
+     * compartilham documento (ou estão sem documento, onde cairiam ambas no
+     * mesmo cpfCnpj e herdariam o cliente Asaas da outra — vazamento entre
+     * tenants na cobrança). O cpfCnpj segue como fallback para registros
+     * criados antes do externalReference.
      */
     async ensureCustomer(input: {
       name: string;
@@ -106,6 +112,14 @@ export function asaasClient(cfg: AsaasConfig) {
       email?: string | null;
       externalReference?: string;
     }): Promise<AsaasCustomer> {
+      if (input.externalReference) {
+        const porRef = await request<{ data: AsaasCustomer[] }>(
+          "GET",
+          `/v3/customers?externalReference=${encodeURIComponent(input.externalReference)}`,
+        );
+        const achadoRef = porRef.data?.[0];
+        if (achadoRef) return achadoRef;
+      }
       const doc = input.cpfCnpj.replace(/\D/g, "");
       const busca = await request<{ data: AsaasCustomer[] }>("GET", `/v3/customers?cpfCnpj=${doc}`);
       const achado = busca.data?.[0];

@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { insert, one, run, scalar } from "@/lib/db";
 import { assertAdmin, hashPassword, requireUser, verifyPassword, type SessionUser } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
+import { podeCriarUsuario } from "@/lib/billing";
+import { atualizarUsuario, criarUsuario, excluirUsuario, alternarStatusUsuario } from "@/lib/usuarios";
 import { getSettings, setSettings } from "@/lib/settings";
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
 import { validarDimensoesRecibo } from "@/lib/recibo-visual";
@@ -126,24 +128,26 @@ export async function saveReciboSettings(fd: FormData) {
 
 /* ---------------------------------- usuarios ----------------------------------- */
 
+/**
+ * Criação de usuário: as regras de AUTORIZAÇÃO (quem pode, quais papéis,
+ * limite do plano) vivem em lib/usuarios.ts — testáveis sem sessão. Aqui só
+ * resta a ponte com a sessão e o FormData.
+ */
 export async function createUser(_prev: string | null, fd: FormData): Promise<string | null> {
   const user = await assertAdmin();
-  const name = String(fd.get("name") ?? "").trim();
-  const username = String(fd.get("username") ?? "").trim().toLowerCase();
-  const password = String(fd.get("password") ?? "");
-  const role = String(fd.get("role") ?? "operador");
-  if (!name || !username) return "Informe nome e usuário.";
-  if (password.length < 6) return "A senha deve ter ao menos 6 caracteres.";
-  if (await scalar<number>(`SELECT COUNT(*) FROM users WHERE username = ?`, [username]) > 0) return "Usuario ja existe.";
-
-  // Limite de usuários do plano vigente (Etapa 3): server-side, independe da
-  // interface — o formulário pode ser chamado diretamente.
-  const { limiteUsuarios } = await import("@/lib/billing");
-  const [limite, atuais] = await Promise.all([
-    limiteUsuarios(user.company_id),
-    scalar<number>(`SELECT COUNT(*) FROM users WHERE company_id = ? AND active = 1`, [user.company_id]),
-  ]);
-  if (atuais >= limite) return `Limite do plano atingido (${limite} usuários ativos). Faça upgrade em Assinatura.`;
+  const r = await criarUsuario(
+    { id: user.id, name: user.name, company_id: user.company_id, role: user.role },
+    {
+      name: String(fd.get("name") ?? ""),
+      username: String(fd.get("username") ?? ""),
+      email: String(fd.get("email") ?? ""),
+      phone: String(fd.get("phone") ?? ""),
+      password: String(fd.get("password") ?? ""),
+      role: String(fd.get("role") ?? "operador"),
+    },
+    (acao, entidade, id, resumo) => logAction(user, acao, entidade, id, resumo),
+  );
+  if (!r.ok) return r.erro;
 
   let avatarPath: string | null = null;
   const avatarFile = fd.get("avatar_file");
@@ -154,30 +158,52 @@ export async function createUser(_prev: string | null, fd: FormData): Promise<st
       return e instanceof UploadError ? e.message : "Não foi possível salvar a foto.";
     }
   }
-
-  const id = await insert(`INSERT INTO users (name, username, email, phone, password_hash, role, avatar_url, company_id) VALUES (?,?,?,?,?,?,?,?)`, [
-    name,
-    username,
-    String(fd.get("email") ?? ""),
-    String(fd.get("phone") ?? ""),
-    hashPassword(password),
-    ehAdmin(role as any) ? "admin" : "operacional",
-    avatarPath,
-    user.company_id,
-  ]);
-  await logAction(user, "criar", "usuario", id, `${user.name} criou o usuario ${name} (${role})`);
+  if (avatarPath && r.id) {
+    await run(`UPDATE users SET avatar_url = ? WHERE id = ?`, [avatarPath, r.id]);
+  }
   revalidatePath("/configuracoes");
   return null;
 }
 
+/** Edição de usuário (nome, login, contato e função) — regras em lib/usuarios. */
+export async function updateUser(fd: FormData): Promise<void> {
+  const admin = await assertAdmin();
+  const r = await atualizarUsuario(
+    { id: admin.id, name: admin.name, company_id: admin.company_id, role: admin.role },
+    Number(fd.get("id")),
+    {
+      name: String(fd.get("name") ?? ""),
+      username: String(fd.get("username") ?? ""),
+      email: String(fd.get("email") ?? ""),
+      phone: String(fd.get("phone") ?? ""),
+      role: String(fd.get("role") ?? "operacional"),
+    },
+    (acao, entidade, id, resumo) => logAction(admin, acao, entidade, id, resumo),
+  );
+  if (!r.ok) redirect(`/configuracoes?aba=usuarios&erro=${encodeURIComponent(r.erro)}`);
+  revalidatePath("/configuracoes");
+}
+
+/** Exclusão definitiva do usuário — libera a vaga do plano (regras em lib/usuarios). */
+export async function deleteUser(fd: FormData): Promise<void> {
+  const admin = await assertAdmin();
+  const r = await excluirUsuario(
+    { id: admin.id, name: admin.name, company_id: admin.company_id, role: admin.role },
+    Number(fd.get("id")),
+    (acao, entidade, id, resumo) => logAction(admin, acao, entidade, id, resumo),
+  );
+  if (!r.ok) redirect(`/configuracoes?aba=usuarios&erro=${encodeURIComponent(r.erro)}`);
+  revalidatePath("/configuracoes");
+}
+
 export async function toggleUser(fd: FormData) {
   const admin = await assertAdmin();
-  const id = Number(fd.get("id"));
-  if (id === admin.id) return; // nao permite se autodesativar
-  const u = await one<any>(`SELECT * FROM users WHERE id = ? AND company_id = ?`, [id, admin.company_id]);
-  if (!u) return;
-  await run(`UPDATE users SET active = ? WHERE id = ? AND company_id = ?`, [u.active ? 0 : 1, id, admin.company_id]);
-  await logAction(admin, u.active ? "inativar" : "reativar", "usuario", id, `${admin.name} ${u.active ? "inativou" : "reativou"} ${u.name}`);
+  const r = await alternarStatusUsuario(
+    { id: admin.id, name: admin.name, company_id: admin.company_id, role: admin.role },
+    Number(fd.get("id")),
+    (acao, entidade, id, resumo) => logAction(admin, acao, entidade, id, resumo),
+  );
+  if (!r.ok) redirect(`/configuracoes?aba=usuarios&erro=${encodeURIComponent(r.erro)}`);
   revalidatePath("/configuracoes");
 }
 
@@ -213,14 +239,21 @@ export async function changeOwnPassword(_prev: string | null, fd: FormData): Pro
 
 /**
  * Foto de perfil: cada usuario edita a PROPRIA foto; o admin pode trocar a de
- * qualquer um pela tela de usuarios. A imagem vive na tabela files existente
- * (mesmo pipeline da logo da empresa) e no usuario fica so a URL. Ao trocar,
- * o arquivo anterior e descartado quando ninguem mais o usa — sem orfaos e
- * sem apagar imagem compartilhada (removeFileByUrl confere o uso em anexos).
+ * qualquer um DA PROPIA EMPRESA pela tela de usuarios. A imagem vive na tabela
+ * files existente (mesmo pipeline da logo da empresa) e no usuario fica so a
+ * URL. Ao trocar, o arquivo anterior e descartado quando ninguem mais o usa —
+ * sem orfaos e sem apagar imagem compartilhada (removeFileByUrl confere o uso
+ * em anexos).
  */
 async function aplicarAvatar(userId: number, file: File, ator: SessionUser, quandoAdmin = false): Promise<string | null> {
   if (quandoAdmin && !ehAdmin(ator.role)) return "Somente o administrador pode alterar a foto de outro usuário.";
   if (userId !== ator.id && !ehAdmin(ator.role)) return "Você só pode alterar a sua própria foto.";
+  // Isolamento: o alvo tem que pertencer à MESMA empresa do ator — editar o
+  // avatar de um usuário de outra empresa é indistinguível de inexistente.
+  if (userId !== ator.id) {
+    const alvo = await scalar<number>(`SELECT COUNT(*) FROM users WHERE id = ? AND company_id = ?`, [userId, ator.company_id]);
+    if (!alvo) return "Usuário não encontrado.";
+  }
   let nova: string | null = null;
   try {
     nova = await saveUpload(file, ator.id);
@@ -267,10 +300,13 @@ export async function saveUserAvatarAdmin(fd: FormData): Promise<void> {
   if (erro) redirect(`/configuracoes?aba=usuarios&erro=${encodeURIComponent(erro)}`);
 }
 
-/** Admin remove a foto de qualquer usuario. */
+/** Admin remove a foto de qualquer usuario DA PROPIA empresa. */
 export async function removeUserAvatarAdmin(fd: FormData): Promise<void> {
   const admin = await assertAdmin();
   const id = Number(fd.get("id"));
+  // A linha só existe se o usuário pertence à empresa do admin.
+  const pertence = await scalar<number>(`SELECT COUNT(*) FROM users WHERE id = ? AND company_id = ?`, [id, admin.company_id]);
+  if (!pertence) return;
   const anterior = await scalar<string | null>(`SELECT avatar_url FROM users WHERE id = ?`, [id]);
   if (!anterior) return;
   await run(`UPDATE users SET avatar_url = NULL WHERE id = ?`, [id]);
@@ -311,7 +347,7 @@ export async function addCategory(fd: FormData) {
   const user = await requireUser();
   const name = String(fd.get("name") ?? "").trim();
   if (!name) return;
-  await run(`INSERT OR IGNORE INTO categories (name) VALUES (?)`, [name]);
+  await run(`INSERT OR IGNORE INTO categories (name, company_id) VALUES (?,?)`, [name, user.company_id]);
   await logAction(user, "criar", "categoria", null, `${user.name} criou a categoria ${name}`);
   revalidatePath("/configuracoes");
 }
@@ -319,12 +355,15 @@ export async function addCategory(fd: FormData) {
 export async function removeCategory(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const usados = await scalar<number>(`SELECT COUNT(*) FROM products WHERE category_id = ?`, [id]);
+  // Categoria é POR EMPRESA (migration 0027): remover a de outro tenant é
+  // indistinguível de remover uma inexistente.
+  const c = await one<any>(`SELECT name FROM categories WHERE id = ? AND company_id = ?`, [id, user.company_id]);
+  if (!c) return;
+  const usados = await scalar<number>(`SELECT COUNT(*) FROM products WHERE category_id = ? AND company_id = ?`, [id, user.company_id]);
   if (usados > 0) {
     redirect(`/configuracoes?erro=${encodeURIComponent("Categoria em uso por produtos, não pode ser removida.")}`);
   }
-  const c = await one<any>(`SELECT name FROM categories WHERE id = ?`, [id]);
-  await run(`DELETE FROM categories WHERE id = ?`, [id]);
+  await run(`DELETE FROM categories WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "categoria", id, `${user.name} removeu a categoria ${c?.name}`);
   revalidatePath("/configuracoes");
 }

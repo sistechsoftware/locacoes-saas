@@ -100,8 +100,33 @@ export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
         text: msg.text,
       }),
     });
+    if (!res.ok) {
+      /*
+       * Fail-open NÃO é fail-silent: a falha fica registrada no diário de
+       * erros (e no tail do Worker) para o suporte diagnosticar — o caso real
+       * que isso resolve é o remetente com domínio não verificado, que o
+       * Resend recusa com 403 e ninguém percebia (tela de sucesso, e-mail
+       * que nunca chega).
+       */
+      const corpo = await res.text().catch(() => "");
+      console.error(
+        `[email] falha no envio (${res.status}) para ${msg.to} — assunto: "${msg.subject}" — resposta: ${corpo.slice(0, 300)}`,
+      );
+      try {
+        const { registrarErro } = await import("./error-log");
+        await registrarErro({
+          source: "api/log-erro",
+          kind: "server",
+          message: `Falha ao enviar e-mail (${res.status}): ${corpo.slice(0, 200)}`,
+          context: { to: msg.to, subject: msg.subject, from: cfg.from },
+        });
+      } catch {
+        // diagnóstico nunca compete com o fluxo original
+      }
+    }
     return res.ok;
-  } catch {
+  } catch (e) {
+    console.error("[email] falha de rede ao enviar para", msg.to, ":", (e as Error)?.message ?? e);
     return false;
   }
 }

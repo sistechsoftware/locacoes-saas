@@ -6,9 +6,10 @@ import CustomerForm from "../../CustomerForm";
 import { updateCustomer } from "../../actions";
 
 export default async function EditarClientePage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
-  const customer = await one<any>(`SELECT * FROM customers WHERE id = ?`, [Number(id)]);
+  // Isolamento: cliente de outra empresa não é editável nem visível aqui (404).
+  const customer = await one<any>(`SELECT * FROM customers WHERE id = ? AND company_id = ?`, [Number(id), user.company_id]);
   if (!customer) notFound();
   return (
     <div className="mx-auto max-w-2xl space-y-4">

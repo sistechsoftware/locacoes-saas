@@ -12,9 +12,10 @@ import { CUSTOMER_PICK_COLUMNS } from "@/lib/queries";
 export const dynamic = "force-dynamic";
 
 export default async function EditarOrcamentoPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
-  const quote = await one<any>(`SELECT * FROM quotes WHERE id = ?`, [Number(id)]);
+  // Isolamento: orçamento de outra empresa é inexistente para este usuário.
+  const quote = await one<any>(`SELECT * FROM quotes WHERE id = ? AND company_id = ?`, [Number(id), user.company_id]);
   if (!quote) notFound();
   const items = (await quoteItems(quote.id)).map((i) => ({
     product_id: i.product_id,

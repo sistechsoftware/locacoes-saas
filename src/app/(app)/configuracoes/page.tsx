@@ -7,13 +7,15 @@ import BirthdaySettings from "./BirthdaySettings";
 import { createPurpose, renamePurpose, todasFinalidades, togglePurpose } from "../financeiro/actions";
 import { requireUser } from "@/lib/auth";
 import { listUsers } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
+import { limiteUsuarios, usuariosAtivos } from "@/lib/billing";
 import { getSettings } from "@/lib/settings";
 import { Alerta, Badge, Card, Empty, Field, Grid, PageHeader, Section } from "@/components/ui";
 import { Tabs } from "@/components/List";
 import { SubmitButton } from "@/components/SubmitButton";
 import ImageInput from "@/components/ImageInput";
 import EditorContrato from "@/components/EditorContrato";
-import { addCategory, removeCategory, resetPassword, saveCompanySettings, saveFreightSettings, saveTemplates, toggleUser } from "./actions";
+import { addCategory, removeCategory, resetPassword, saveCompanySettings, saveFreightSettings, saveTemplates, toggleUser, updateUser, deleteUser } from "./actions";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
 import AssinaturaEmpresa from "@/components/AssinaturaEmpresa";
 import AvatarForm from "./AvatarForm";
@@ -33,6 +35,17 @@ export default async function ConfiguracoesPage({
   searchParams: Promise<{ aba?: string; erro?: string }>;
 }) {
   const user = await requireUser();
+  /*
+   * Administrador da Empresa = owner OU admin (ehAdmin).
+   *
+   * Aqui morava o bug da mensagem "Algumas configurações são restritas ao
+   * administrador": a tela comparava `admin` literalmente, e
+   * o DONO da empresa (role "owner", o administrador primário) era tratado
+   * como operador — via a advertência e campos bloqueados, embora o backend
+   * (assertAdmin) aceitasse as ações dele. A checagem única é a matriz de
+   * papéis (roles.ts), não a comparação de string.
+   */
+  const admin = ehAdmin(user.role);
   const { aba = "empresa", erro } = await searchParams;
   const s = await getSettings();
   const categorias = await all<any>(
@@ -46,18 +59,23 @@ export default async function ConfiguracoesPage({
   // o saldo de cada conta e sempre recalculado a partir das movimentacoes,
   // nunca um numero guardado que pode divergir do extrato
   const contas =
-    user.role === "admin"
+    admin
       ? await all<any>(
           `SELECT a.*,
                   COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.account_id = a.id),0) AS entradas,
                   COALESCE((SELECT SUM(e.amount_cents) FROM expenses e WHERE e.account_id = a.id),0) AS saidas
-             FROM financial_accounts a ORDER BY a.active DESC, a.name`,
+             FROM financial_accounts a WHERE a.company_id = ? ORDER BY a.active DESC, a.name`,
+          [user.company_id],
         )
       : [];
-  const users = user.role === "admin" ? await listUsers() : [];
-  const finalidades = user.role === "admin" ? await todasFinalidades() : [];
+  const users = admin ? await listUsers() : [];
+  const finalidades = admin ? await todasFinalidades() : [];
   // assinatura da empresa: so o admin (proprietario) ve e gerencia esta aba
-  const assinaturaEmpresa = user.role === "admin" ? await getCompanySignature() : null;
+  const assinaturaEmpresa = admin ? await getCompanySignature() : null;
+  // uso do plano: limite e ocupação atuais, para a aba de usuários
+  const [limitePlano, usuariosEmUso] = admin
+    ? await Promise.all([limiteUsuarios(user.company_id), usuariosAtivos(user.company_id)])
+    : [0, 0];
 
   const ABAS = [
     { value: "empresa", label: "Empresa" },
@@ -65,15 +83,15 @@ export default async function ConfiguracoesPage({
     { value: "categorias", label: "Categorias" },
     { value: "veiculos", label: "Veículos" },
     { value: "fornecedores", label: "Fornecedores" },
-    ...(user.role === "admin" ? [{ value: "contas", label: "Contas" }] : []),
+    ...(admin ? [{ value: "contas", label: "Contas" }] : []),
     { value: "frete", label: "Frete" },
     { value: "recibos", label: "Recibos" },
     { value: "disponibilidade", label: "Disponibilidade" },
     { value: "fidelidade", label: "Fidelidade" },
-    ...(user.role === "admin" ? [{ value: "assinatura", label: "Assinatura" }] : []),
+    ...(admin ? [{ value: "assinatura", label: "Assinatura" }] : []),
     { value: "aniversarios", label: "Aniversários" },
-    ...(user.role === "admin" ? [{ value: "finalidades", label: "Finalidades" }] : []),
-    ...(user.role === "admin" ? [{ value: "usuarios", label: "Usuários" }] : []),
+    ...(admin ? [{ value: "finalidades", label: "Finalidades" }] : []),
+    ...(admin ? [{ value: "usuarios", label: "Usuários" }] : []),
     { value: "conta", label: "Minha conta" },
   ];
 
@@ -82,7 +100,7 @@ export default async function ConfiguracoesPage({
       <PageHeader title="Configurações" subtitle="Dados da empresa, modelos, usuários e permissões" />
       <Link href="/notificacoes/preferencias" className="inline-block text-sm text-marca-600 underline">Notificações: dispositivos, funções operacionais e antecedentes</Link>
       {erro && <Alerta tone="vermelho">{erro}</Alerta>}
-      {user.role !== "admin" && aba !== "conta" && (
+      {!admin && aba !== "conta" && (
         <Alerta tone="ambar">
           Algumas configurações são restritas ao administrador. Você pode visualizar, mas não salvar alterações
           críticas.
@@ -94,10 +112,10 @@ export default async function ConfiguracoesPage({
       {aba === "disponibilidade" && <Section title="Preparação após Devolução">
         <form action={saveStockSettings} className="space-y-3">
           <Field label="Tempo de deslocamento e higienização (minutos)" hint="Exemplos: 30, 60, 90 ou 120. Zero desativa o acréscimo. Cada consulta permite considerar ou ignorar este tempo.">
-            <input name="stock_preparation_minutes" type="number" min="0" max="10080" step="1" required defaultValue={s.stock_preparation_minutes} disabled={user.role !== "admin"} className="campo" />
+            <input name="stock_preparation_minutes" type="number" min="0" max="10080" step="1" required defaultValue={s.stock_preparation_minutes} disabled={!admin} className="campo" />
           </Field>
           <p className="text-sm text-stone-500">Aplica-se aos intervalos das reservas que bloqueiam estoque. Cancelada, retirada e finalizada continuam sem bloqueio, conforme os status existentes. Alertas automáticos consideram o tempo configurado.</p>
-          {user.role === "admin" && <SubmitButton>Salvar Configuração</SubmitButton>}
+          {admin && <SubmitButton>Salvar Configuração</SubmitButton>}
         </form>
       </Section>}
 
@@ -106,31 +124,31 @@ export default async function ConfiguracoesPage({
           <form action={saveCompanySettings} className="space-y-3">
             <Grid>
               <Field label="Nome da empresa">
-                <input name="company_name" defaultValue={s.company_name} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_name" defaultValue={s.company_name} className="campo" disabled={!admin} />
               </Field>
               <Field label="Subtítulo">
-                <input name="company_tagline" defaultValue={s.company_tagline} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_tagline" defaultValue={s.company_tagline} className="campo" disabled={!admin} />
               </Field>
               <Field label="CNPJ / CPF">
-                <input name="company_doc" defaultValue={s.company_doc} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_doc" defaultValue={s.company_doc} className="campo" disabled={!admin} />
               </Field>
               <Field label="Telefone">
-                <input name="company_phone" defaultValue={s.company_phone} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_phone" defaultValue={s.company_phone} className="campo" disabled={!admin} />
               </Field>
               <Field label="WhatsApp">
-                <input name="company_whatsapp" defaultValue={s.company_whatsapp} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_whatsapp" defaultValue={s.company_whatsapp} className="campo" disabled={!admin} />
               </Field>
               <Field label="E-mail">
-                <input name="company_email" defaultValue={s.company_email} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_email" defaultValue={s.company_email} className="campo" disabled={!admin} />
               </Field>
               <Field label="Endereço">
-                <input name="company_address" defaultValue={s.company_address} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_address" defaultValue={s.company_address} className="campo" disabled={!admin} />
               </Field>
               <Field label="Cidade">
-                <input name="company_city" defaultValue={s.company_city} className="campo" disabled={user.role !== "admin"} />
+                <input name="company_city" defaultValue={s.company_city} className="campo" disabled={!admin} />
               </Field>
               <Field label="Chave Pix">
-                <input name="pix_key" defaultValue={s.pix_key} className="campo" disabled={user.role !== "admin"} />
+                <input name="pix_key" defaultValue={s.pix_key} className="campo" disabled={!admin} />
               </Field>
               <Field label="Caução padrão (R$)">
                 <input
@@ -138,12 +156,12 @@ export default async function ConfiguracoesPage({
                   defaultValue={(Number(s.default_deposit_cents || 0) / 100).toFixed(2)}
                   inputMode="decimal"
                   className="campo"
-                  disabled={user.role !== "admin"}
+                  disabled={!admin}
                 />
               </Field>
             </Grid>
             <Field label="Dados bancários">
-              <textarea name="bank_info" defaultValue={s.bank_info} rows={2} className="campo" disabled={user.role !== "admin"} />
+              <textarea name="bank_info" defaultValue={s.bank_info} rows={2} className="campo" disabled={!admin} />
             </Field>
             <Field label="Logo da empresa">
               <div className="flex items-center gap-3">
@@ -151,10 +169,10 @@ export default async function ConfiguracoesPage({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={s.company_logo} alt="Logo" className="h-14 w-14 rounded-xl border border-nuvem-300 object-contain" />
                 )}
-                <ImageInput name="logo_file" disabled={user.role !== "admin"} />
+                <ImageInput name="logo_file" disabled={!admin} />
               </div>
             </Field>
-            {user.role === "admin" && <SubmitButton>Salvar Dados da Empresa</SubmitButton>}
+            {admin && <SubmitButton>Salvar Dados da Empresa</SubmitButton>}
           </form>
         </Section>
       )}
@@ -166,13 +184,13 @@ export default async function ConfiguracoesPage({
               label="Modelo do contrato para impressão / termo de responsabilidade"
               hint="Usado apenas nos contratos impressos e assinados à mão. Use {{campo}} para inserir dados automaticamente e a barra acima para formatar (negrito, listas, alinhamento…)."
             >
-              <EditorContrato name="contract_template" valorInicial={s.contract_template} disabled={user.role !== "admin"} />
+              <EditorContrato name="contract_template" valorInicial={s.contract_template} disabled={!admin} />
             </Field>
             <Field
               label="Modelo do contrato digital (assinatura online)"
               hint="Usado apenas no link de assinatura digital que o cliente abre. Além dos campos do contrato impresso, aceita {{data_assinatura_digital}}, que vira “Uberlândia, 12 de setembro de 2026” na data em que o cliente abrir o contrato para assinar."
             >
-              <EditorContrato name="contract_template_digital" valorInicial={s.contract_template_digital} disabled={user.role !== "admin"} />
+              <EditorContrato name="contract_template_digital" valorInicial={s.contract_template_digital} disabled={!admin} />
             </Field>
             <p className="text-xs text-stone-500">
               Campos do contrato: {"{{cliente}}"}, {"{{cliente_doc}}"} (CPF/CNPJ), {"{{cliente_telefone}}"},{" "}
@@ -192,19 +210,19 @@ export default async function ConfiguracoesPage({
             </p>
             <Grid>
               <Field label="Mensagem de confirmação">
-                <textarea name="wa_confirm" defaultValue={s.wa_confirm} rows={3} className="campo" disabled={user.role !== "admin"} />
+                <textarea name="wa_confirm" defaultValue={s.wa_confirm} rows={3} className="campo" disabled={!admin} />
               </Field>
               <Field label="Lembrete de entrega">
-                <textarea name="wa_delivery" defaultValue={s.wa_delivery} rows={3} className="campo" disabled={user.role !== "admin"} />
+                <textarea name="wa_delivery" defaultValue={s.wa_delivery} rows={3} className="campo" disabled={!admin} />
               </Field>
               <Field label="Lembrete de retirada">
-                <textarea name="wa_pickup" defaultValue={s.wa_pickup} rows={3} className="campo" disabled={user.role !== "admin"} />
+                <textarea name="wa_pickup" defaultValue={s.wa_pickup} rows={3} className="campo" disabled={!admin} />
               </Field>
               <Field label="Cobrança de pagamento">
-                <textarea name="wa_payment" defaultValue={s.wa_payment} rows={3} className="campo" disabled={user.role !== "admin"} />
+                <textarea name="wa_payment" defaultValue={s.wa_payment} rows={3} className="campo" disabled={!admin} />
               </Field>
               <Field label="Envio de orçamento" className="sm:col-span-2">
-                <textarea name="wa_quote" defaultValue={s.wa_quote} rows={3} className="campo" disabled={user.role !== "admin"} />
+                <textarea name="wa_quote" defaultValue={s.wa_quote} rows={3} className="campo" disabled={!admin} />
               </Field>
             </Grid>
             <p className="text-xs text-stone-500">
@@ -212,7 +230,7 @@ export default async function ConfiguracoesPage({
               {"{{orcamento}}"}, {"{{data_evento}}"}, {"{{hora_entrega}}"}, {"{{hora_retirada}}"},{" "}
               {"{{endereco_evento}}"}, {"{{itens}}"}, {"{{valor_total}}"}, {"{{saldo}}"}, {"{{pix}}"}.
             </p>
-            {user.role === "admin" && <SubmitButton>Salvar Modelos</SubmitButton>}
+            {admin && <SubmitButton>Salvar Modelos</SubmitButton>}
           </form>
         </Section>
       )}
@@ -232,7 +250,7 @@ export default async function ConfiguracoesPage({
                   <span className="text-sm font-medium">
                     {c.name} <span className="text-xs text-stone-400">({c.produtos} produto(s))</span>
                   </span>
-                  {user.role === "admin" && (
+                  {admin && (
                     <form action={removeCategory}>
                       <input type="hidden" name="id" value={c.id} />
                       <SubmitButton variant="perigo" className="px-2 py-1 text-xs" confirm={`Remover a categoria ${c.name}?`}>
@@ -275,7 +293,7 @@ export default async function ConfiguracoesPage({
                       {[v.plate, v.model, v.capacity].filter(Boolean).join(" - ")}
                     </span>
                   </span>
-                  {user.role === "admin" && (
+                  {admin && (
                     <form action={deleteVehicle}>
                       <input type="hidden" name="id" value={v.id} />
                       <SubmitButton variant="perigo" className="px-2 py-1 text-xs" confirm={`Remover ${v.name}?`}>
@@ -290,13 +308,13 @@ export default async function ConfiguracoesPage({
         </Section>
       )}
 
-      {aba === "frete" && <FreightSettings settings={s} admin={user.role === "admin"} />}
+      {aba === "frete" && <FreightSettings settings={s} admin={admin} />}
 
-      {aba === "recibos" && <ReciboSettings settings={s} admin={user.role === "admin"} />}
+      {aba === "recibos" && <ReciboSettings settings={s} admin={admin} />}
 
-      {aba === "fidelidade" && <FidelitySettings settings={s} admin={user.role === "admin"} />}
+      {aba === "fidelidade" && <FidelitySettings settings={s} admin={admin} />}
 
-      {aba === "assinatura" && user.role === "admin" && (
+      {aba === "assinatura" && admin && (
         <Section title="Assinatura digital da empresa">
           <p className="mb-3 text-sm text-stone-600">
             Cadastre sua assinatura para utilizá-la automaticamente em novos contratos e recibos. Documentos já gerados
@@ -309,9 +327,9 @@ export default async function ConfiguracoesPage({
         </Section>
       )}
 
-      {aba === "aniversarios" && <BirthdaySettings settings={s} admin={user.role === "admin"} />}
+      {aba === "aniversarios" && <BirthdaySettings settings={s} admin={admin} />}
 
-      {aba === "finalidades" && user.role === "admin" && (
+      {aba === "finalidades" && admin && (
         <Section title="Finalidades das Saídas">
           <p className="mb-3 text-sm text-stone-600">
             São as opções que aparecem ao lançar uma saída no Financeiro. Desativar ou renomear uma finalidade{" "}
@@ -409,7 +427,7 @@ export default async function ConfiguracoesPage({
         </Section>
       )}
 
-      {aba === "contas" && user.role === "admin" && (
+      {aba === "contas" && admin && (
         <Section title="Contas financeiras">
           <form action={createAccount} className="mb-4 grid grid-cols-2 gap-2">
             <input name="name" placeholder="Nome da conta *" className="campo col-span-2" required />
@@ -467,8 +485,21 @@ export default async function ConfiguracoesPage({
         </Section>
       )}
 
-      {aba === "usuarios" && user.role === "admin" && (
+      {aba === "usuarios" && admin && (
         <div className="space-y-4">
+          <Section title="Plano e limite de usuários">
+            <p className="text-sm text-stone-600">
+              <b className="text-tinta-900">{usuariosEmUso}</b> de <b className="text-tinta-900">{limitePlano}</b> usuário(s)
+              ativo(s) no plano atual. A vaga é liberada ao inativar ou excluir um usuário — a regra é validada no
+              servidor, não apenas nesta tela.
+            </p>
+            {usuariosEmUso >= limitePlano && (
+              <Alerta tone="ambar">
+                Limite do plano atingido. Para criar outro usuário, inative ou exclua um existente, ou faça upgrade em
+                /faturamento.
+              </Alerta>
+            )}
+          </Section>
           <Section title="Novo Usuário">
             <UserForm />
           </Section>
@@ -485,20 +516,51 @@ export default async function ConfiguracoesPage({
                       </Badge>
                       {!u.active && <Badge tone="vermelho" className="ml-1">Inativo</Badge>}
                     </span>
-                    {u.id !== user.id && (
-                      <form action={toggleUser}>
-                        <input type="hidden" name="id" value={u.id} />
-                        <SubmitButton variant="secundario" className="px-2.5 py-1 text-xs">
-                          {u.active ? "Inativar" : "Reativar"}
-                        </SubmitButton>
-                      </form>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {u.id !== user.id && (
+                        <form action={toggleUser}>
+                          <input type="hidden" name="id" value={u.id} />
+                          <SubmitButton variant="secundario" className="px-2.5 py-1 text-xs">
+                            {u.active ? "Inativar" : "Reativar"}
+                          </SubmitButton>
+                        </form>
+                      )}
+                      {u.role !== "owner" && u.id !== user.id && (
+                        <form action={deleteUser}>
+                          <input type="hidden" name="id" value={u.id} />
+                          <SubmitButton
+                            variant="perigo"
+                            className="px-2.5 py-1 text-xs"
+                            confirm={`Excluir definitivamente o usuário ${u.name}? A vaga do plano é liberada; usuários com histórico (mensagens, pagamentos, reservas) devem ser inativados em vez de excluídos.`}
+                          >
+                            Excluir
+                          </SubmitButton>
+                        </form>
+                      )}
+                    </div>
                   </div>
                   {/* Foto de perfil: o admin troca/remove; o proprio usuario
                       tambem pode pela aba Minha conta. */}
                   <div className="mt-2">
                     <AvatarAdminForm userId={u.id} userName={u.name} url={u.avatar_url} />
                   </div>
+                  {u.role !== "owner" && u.id !== user.id && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs font-semibold text-marca-600">Editar usuário</summary>
+                      <form action={updateUser} className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <input type="hidden" name="id" value={u.id} />
+                        <input name="name" defaultValue={u.name} placeholder="Nome" className="campo" required />
+                        <input name="username" defaultValue={u.username} placeholder="Usuário de login" className="campo" required />
+                        <input name="email" defaultValue={u.email} placeholder="E-mail" type="email" className="campo" />
+                        <input name="phone" defaultValue={u.phone} placeholder="Telefone" className="campo" />
+                        <select name="role" defaultValue={u.role} className="campo">
+                          <option value="admin">Administrador</option>
+                          <option value="operacional">Operador</option>
+                        </select>
+                        <SubmitButton variant="secundario">Salvar Alterações</SubmitButton>
+                      </form>
+                    </details>
+                  )}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs font-semibold text-marca-600">Redefinir senha</summary>
                     <form action={resetPassword} className="mt-2 flex gap-2">
@@ -514,7 +576,8 @@ export default async function ConfiguracoesPage({
             </ul>
             <p className="mt-3 text-xs text-stone-500">
               Operadores acessam reservas, clientes, estoque, agenda e financeiro do dia a dia, mas não podem excluir
-              registros nem alterar configurações críticas da empresa.
+              registros nem alterar configurações críticas da empresa. O proprietário da empresa (owner) não pode ser
+              inativado, excluído nem rebaixado por esta tela.
             </p>
           </Section>
         </div>

@@ -110,31 +110,39 @@ export async function podarErrosAntigos(db: D1Database): Promise<number> {
 
 /* --------------------------------- consulta --------------------------------- */
 
-/** Erros ainda nao tratados pelo operador. */
-export async function contarErros(kind: "server" | "client"): Promise<number> {
+/**
+ * Diário de erros POR EMPRESA.
+ *
+ * Com companyId informado (tela do locador): só os erros da própria empresa.
+ * Sem (painel da plataforma/cron): visão global — a consulta ampla é usada
+ * apenas por quem tem o ambiente /saas.
+ */
+export async function contarErros(kind: "server" | "client", companyId?: number | null): Promise<number> {
   try {
-    return await scalar<number>(`SELECT COUNT(*) FROM error_logs WHERE kind = ? AND resolved = 0`, [kind]);
+    const escopo = companyId ? " AND company_id = ?" : "";
+    return await scalar<number>(`SELECT COUNT(*) FROM error_logs WHERE kind = ? AND resolved = 0${escopo}`, companyId ? [kind, companyId] : [kind]);
   } catch {
     return 0;
   }
 }
 
-export async function ultimosErros(kind: "server" | "client", limite = 50, offset = 0) {
+export async function ultimosErros(kind: "server" | "client", limite = 50, offset = 0, companyId?: number | null) {
   try {
-    return await all<any>(`SELECT * FROM error_logs WHERE kind = ? ORDER BY id DESC LIMIT ? OFFSET ?`, [
-      kind,
-      limite,
-      offset,
-    ]);
+    const escopo = companyId ? " AND company_id = ?" : "";
+    return await all<any>(`SELECT * FROM error_logs WHERE kind = ?${escopo} ORDER BY id DESC LIMIT ? OFFSET ?`, companyId ? [kind, companyId, limite, offset] : [kind, limite, offset]);
   } catch {
     return [];
   }
 }
 
-/** Marca como tratado (ou reabre). Quem pode ver a tela pode marcar. */
-export async function marcarResolvido(id: number, resolvido: boolean): Promise<void> {
+/** Marca como tratado (ou reabre). Com companyId, só erros da própria empresa. */
+export async function marcarResolvido(id: number, resolvido: boolean, companyId?: number | null): Promise<void> {
   try {
-    await run(`UPDATE error_logs SET resolved = ? WHERE id = ?`, [resolvido ? 1 : 0, id]);
+    if (companyId) {
+      await run(`UPDATE error_logs SET resolved = ? WHERE id = ? AND company_id = ?`, [resolvido ? 1 : 0, id, companyId]);
+    } else {
+      await run(`UPDATE error_logs SET resolved = ? WHERE id = ?`, [resolvido ? 1 : 0, id]);
+    }
   } catch {
     /* tela de diagnostico: falha aqui nao precisa de tratamento */
   }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { all, scalar } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { ACTIVE_STATUSES, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
 import { dateBR, endOfMonth, money, startOfMonth, today } from "@/lib/format";
 import { Alerta, Badge, Card, Empty, PageHeader, Section, Stat } from "@/components/ui";
@@ -262,7 +263,7 @@ export default async function FinanceiroPage({
               </div>
             </form>
 
-            {user.role === "admin" && (
+            {ehAdmin(user.role) && (
               <details className="mt-3">
                 <summary className="cursor-pointer text-sm font-semibold text-marca-600">
                   + Nova Finalidade
@@ -309,7 +310,7 @@ export default async function FinanceiroPage({
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="font-bold text-red-600">{money(e.amount_cents)}</span>
-                      {user.role === "admin" && (
+                      {ehAdmin(user.role) && (
                         <form action={deleteExpense}>
                           <input type="hidden" name="id" value={e.id} />
                           <SubmitButton variant="perigo" confirm="Remover esta saída?" className="px-2 py-1 text-xs">

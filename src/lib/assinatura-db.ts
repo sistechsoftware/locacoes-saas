@@ -17,7 +17,7 @@ import { getCompanySignature } from "./assinatura-empresa";
 /** Cria o link e devolve o token em texto: e a unica vez que ele existe legivel. */
 export async function gerarLink(contractId: number, userId?: number): Promise<{ token: string; id: number } | null> {
   const contrato = await one<any>(
-    `SELECT c.id, c.status, c.reservation_id, r.customer_id
+    `SELECT c.id, c.status, c.reservation_id, c.company_id, r.customer_id
        FROM contracts c JOIN reservations r ON r.id = c.reservation_id WHERE c.id = ?`,
     [contractId],
   );
@@ -36,9 +36,9 @@ export async function gerarLink(contractId: number, userId?: number): Promise<{ 
 
   const expira = dias > 0 ? `${somarDias(today(), dias)}T23:59:59` : null;
   const id = await insert(
-    `INSERT INTO contract_signatures (contract_id, customer_id, reservation_id, token_hash, expires_at, created_by)
-     VALUES (?,?,?,?,?,?)`,
-    [contractId, contrato.customer_id, contrato.reservation_id, hash, expira, userId ?? null],
+    `INSERT INTO contract_signatures (contract_id, customer_id, reservation_id, token_hash, expires_at, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?)`,
+    [contractId, contrato.customer_id, contrato.reservation_id, hash, expira, userId ?? null, contrato.company_id],
   );
   return { token, id };
 }
@@ -160,9 +160,11 @@ export async function assinar(
 
   const agora = nowLocal();
   const arquivoId = crypto.randomUUID().replace(/-/g, "");
+  // Rota pública SEM sessão: a empresa do arquivo é a do CONTRATO assinado
+  // (registro.company_id, resolvido em gerarLink) — nunca um fallback global.
   await getDb()
-    .prepare(`INSERT INTO files (id, mime, size, data) VALUES (?,?,?,?)`)
-    .bind(arquivoId, "image/png", bytes.length, bytes)
+    .prepare(`INSERT INTO files (id, mime, size, data, company_id) VALUES (?,?,?,?,?)`)
+    .bind(arquivoId, "image/png", bytes.length, bytes, registro.company_id ?? 1)
     .run();
 
   const nome = entrada.nome.trim();
@@ -208,8 +210,8 @@ export async function assinar(
   // entra no historico documental do cliente como registro proprio, sem
   // substituir nenhum documento anterior
   await insert(
-    `INSERT INTO customer_documents (customer_id, contract_id, reservation_id, signature_id, title, source, file_id, mime)
-     VALUES (?,?,?,?,?,'assinatura_virtual',?, 'image/png')`,
+    `INSERT INTO customer_documents (customer_id, contract_id, reservation_id, signature_id, title, source, file_id, mime, company_id)
+     VALUES (?,?,?,?,?,'assinatura_virtual',?, 'image/png', ?)`,
     [
       registro.customer_id,
       registro.contract_id,
@@ -217,6 +219,7 @@ export async function assinar(
       registro.id,
       `Contrato ${registro.contract_number} assinado`,
       arquivoId,
+      registro.company_id ?? 1,
     ],
   );
 

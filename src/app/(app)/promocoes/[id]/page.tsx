@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { getPromocao } from "@/lib/promocoes-db";
 import { rotuloFaixa, validarFaixas, vigente } from "@/lib/promocoes";
 import { logsFor } from "@/lib/audit";
@@ -29,7 +30,7 @@ export default async function PromocaoPage({ params }: { params: Promise<{ id: s
         title={promocao.name || `Promoção de ${promocao.product_name}`}
         subtitle={promocao.product_name}
         action={
-          user.role === "admin" ? (
+          ehAdmin(user.role) ? (
             <LinkButton href={`/promocoes/${promocao.id}/editar`}>Editar</LinkButton>
           ) : undefined
         }
@@ -128,7 +129,7 @@ export default async function PromocaoPage({ params }: { params: Promise<{ id: s
         </Section>
       )}
 
-      {user.role === "admin" && (
+      {ehAdmin(user.role) && (
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-tinta-900">Área do administrador</p>
