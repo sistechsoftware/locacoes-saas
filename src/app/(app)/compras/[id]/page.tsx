@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { getPurchase, purchaseEntries, purchaseItems, purchaseStockMovements } from "@/lib/compras";
 import { activeAccounts } from "@/lib/compras";
 import { situacaoParcela } from "@/lib/financeiro";
@@ -221,7 +222,7 @@ export default async function CompraPage({
                     {dateBR(p.date)} · {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
                   </span>
                 </span>
-                {user.role === "admin" && p.amount_cents > 0 && (
+                {ehAdmin(user.role) && p.amount_cents > 0 && (
                   <form action={reverseExpense}>
                     <input type="hidden" name="expense_id" value={p.id} />
                     <SubmitButton
@@ -271,7 +272,7 @@ export default async function CompraPage({
         </Section>
       )}
 
-      {user.role === "admin" && compra.status !== "cancelada" && (
+      {ehAdmin(user.role) && compra.status !== "cancelada" && (
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-tinta-900">Área do administrador</p>

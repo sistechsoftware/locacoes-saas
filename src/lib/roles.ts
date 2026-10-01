@@ -84,9 +84,15 @@ const EDIT: Record<Module, readonly Role[]> = {
   chat:          ["owner", "admin", "operacional", "financeiro", "viewer"],
   relatorios:    [],
   notificacoes:  ["owner", "admin", "operacional", "financeiro"],
-  configuracoes: ["owner"],
-  usuarios:      ["owner"],
-  assinatura:    ["owner"],
+  /*
+   * Administrador da Empresa (owner OU admin) administra a PRÓPRIA empresa:
+   * dados, modelos, usuários e assinatura. O que fica fora do alcance dele é
+   * a PLATAFORMA (painel /saas, outras empresas, Asaas global) — isso é
+   * users.platform_admin, não papel de empresa.
+   */
+  configuracoes: ["owner", "admin"],
+  usuarios:      ["owner", "admin"],
+  assinatura:    ["owner", "admin"],
   erros:         ["owner", "admin"],
 };
 

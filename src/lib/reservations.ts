@@ -63,6 +63,8 @@ const KIND_FLAG: Record<string, string> = {
 export async function syncOperations(reservationId: number) {
   const r = await one<any>(`SELECT * FROM reservations WHERE id = ?`, [reservationId]);
   if (!r) return;
+  // A RESERVA é a fonte do tenant: operações nascem com o company_id dela.
+  const companyId = r.company_id;
 
   const when: Record<string, string> = {
     entrega: stamp(r.delivery_at || r.event_date, "08:00"),
@@ -79,10 +81,11 @@ export async function syncOperations(reservationId: number) {
     ]);
 
     if (wanted && !existing) {
-      await insert(`INSERT INTO operations (kind, reservation_id, scheduled_at, status) VALUES (?,?,?, 'pendente')`, [
+      await insert(`INSERT INTO operations (kind, reservation_id, scheduled_at, status, company_id) VALUES (?,?,?, 'pendente', ?)`, [
         kind,
         reservationId,
         when[kind],
+        companyId,
       ]);
     } else if (wanted && existing) {
       if (existing.status === "concluida") continue;
@@ -167,8 +170,14 @@ export const RESERVATION_SELECT = `
     FROM reservations r
     JOIN customers c ON c.id = r.customer_id`;
 
-export async function getReservation(id: number) {
-  return await one<any>(`${RESERVATION_SELECT} WHERE r.id = ?`, [id]);
+/** Reserva por id, SEMPRE escopada pela empresa (companyId ausente = sessão/cron). */
+export async function getReservation(id: number, companyId?: number) {
+  let cid = companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
+  return await one<any>(`${RESERVATION_SELECT} WHERE r.id = ? AND r.company_id = ?`, [id, cid]);
 }
 
 export async function getReservationByNumber(number: string) {

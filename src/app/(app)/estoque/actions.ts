@@ -42,13 +42,13 @@ function readComponents(fd: FormData): Component[] {
   }
 }
 
-/** Regrava a composicao do kit. */
-async function saveComponents(parentId: number, components: Component[]) {
+/** Regrava a composicao do kit (por empresa — a linha pai já é da empresa). */
+async function saveComponents(parentId: number, companyId: number, components: Component[]) {
   await run(`DELETE FROM product_components WHERE parent_product_id = ?`, [parentId]);
   for (const c of components) {
     await insert(
-      `INSERT INTO product_components (parent_product_id, component_product_id, quantity) VALUES (?,?,?)`,
-      [parentId, c.product_id, c.quantity],
+      `INSERT INTO product_components (parent_product_id, component_product_id, quantity, company_id) VALUES (?,?,?,?)`,
+      [parentId, c.product_id, c.quantity, companyId],
     );
   }
 }
@@ -58,7 +58,10 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
   const p = readProduct(fd);
   if (!p.name) return "Informe o nome do produto.";
   if (!p.code) return "Informe um codigo (ex.: MESA, CAD).";
-  if (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ?`, [p.code]) > 0)
+  // codigo é unico POR EMPRESA: produto da empresa 2 não pode colidir com o da 1
+  if (
+    (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ? AND company_id = ?`, [p.code, user.company_id])) > 0
+  )
     return "Já existe um produto com este código.";
 
   const components = readComponents(fd);
@@ -67,9 +70,11 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
     if (erro) return erro;
   }
 
+  // company_id vem SEMPRE da sessão: sem ele o INSERT cairia na empresa 1
+  // (DEFAULT da migration 0027) e o produto nasceria do tenant errado.
   const id = await insert(
-    `INSERT INTO products (code, name, category_id, kind, total_qty, min_qty, rent_price_cents, replace_cents, description, photo)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO products (code, name, category_id, kind, total_qty, min_qty, rent_price_cents, replace_cents, description, photo, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [
       p.code,
       p.name,
@@ -81,9 +86,10 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
       p.replace_cents,
       p.description,
       p.photo,
+      user.company_id,
     ],
   );
-  if (p.kind === "kit") await saveComponents(id, components);
+  if (p.kind === "kit") await saveComponents(id, user.company_id, components);
 
   await logAction(
     user,
@@ -102,10 +108,13 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
   const user = await requireUser();
   const id = Number(fd.get("id"));
   const p = readProduct(fd);
-  const current = await one<any>(`SELECT * FROM products WHERE id = ?`, [id]);
+  // Isolamento: produto de outra empresa é "não encontrado".
+  const current = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!current) return "Produto não encontrado.";
   if (!p.name) return "Informe o nome do produto.";
-  if (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ? AND id <> ?`, [p.code, id]) > 0)
+  if (
+    (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ? AND id <> ? AND company_id = ?`, [p.code, id, user.company_id])) > 0
+  )
     return "Já existe outro produto com este código.";
 
   const components = readComponents(fd);
@@ -132,7 +141,7 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
 
   await run(
     `UPDATE products SET code=?, name=?, category_id=?, kind=?, total_qty=?, min_qty=?, rent_price_cents=?, replace_cents=?,
-            description=?, photo=? WHERE id = ?`,
+            description=?, photo=? WHERE id = ? AND company_id = ?`,
     [
       p.code,
       p.name,
@@ -145,9 +154,10 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
       p.description,
       p.photo,
       id,
+      user.company_id,
     ],
   );
-  if (p.kind === "kit") await saveComponents(id, components);
+  if (p.kind === "kit") await saveComponents(id, user.company_id, components);
   const mudouQtd = current.total_qty !== p.total_qty;
   await logAction(
     user,
@@ -163,9 +173,9 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
 export async function toggleProduct(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const p = await one<any>(`SELECT * FROM products WHERE id = ?`, [id]);
+  const p = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!p) return;
-  await run(`UPDATE products SET active = ? WHERE id = ?`, [p.active ? 0 : 1, id]);
+  await run(`UPDATE products SET active = ? WHERE id = ? AND company_id = ?`, [p.active ? 0 : 1, id, user.company_id]);
   await logAction(user, p.active ? "inativar" : "reativar", "produto", id, `${user.name} ${p.active ? "inativou" : "reativou"} ${p.name}`);
   revalidatePath(`/estoque/${id}`);
 }
@@ -173,7 +183,8 @@ export async function toggleProduct(fd: FormData) {
 export async function deleteProduct(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const p = await one<any>(`SELECT name FROM products WHERE id = ?`, [id]);
+  const p = await one<any>(`SELECT name FROM products WHERE id = ? AND company_id = ?`, [id, user.company_id]);
+  if (!p) return; // produto de outra empresa: nada a fazer
   const usado = await scalar<number>(
     `SELECT (SELECT COUNT(*) FROM reservation_items WHERE product_id = ?) + (SELECT COUNT(*) FROM quote_items WHERE product_id = ?)`,
     [id, id],
@@ -191,7 +202,7 @@ export async function deleteProduct(fd: FormData) {
     redirect(`/estoque/${id}?aviso=componente`);
   }
   await run(`DELETE FROM product_components WHERE parent_product_id = ?`, [id]);
-  await run(`DELETE FROM products WHERE id = ?`, [id]);
+  await run(`DELETE FROM products WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "produto", id, `${user.name} excluiu o produto ${p?.name}`);
   redirect("/estoque");
 }
@@ -202,7 +213,7 @@ export async function addUnits(fd: FormData) {
   const user = await requireUser();
   const productId = Number(fd.get("product_id"));
   const qty = Math.max(1, Math.min(200, Number(fd.get("qty")) || 1));
-  const p = await one<any>(`SELECT * FROM products WHERE id = ?`, [productId]);
+  const p = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [productId, user.company_id]);
   if (!p) return;
 
   const last = await one<{ code: string }>(
@@ -215,9 +226,9 @@ export async function addUnits(fd: FormData) {
   for (let i = 0; i < qty; i++) {
     seq += 1;
     await insert(
-      `INSERT INTO product_units (product_id, code, status, value_cents, acquired_at, condition)
-       VALUES (?,?,?,?,?,?)`,
-      [productId, `${p.code}-${String(seq).padStart(3, "0")}`, "disponivel", value, today(), "bom"],
+      `INSERT INTO product_units (product_id, code, status, value_cents, acquired_at, condition, company_id)
+       VALUES (?,?,?,?,?,?,?)`,
+      [productId, `${p.code}-${String(seq).padStart(3, "0")}`, "disponivel", value, today(), "bom", user.company_id],
     );
   }
   await logAction(user, "criar", "produto", productId, `${user.name} cadastrou ${qty} unidade(s) de ${p.name}`);
@@ -228,14 +239,16 @@ export async function setUnitStatus(fd: FormData) {
   const user = await requireUser();
   const unitId = Number(fd.get("unit_id"));
   const status = String(fd.get("status"));
-  const u = await one<any>(`SELECT u.*, p.name FROM product_units u JOIN products p ON p.id = u.product_id WHERE u.id = ?`, [
-    unitId,
-  ]);
+  const u = await one<any>(
+    `SELECT u.*, p.name FROM product_units u JOIN products p ON p.id = u.product_id WHERE u.id = ? AND u.company_id = ?`,
+    [unitId, user.company_id],
+  );
   if (!u) return;
-  await run(`UPDATE product_units SET status = ?, notes = COALESCE(NULLIF(?,''), notes) WHERE id = ?`, [
+  await run(`UPDATE product_units SET status = ?, notes = COALESCE(NULLIF(?,''), notes) WHERE id = ? AND company_id = ?`, [
     status,
     String(fd.get("notes") ?? ""),
     unitId,
+    user.company_id,
   ]);
   await logAction(user, "status", "produto", u.product_id, `${user.name} marcou ${u.code} como ${status}`);
   revalidatePath(`/estoque/${u.product_id}`);
@@ -244,9 +257,9 @@ export async function setUnitStatus(fd: FormData) {
 export async function deleteUnit(fd: FormData) {
   const user = await assertAdmin();
   const unitId = Number(fd.get("unit_id"));
-  const u = await one<any>(`SELECT * FROM product_units WHERE id = ?`, [unitId]);
+  const u = await one<any>(`SELECT * FROM product_units WHERE id = ? AND company_id = ?`, [unitId, user.company_id]);
   if (!u) return;
-  await run(`DELETE FROM product_units WHERE id = ?`, [unitId]);
+  await run(`DELETE FROM product_units WHERE id = ? AND company_id = ?`, [unitId, user.company_id]);
   await logAction(user, "excluir", "produto", u.product_id, `${user.name} removeu a unidade ${u.code}`);
   revalidatePath(`/estoque/${u.product_id}`);
 }
@@ -257,12 +270,12 @@ export async function openMaintenance(fd: FormData) {
   const user = await requireUser();
   const productId = Number(fd.get("product_id"));
   const qty = Math.max(1, Number(fd.get("qty")) || 1);
-  const p = await one<any>(`SELECT * FROM products WHERE id = ?`, [productId]);
+  const p = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [productId, user.company_id]);
   if (!p) return;
 
   const id = await insert(
-    `INSERT INTO maintenance (product_id, product_unit_id, qty, reason, started_at, status, cost_cents, notes, created_by)
-     VALUES (?,?,?,?,?, 'aberta', ?,?,?)`,
+    `INSERT INTO maintenance (product_id, product_unit_id, qty, reason, started_at, status, cost_cents, notes, created_by, company_id)
+     VALUES (?,?,?,?,?, 'aberta', ?,?,?,?)`,
     [
       productId,
       Number(fd.get("product_unit_id")) || null,
@@ -272,11 +285,12 @@ export async function openMaintenance(fd: FormData) {
       parseMoney(String(fd.get("cost") ?? "")),
       String(fd.get("notes") ?? ""),
       user.id,
+      user.company_id,
     ],
   );
-  await run(`UPDATE products SET maintenance_qty = MIN(total_qty, maintenance_qty + ?) WHERE id = ?`, [qty, productId]);
+  await run(`UPDATE products SET maintenance_qty = MIN(total_qty, maintenance_qty + ?) WHERE id = ? AND company_id = ?`, [qty, productId, user.company_id]);
   const unitId = Number(fd.get("product_unit_id"));
-  if (unitId) await run(`UPDATE product_units SET status = 'manutencao' WHERE id = ?`, [unitId]);
+  if (unitId) await run(`UPDATE product_units SET status = 'manutencao' WHERE id = ? AND company_id = ?`, [unitId, user.company_id]);
 
   await logAction(user, "manutencao", "produto", productId, `${user.name} enviou ${qty} un. de ${p.name} para manutencao`);
   revalidatePath(`/estoque/${productId}`);
@@ -285,12 +299,15 @@ export async function openMaintenance(fd: FormData) {
 export async function closeMaintenance(fd: FormData) {
   const user = await requireUser();
   const id = Number(fd.get("id"));
-  const m = await one<any>(`SELECT m.*, p.name FROM maintenance m JOIN products p ON p.id = m.product_id WHERE m.id = ?`, [id]);
+  const m = await one<any>(
+    `SELECT m.*, p.name FROM maintenance m JOIN products p ON p.id = m.product_id WHERE m.id = ? AND m.company_id = ?`,
+    [id, user.company_id],
+  );
   if (!m || m.status !== "aberta") return;
 
-  await run(`UPDATE maintenance SET status = 'concluida', ended_at = ? WHERE id = ?`, [today(), id]);
-  await run(`UPDATE products SET maintenance_qty = MAX(0, maintenance_qty - ?) WHERE id = ?`, [m.qty, m.product_id]);
-  if (m.product_unit_id) await run(`UPDATE product_units SET status = 'disponivel' WHERE id = ?`, [m.product_unit_id]);
+  await run(`UPDATE maintenance SET status = 'concluida', ended_at = ? WHERE id = ? AND company_id = ?`, [today(), id, user.company_id]);
+  await run(`UPDATE products SET maintenance_qty = MAX(0, maintenance_qty - ?) WHERE id = ? AND company_id = ?`, [m.qty, m.product_id, user.company_id]);
+  if (m.product_unit_id) await run(`UPDATE product_units SET status = 'disponivel' WHERE id = ? AND company_id = ?`, [m.product_unit_id, user.company_id]);
 
   await logAction(user, "manutencao", "produto", m.product_id, `${user.name} concluiu a manutencao de ${m.qty} un. de ${m.name}`);
   revalidatePath(`/estoque/${m.product_id}`);
@@ -302,7 +319,7 @@ export async function createCategory(fd: FormData) {
   const user = await requireUser();
   const name = String(fd.get("name") ?? "").trim();
   if (!name) return;
-  await run(`INSERT OR IGNORE INTO categories (name) VALUES (?)`, [name]);
+  await run(`INSERT OR IGNORE INTO categories (name, company_id) VALUES (?,?)`, [name, user.company_id]);
   await logAction(user, "criar", "categoria", null, `${user.name} criou a categoria ${name}`);
   revalidatePath("/estoque");
   revalidatePath("/configuracoes");
@@ -311,10 +328,11 @@ export async function createCategory(fd: FormData) {
 export async function deleteCategory(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const usados = await scalar<number>(`SELECT COUNT(*) FROM products WHERE category_id = ?`, [id]);
+  const usados = await scalar<number>(`SELECT COUNT(*) FROM products WHERE category_id = ? AND company_id = ?`, [id, user.company_id]);
   if (usados > 0) return;
-  const c = await one<any>(`SELECT name FROM categories WHERE id = ?`, [id]);
-  await run(`DELETE FROM categories WHERE id = ?`, [id]);
+  const c = await one<any>(`SELECT name FROM categories WHERE id = ? AND company_id = ?`, [id, user.company_id]);
+  if (!c) return;
+  await run(`DELETE FROM categories WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "categoria", id, `${user.name} removeu a categoria ${c?.name}`);
   revalidatePath("/configuracoes");
 }

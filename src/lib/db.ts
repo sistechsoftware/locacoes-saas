@@ -225,7 +225,19 @@ export async function proximaSequencia(
   minima: number,
   quantidade = 1,
 ): Promise<number> {
-  const companyId = await currentCompanyId();
+  /*
+   * A sequência é POR EMPRESA. Em request, o tenant vem da SESSÃO
+   * (tenantCompanyId) — usar currentCompanyId() aqui fazia TODAS as empresas
+   * numerar com o contador da empresa 1 (fallback do banco). Fora de request
+   * (cron/seed/testes) o comportamento anterior é preservado.
+   */
+  let companyId: number;
+  try {
+    const { tenantCompanyId } = await import("./tenant");
+    companyId = await tenantCompanyId();
+  } catch {
+    companyId = await currentCompanyId();
+  }
   // Garante a linha; nunca rebaixa abaixo do maior numero ja visto.
   await run(
     `INSERT INTO doc_number_counters (company_id, prefix, next_seq) VALUES (?,?,?)

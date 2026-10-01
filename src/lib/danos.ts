@@ -104,12 +104,14 @@ export async function resolveDamage(
   action: "baixa" | "manutencao",
   opts: { notes?: string; maintenanceCostCents?: number } = {},
 ): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const d = await one<DamageRow>(
-    `SELECT id, reservation_id, product_id, product_unit_id, qty, resolution_status, resolution_action, maintenance_id
+  const d = await one<DamageRow & { company_id: number }>(
+    `SELECT id, reservation_id, product_id, product_unit_id, qty, resolution_status, resolution_action, maintenance_id, company_id
        FROM damage_reports WHERE id = ?`,
     [damageId],
   );
   if (!d) return { ok: false, erro: "Dano não encontrado." };
+  // Isolamento: dano de outra empresa é indistinguível de inexistente.
+  if (d.company_id !== user.company_id) return { ok: false, erro: "Dano não encontrado." };
   if (!d.product_id) return { ok: false, erro: "O dano precisa estar vinculado a um equipamento." };
   if (!RESOLVABLE_FROM.includes(d.resolution_status)) {
     return { ok: false, erro: `Este dano já está resolvido (${RESOLUTION_LABEL[d.resolution_status] ?? d.resolution_status}).` };
@@ -138,13 +140,13 @@ export async function resolveDamage(
       const nome = specs.get(part.product_id)?.name ?? `Produto ${part.product_id}`;
       // baixa definitiva: reduz o patrimonio disponivel do produto fisico
       statements.push({
-        sql: `UPDATE products SET total_qty = MAX(0, total_qty - ?) WHERE id = ?`,
-        params: [part.qty, part.product_id],
+        sql: `UPDATE products SET total_qty = MAX(0, total_qty - ?) WHERE id = ? AND company_id = ?`,
+        params: [part.qty, part.product_id, companyId],
       });
       // livro de movimentacoes: a baixa fica registrada com origem completa
       statements.push({
-        sql: `INSERT INTO stock_movements (product_id, qty_delta, reason, damage_report_id, reservation_id, notes, created_by)
-              VALUES (?,?,?,?,?,?,?)`,
+        sql: `INSERT INTO stock_movements (product_id, qty_delta, reason, damage_report_id, reservation_id, notes, created_by, company_id)
+              VALUES (?,?,?,?,?,?,?,?)`,
         params: [
           part.product_id,
           -part.qty,
@@ -153,6 +155,7 @@ export async function resolveDamage(
           d.reservation_id ?? null,
           `Dano #${d.id} · ${nome} · ${origem}${opts.notes ? ` · ${opts.notes}` : ""}`,
           user.id,
+          companyId,
         ],
       });
     }
@@ -160,8 +163,8 @@ export async function resolveDamage(
     // consertavel: abre o par de manutencao (reaproveita o fluxo existente,
     // que ja move maintenance_qty e devolve o disponivel ao concluir)
     statements.push({
-      sql: `INSERT INTO maintenance (product_id, product_unit_id, qty, reason, started_at, status, cost_cents, notes, created_by, damage_report_id)
-            VALUES (?,?,?,?,?, 'aberta', ?,?,?,?)`,
+      sql: `INSERT INTO maintenance (product_id, product_unit_id, qty, reason, started_at, status, cost_cents, notes, created_by, damage_report_id, company_id)
+            VALUES (?,?,?,?,?, 'aberta', ?,?,?,?,?)`,
       params: [
         d.product_id,
         d.product_unit_id ?? null,
@@ -172,11 +175,12 @@ export async function resolveDamage(
         opts.notes ?? null,
         user.id,
         d.id,
+        companyId,
       ],
     });
     statements.push({
-      sql: `UPDATE products SET maintenance_qty = MIN(total_qty, maintenance_qty + ?) WHERE id = ?`,
-      params: [d.qty, d.product_id],
+      sql: `UPDATE products SET maintenance_qty = MIN(total_qty, maintenance_qty + ?) WHERE id = ? AND company_id = ?`,
+      params: [d.qty, d.product_id, companyId],
     });
     if (d.product_unit_id) {
       statements.push({ sql: `UPDATE product_units SET status = 'manutencao' WHERE id = ?`, params: [d.product_unit_id] });
@@ -231,8 +235,12 @@ export async function resolveDamage(
  * Reaproveita o mesmo efeito de closeMaintenance, amarrado ao registro do dano.
  */
 export async function completeDamageMaintenance(user: SessionUser, damageId: number): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const d = await one<DamageRow>(`SELECT id, product_id, qty, maintenance_id, resolution_status FROM damage_reports WHERE id = ?`, [damageId]);
+  const d = await one<DamageRow & { company_id: number }>(
+    `SELECT id, product_id, qty, maintenance_id, resolution_status, company_id FROM damage_reports WHERE id = ?`,
+    [damageId],
+  );
   if (!d) return { ok: false, erro: "Dano não encontrado." };
+  if (d.company_id !== user.company_id) return { ok: false, erro: "Dano não encontrado." };
   if (d.resolution_status !== "em_manutencao") return { ok: false, erro: "Este dano não está em manutenção." };
 
   // caminho preferencial pelo id espelhado no dano; fallback pelo vinculo da
@@ -259,8 +267,8 @@ export async function completeDamageMaintenance(user: SessionUser, damageId: num
   const version = await stockVersion(companyId);
   try {
     await commitStockBatch(companyId, version, [
-      { sql: `UPDATE maintenance SET status = 'concluida', ended_at = ? WHERE id = ? AND status = 'aberta'`, params: [today(), d.maintenance_id] },
-      { sql: `UPDATE products SET maintenance_qty = MAX(0, maintenance_qty - ?) WHERE id = ?`, params: [m.qty, d.product_id] },
+      { sql: `UPDATE maintenance SET status = 'concluida', ended_at = ? WHERE id = ? AND status = 'aberta' AND company_id = ?`, params: [today(), d.maintenance_id, companyId] },
+      { sql: `UPDATE products SET maintenance_qty = MAX(0, maintenance_qty - ?) WHERE id = ? AND company_id = ?`, params: [m.qty, d.product_id, companyId] },
       { sql: `UPDATE damage_reports SET resolution_status = 'consertada', resolved_at = ?, resolved_by = ? WHERE id = ? AND resolution_status = 'em_manutencao'`, params: [agoraLocal(), user.id, d.id] },
     ]);
   } catch (e) {
@@ -268,7 +276,7 @@ export async function completeDamageMaintenance(user: SessionUser, damageId: num
     if (msg.includes("stock_version_matches")) return { ok: false, erro: "O estoque mudou durante a operação. Nada foi alterado; tente novamente." };
     throw e;
   }
-  if (m.product_unit_id) await run(`UPDATE product_units SET status = 'disponivel' WHERE id = ?`, [m.product_unit_id]);
+  if (m.product_unit_id) await run(`UPDATE product_units SET status = 'disponivel' WHERE id = ? AND company_id = ?`, [m.product_unit_id, companyId]);
 
   await logAction(user, "consertar_dano", "reserva", d.reservation_id ?? null, `${user.name} concluiu a manutenção do dano #${d.id}: ${m.qty} un. de volta ao disponível`, { damage: d.id });
   return { ok: true };
@@ -280,8 +288,12 @@ export async function completeDamageMaintenance(user: SessionUser, damageId: num
  * O historico nunca e apagado; de 'estornada' o dano pode ser resolvido de novo.
  */
 export async function revertDamageWriteOff(user: SessionUser, damageId: number, motivo: string): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const d = await one<DamageRow>(`SELECT id, reservation_id, product_id, qty, resolution_status, resolution_action FROM damage_reports WHERE id = ?`, [damageId]);
+  const d = await one<DamageRow & { company_id: number }>(
+    `SELECT id, reservation_id, product_id, qty, resolution_status, resolution_action, company_id FROM damage_reports WHERE id = ?`,
+    [damageId],
+  );
   if (!d) return { ok: false, erro: "Dano não encontrado." };
+  if (d.company_id !== user.company_id) return { ok: false, erro: "Dano não encontrado." };
   if (d.resolution_status !== "baixada" || d.resolution_action !== "baixa") {
     return { ok: false, erro: "Só é possível estornar uma baixa definitiva." };
   }
@@ -298,12 +310,12 @@ export async function revertDamageWriteOff(user: SessionUser, damageId: number, 
   for (const m of baixas) {
     const devolve = Math.abs(m.qty_delta);
     statements.push({
-      sql: `UPDATE products SET total_qty = total_qty + ? WHERE id = ?`,
-      params: [devolve, m.product_id],
+      sql: `UPDATE products SET total_qty = total_qty + ? WHERE id = ? AND company_id = ?`,
+      params: [devolve, m.product_id, companyId],
     });
     statements.push({
-      sql: `INSERT INTO stock_movements (product_id, qty_delta, reason, damage_report_id, reservation_id, notes, created_by)
-            VALUES (?,?,?,?,?,?,?)`,
+      sql: `INSERT INTO stock_movements (product_id, qty_delta, reason, damage_report_id, reservation_id, notes, created_by, company_id)
+            VALUES (?,?,?,?,?,?,?,?)`,
       params: [
         m.product_id,
         devolve,
@@ -312,6 +324,7 @@ export async function revertDamageWriteOff(user: SessionUser, damageId: number, 
         d.reservation_id ?? null,
         `Estorno da baixa do dano #${d.id}${motivo ? ` · ${motivo}` : ""}`,
         user.id,
+        companyId,
       ],
     });
   }

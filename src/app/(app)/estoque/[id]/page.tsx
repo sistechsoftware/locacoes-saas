@@ -6,6 +6,7 @@ import { dateTimeBR } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { availabilityFor, availabilityForDays, componentsOf, holdsForProduct, kitsUsing } from "@/lib/stock";
 import { logsFor } from "@/lib/audit";
 import { UNIT_STATUS } from "@/lib/domain";
@@ -250,7 +251,7 @@ export default async function ProdutoPage({
                       Ok
                     </SubmitButton>
                   </form>
-                  {user.role === "admin" && (
+                  {ehAdmin(user.role) && (
                     <form action={deleteUnit}>
                       <input type="hidden" name="unit_id" value={u.id} />
                       <SubmitButton variant="perigo" confirm={`Remover ${u.code}?`} className="px-2 py-1 text-xs">
@@ -335,7 +336,7 @@ export default async function ProdutoPage({
         </Section>
       )}
 
-      {user.role === "admin" && (
+      {ehAdmin(user.role) && (
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm font-semibold text-tinta-900">Área do administrador</p>
           <div className="flex gap-2">

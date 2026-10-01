@@ -41,12 +41,12 @@ export async function gerarRecebiveis(
 
   const doc = ehLocacao
     ? await one<any>(
-        `SELECT r.id, r.number, r.total_cents, r.customer_id, c.name AS customer_name
+        `SELECT r.id, r.number, r.total_cents, r.customer_id, r.company_id, c.name AS customer_name
            FROM reservations r JOIN customers c ON c.id = r.customer_id WHERE r.id = ?`,
         [idOrigem],
       )
     : await one<any>(
-        `SELECT f.id, f.number, f.amount_cents AS total_cents, f.customer_id, c.name AS customer_name
+        `SELECT f.id, f.number, f.amount_cents AS total_cents, f.customer_id, f.company_id, c.name AS customer_name
            FROM freights f LEFT JOIN customers c ON c.id = f.customer_id WHERE f.id = ?`,
         [idOrigem],
       );
@@ -97,14 +97,16 @@ export async function gerarRecebiveis(
   const parcelas = montarParcelas(aParcelar, opts.parcelas, opts.primeiroVencimento);
   // numeros gerados de uma vez (uma leitura), em vez de um SELECT por parcela
   const numeros = await nextNumbers("financial_entries", "REC", parcelas.length);
+  // empresa da parcela = empresa da ORIGEM (reserva/frete), nunca da sessão
+  const companyId = doc.company_id;
   let i = 0;
   for (const p of parcelas) {
     const numero = numeros[i++];
     await insert(
       `INSERT INTO financial_entries
         (number, direction, origin, customer_id, ${coluna}, category, description,
-         amount_cents, due_date, installment, installments_total, account_id, created_by)
-       VALUES (?,'receber',?,?,?,?,?,?,?,?,?,?,?)`,
+         amount_cents, due_date, installment, installments_total, account_id, created_by, company_id)
+       VALUES (?,'receber',?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         numero,
         ehLocacao ? "locacao" : "frete",
@@ -119,6 +121,7 @@ export async function gerarRecebiveis(
         p.installments_total,
         opts.accountId ?? null,
         opts.userId ?? null,
+        companyId,
       ],
     );
   }
@@ -301,11 +304,13 @@ type EntradaAdiantamento = {
  */
 export async function criarAdiantamento(opts: EntradaAdiantamento): Promise<string | null> {
   const reserva = await one<any>(
-    `SELECT r.id, r.number, r.customer_id, c.name AS customer_name FROM reservations r
+    `SELECT r.id, r.number, r.customer_id, r.company_id, c.name AS customer_name FROM reservations r
        JOIN customers c ON c.id = r.customer_id WHERE r.id = ?`,
     [opts.reservationId],
   );
   if (!reserva) return "Reserva não encontrada.";
+  // O dinheiro segue a reserva: payments/entries herdam o company_id dela.
+  const companyId = reserva.company_id;
 
   const saldo = await saldoDisponivelAdiantamento(opts.reservationId);
   const erroValor = validarValorAdiantamento(opts.amountCents, saldo);
@@ -316,8 +321,8 @@ export async function criarAdiantamento(opts: EntradaAdiantamento): Promise<stri
     // entao o account_id tem que sobreviver ate o payments, igual acontece na
     // confirmacao de um adiantamento agendado (confirmarAdiantamento)
     await insert(
-      `INSERT INTO payments (reservation_id, amount_cents, method, paid_at, notes, account_id, created_by)
-       VALUES (?,?,?,?,?,?,?)`,
+      `INSERT INTO payments (reservation_id, amount_cents, method, paid_at, notes, account_id, created_by, company_id)
+       VALUES (?,?,?,?,?,?,?,?)`,
       [
         opts.reservationId,
         opts.amountCents,
@@ -326,6 +331,7 @@ export async function criarAdiantamento(opts: EntradaAdiantamento): Promise<stri
         "Adiantamento",
         opts.accountId ?? null,
         opts.userId,
+        companyId,
       ],
     );
     return null;
@@ -345,8 +351,8 @@ export async function criarAdiantamento(opts: EntradaAdiantamento): Promise<stri
   await insert(
     `INSERT INTO financial_entries
       (number, direction, origin, customer_id, reservation_id, category, description,
-       amount_cents, due_date, installment, installments_total, account_id, expected_method, notes, created_by)
-     VALUES (?,'receber','locacao',?,?,'Adiantamento',?,?,?,1,1,?,?,?,?)`,
+       amount_cents, due_date, installment, installments_total, account_id, expected_method, notes, created_by, company_id)
+     VALUES (?,'receber','locacao',?,?,'Adiantamento',?,?,?,1,1,?,?,?,?,?)`,
     [
       numero,
       reserva.customer_id,
@@ -358,6 +364,7 @@ export async function criarAdiantamento(opts: EntradaAdiantamento): Promise<stri
       opts.method,
       opts.notes ?? null,
       opts.userId,
+      companyId,
     ],
   );
   return null;
@@ -432,8 +439,8 @@ export async function confirmarAdiantamento(
 
   const metodo = opts.method || entry.expected_method || "pix";
   await insert(
-    `INSERT INTO payments (reservation_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO payments (reservation_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
     [
       entry.reservation_id,
       entry.amount_cents,
@@ -443,6 +450,8 @@ export async function confirmarAdiantamento(
       entryId,
       opts.accountId ?? entry.account_id,
       opts.userId,
+      // empresa do pagamento = empresa do lançamento (linha pai)
+      entry.company_id,
     ],
   );
   return null;

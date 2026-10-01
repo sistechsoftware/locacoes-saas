@@ -60,7 +60,8 @@ export async function receberParcela(fd: FormData) {
   const user = await requireUser();
   const entryId = Number(fd.get("entry_id"));
   const valor = parseMoney(String(fd.get("amount") ?? ""));
-  const entry = await one<any>(`SELECT * FROM financial_entries WHERE id = ?`, [entryId]);
+  // Isolamento: parcela de outra empresa é "não encontrada".
+  const entry = await one<any>(`SELECT * FROM financial_entries WHERE id = ? AND company_id = ?`, [entryId, user.company_id]);
   if (!entry) return;
 
   const destino = entry.reservation_id
@@ -71,8 +72,8 @@ export async function receberParcela(fd: FormData) {
   if (valor <= 0) redirect(`${destino}?erro=${encodeURIComponent("Informe um valor válido.")}`);
 
   await insert(
-    `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [
       entry.reservation_id,
       entry.freight_id,
@@ -83,6 +84,7 @@ export async function receberParcela(fd: FormData) {
       entryId,
       Number(fd.get("account_id")) || entry.account_id,
       user.id,
+      user.company_id,
     ],
   );
 
@@ -90,7 +92,7 @@ export async function receberParcela(fd: FormData) {
     entryId,
   ]);
   if (recebido >= entry.amount_cents) {
-    await run(`UPDATE financial_entries SET status = 'quitada' WHERE id = ?`, [entryId]);
+    await run(`UPDATE financial_entries SET status = 'quitada' WHERE id = ? AND company_id = ?`, [entryId, user.company_id]);
   }
 
   await logAction(
@@ -108,12 +110,12 @@ export async function receberParcela(fd: FormData) {
 export async function estornarRecebimento(fd: FormData) {
   const user = await assertAdmin();
   const paymentId = Number(fd.get("payment_id"));
-  const p = await one<any>(`SELECT * FROM payments WHERE id = ?`, [paymentId]);
+  const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ?`, [paymentId, user.company_id]);
   if (!p) return;
 
   await insert(
-    `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [
       p.reservation_id,
       p.freight_id,
@@ -124,9 +126,10 @@ export async function estornarRecebimento(fd: FormData) {
       p.entry_id,
       p.account_id,
       user.id,
+      user.company_id,
     ],
   );
-  if (p.entry_id) await run(`UPDATE financial_entries SET status = 'aberta' WHERE id = ?`, [p.entry_id]);
+  if (p.entry_id) await run(`UPDATE financial_entries SET status = 'aberta' WHERE id = ? AND company_id = ?`, [p.entry_id, user.company_id]);
 
   await logAction(
     user,

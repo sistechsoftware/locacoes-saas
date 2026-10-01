@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { insert, nextNumber, one, run } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money, parseMoney } from "@/lib/format";
 import { setSettings } from "@/lib/settings";
@@ -26,16 +26,17 @@ function read(fd: FormData) {
 }
 
 export async function createFreight(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const f = read(fd);
   if (!f.date) return "Informe a data do frete.";
   if (!f.contact_name && !f.customer_id) return "Informe o cliente ou o nome do contato.";
 
   const number = await nextNumber("freights", "FRT");
+  // company_id da sessão: sem ele o frete nasceria na empresa 1 (DEFAULT)
   const id = await insert(
     `INSERT INTO freights (number, customer_id, contact_name, phone, date, time, origin, destination, cargo,
-      amount_cents, method, status, vehicle_id, notes, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      amount_cents, method, status, vehicle_id, notes, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       number,
       f.customer_id,
@@ -52,6 +53,7 @@ export async function createFreight(_prev: string | null, fd: FormData): Promise
       f.vehicle_id,
       f.notes,
       user.id,
+      companyId,
     ],
   );
   await logAction(user, "criar", "frete", id, `${user.name} criou o frete ${number} (${money(f.amount_cents)})`);
@@ -61,15 +63,16 @@ export async function createFreight(_prev: string | null, fd: FormData): Promise
 }
 
 export async function updateFreight(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("id"));
   const f = read(fd);
-  const current = await one<any>(`SELECT number FROM freights WHERE id = ?`, [id]);
+  // Isolamento: frete de outra empresa é "não encontrado".
+  const current = await one<any>(`SELECT number FROM freights WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!current) return "Frete não encontrado.";
 
   await run(
     `UPDATE freights SET customer_id=?, contact_name=?, phone=?, date=?, time=?, origin=?, destination=?, cargo=?,
-            amount_cents=?, method=?, status=?, vehicle_id=?, notes=? WHERE id = ?`,
+            amount_cents=?, method=?, status=?, vehicle_id=?, notes=? WHERE id = ? AND company_id = ?`,
     [
       f.customer_id,
       f.contact_name,
@@ -85,6 +88,7 @@ export async function updateFreight(_prev: string | null, fd: FormData): Promise
       f.vehicle_id,
       f.notes,
       id,
+      companyId,
     ],
   );
   await logAction(user, "editar", "frete", id, `${user.name} alterou o frete ${current.number}`);
@@ -93,27 +97,27 @@ export async function updateFreight(_prev: string | null, fd: FormData): Promise
 }
 
 export async function setFreightStatus(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
-  const f = await one<any>(`SELECT * FROM freights WHERE id = ?`, [id]);
+  const f = await one<any>(`SELECT * FROM freights WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!f) return;
-  await run(`UPDATE freights SET status = ? WHERE id = ?`, [status, id]);
+  await run(`UPDATE freights SET status = ? WHERE id = ? AND company_id = ?`, [status, id, companyId]);
   await logAction(user, "status", "frete", id, `${user.name} marcou o frete ${f.number} como ${status}`);
   revalidatePath(`/fretes/${id}`);
   revalidatePath("/fretes");
 }
 
 export async function payFreight(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("id"));
-  const f = await one<any>(`SELECT * FROM freights WHERE id = ?`, [id]);
+  const f = await one<any>(`SELECT * FROM freights WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!f) return;
   const amount = parseMoney(String(fd.get("amount") ?? "")) || f.amount_cents;
   if (amount <= 0) return;
   await insert(
-    `INSERT INTO payments (freight_id, amount_cents, method, paid_at, notes, created_by) VALUES (?,?,?,?,?,?)`,
-    [id, amount, String(fd.get("method") ?? f.method), String(fd.get("paid_at") ?? ""), `Frete ${f.number}`, user.id],
+    `INSERT INTO payments (freight_id, amount_cents, method, paid_at, notes, created_by, company_id) VALUES (?,?,?,?,?,?,?)`,
+    [id, amount, String(fd.get("method") ?? f.method), String(fd.get("paid_at") ?? ""), `Frete ${f.number}`, user.id, companyId],
   );
   await logAction(user, "pagamento", "frete", id, `${user.name} registrou pagamento de ${money(amount)} no frete ${f.number}`);
   revalidatePath(`/fretes/${id}`);
@@ -123,8 +127,9 @@ export async function payFreight(fd: FormData) {
 export async function deleteFreight(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const f = await one<any>(`SELECT number FROM freights WHERE id = ?`, [id]);
-  await run(`DELETE FROM freights WHERE id = ?`, [id]);
+  const f = await one<any>(`SELECT number FROM freights WHERE id = ? AND company_id = ?`, [id, user.company_id]);
+  if (!f) return; // frete de outra empresa: nada a fazer
+  await run(`DELETE FROM freights WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "frete", id, `${user.name} excluiu o frete ${f?.number}`);
   redirect("/fretes");
 }

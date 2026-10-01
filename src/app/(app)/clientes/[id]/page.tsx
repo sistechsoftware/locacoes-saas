@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { getCustomer } from "@/lib/queries";
 import { logsFor } from "@/lib/audit";
 import { RESERVATION_STATUS, QUOTE_STATUS } from "@/lib/domain";
@@ -177,7 +178,7 @@ export default async function ClientePage({
           hoje={today()}
         />
 
-        <DocumentosCliente customerId={c.id} documentos={documentos} admin={user.role === "admin"} />
+        <DocumentosCliente customerId={c.id} documentos={documentos} admin={ehAdmin(user.role)} />
 
         <Section title={`Reservas (${reservas.length})`}>
           {reservas.length === 0 ? (
@@ -276,7 +277,7 @@ export default async function ClientePage({
         </form>
       </Card>
 
-      {user.role === "admin" && (
+      {ehAdmin(user.role) && (
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-tinta-900">Área do administrador</p>

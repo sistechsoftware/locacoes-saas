@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money, parseMoney, today } from "@/lib/format";
 import {
@@ -23,9 +23,13 @@ import {
  * parcelamento comum.
  */
 export async function criarAdiantamentoAction(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const reservationId = Number(fd.get("reservation_id"));
   const imediato = String(fd.get("type") ?? "agendado") === "agora";
+  // Isolamento: adiantamento só nasce sobre reserva da própria empresa.
+  if (!await one(`SELECT id FROM reservations WHERE id = ? AND company_id = ?`, [reservationId, companyId])) {
+    redirect(`/reservas?erro=${encodeURIComponent("Reserva não encontrada.")}`);
+  }
 
   const erro = await criarAdiantamento({
     reservationId,
@@ -56,9 +60,13 @@ export async function criarAdiantamentoAction(fd: FormData) {
 }
 
 export async function atualizarAdiantamentoAction(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const entryId = Number(fd.get("entry_id"));
   const reservationId = Number(fd.get("reservation_id"));
+  // Isolamento: o lançamento precisa pertencer à empresa do usuário.
+  if (!await one(`SELECT id FROM financial_entries WHERE id = ? AND company_id = ?`, [entryId, companyId])) {
+    redirect(`/reservas/${reservationId}?erro=${encodeURIComponent("Adiantamento não encontrado.")}`);
+  }
 
   const erro = await atualizarAdiantamentoAgendado(entryId, {
     amountCents: parseMoney(String(fd.get("amount") ?? "")),
@@ -77,9 +85,12 @@ export async function atualizarAdiantamentoAction(fd: FormData) {
 }
 
 export async function confirmarAdiantamentoAction(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const entryId = Number(fd.get("entry_id"));
   const reservationId = Number(fd.get("reservation_id"));
+  if (!await one(`SELECT id FROM financial_entries WHERE id = ? AND company_id = ?`, [entryId, companyId])) {
+    redirect(`/reservas/${reservationId}?erro=${encodeURIComponent("Adiantamento não encontrado.")}`);
+  }
 
   const erro = await confirmarAdiantamento(entryId, {
     method: String(fd.get("method") ?? "") || undefined,
@@ -106,11 +117,13 @@ export async function confirmarAdiantamentoAction(fd: FormData) {
 }
 
 export async function cancelarAdiantamentoAction(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const entryId = Number(fd.get("entry_id"));
   const reservationId = Number(fd.get("reservation_id"));
+  // Só cancela se o lançamento é da empresa do usuário.
+  const meu = await one(`SELECT id FROM financial_entries WHERE id = ? AND company_id = ?`, [entryId, companyId]);
 
-  const cancelou = await cancelarAdiantamentoAgendado(entryId);
+  const cancelou = !!meu && (await cancelarAdiantamentoAgendado(entryId));
   if (cancelou) {
     await logAction(user, "editar", "reserva", reservationId, `${user.name} cancelou o adiantamento agendado`);
   }

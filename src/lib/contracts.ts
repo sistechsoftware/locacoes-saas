@@ -160,11 +160,13 @@ export async function ensureContract(reservationId: number, userId?: number): Pr
     [reservationId],
   );
   if (existing) return existing.id;
+  // empresa do contrato = empresa da reserva (a action já validou a posse)
+  const dono = await one<{ company_id: number }>(`SELECT company_id FROM reservations WHERE id = ?`, [reservationId]);
   const number = await nextNumber("contracts", "CTR");
   const body = await buildContractBody(reservationId, number);
   const temAssinaturaEmpresa = (await getCompanySignature()) !== null;
   return await insert(
-    `INSERT INTO contracts (number, reservation_id, status, body, created_by, company_signature_included) VALUES (?,?,'pendente',?,?,?)`,
-    [number, reservationId, body, userId ?? null, temAssinaturaEmpresa ? 1 : 0],
+    `INSERT INTO contracts (number, reservation_id, status, body, created_by, company_signature_included, company_id) VALUES (?,?,'pendente',?,?,?,?)`,
+    [number, reservationId, body, userId ?? null, temAssinaturaEmpresa ? 1 : 0, dono?.company_id ?? 1],
   );
 }

@@ -168,17 +168,26 @@ export async function attach(
   files: File[],
   userId?: number,
   caption?: string,
+  companyId?: number,
 ): Promise<number> {
+  // Anexo segue o tenant do dono do arquivo (files já leva company_id).
+  const cid =
+    companyId ??
+    (await (async () => {
+      const { tenantCompanyId } = await import("./tenant");
+      return await tenantCompanyId();
+    })());
   let saved = 0;
   for (const f of files) {
     const url = await saveUpload(f, userId);
     if (!url) continue;
-    await insert(`INSERT INTO attachments (entity, entity_id, path, caption, created_by) VALUES (?,?,?,?,?)`, [
+    await insert(`INSERT INTO attachments (entity, entity_id, path, caption, created_by, company_id) VALUES (?,?,?,?,?,?)`, [
       entity,
       entityId,
       url,
       caption ?? null,
       userId ?? null,
+      cid,
     ]);
     saved++;
   }
@@ -192,10 +201,15 @@ export async function attachmentsFor(entity: string, entityId: number) {
   ]);
 }
 
-export async function removeAttachment(id: number) {
+/**
+ * Remove um anexo. Com companyId, o anexo de OUTRA empresa é tratado como
+ * inexistente (barreira de isolamento); sem, é a limpeza interna por pai.
+ */
+export async function removeAttachment(id: number, companyId?: number) {
   const a = await one<any>(`SELECT * FROM attachments WHERE id = ?`, [id]);
   if (!a) return;
-  await run(`DELETE FROM attachments WHERE id = ?`, [id]);
+  if (companyId !== undefined && a.company_id !== companyId) return;
+  await run(`DELETE FROM attachments WHERE id = ? AND company_id = ?`, [id, a.company_id]);
   await removeFileByUrl(a.path);
 }
 

@@ -41,8 +41,8 @@ export async function addExpense(fd: FormData) {
   const finalidade = String(fd.get("category") ?? "").trim() || "Outros";
 
   const id = await insert(
-    `INSERT INTO expenses (date, category, description, amount_cents, method, reservation_id, status, account_id, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO expenses (date, category, description, amount_cents, method, reservation_id, status, account_id, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [
       data,
       finalidade,
@@ -53,6 +53,7 @@ export async function addExpense(fd: FormData) {
       String(fd.get("status") ?? "pago"),
       Number(fd.get("account_id")) || null,
       user.id,
+      user.company_id,
     ],
   );
 
@@ -83,9 +84,9 @@ export async function addExpense(fd: FormData) {
 export async function deleteExpense(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const e = await one<any>(`SELECT * FROM expenses WHERE id = ?`, [id]);
+  const e = await one<any>(`SELECT * FROM expenses WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!e) return;
-  await run(`DELETE FROM expenses WHERE id = ?`, [id]);
+  await run(`DELETE FROM expenses WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "excluir", "despesa", id, `${user.name} removeu despesa de ${money(e.amount_cents)}`);
   revalidatePath("/financeiro");
 }
@@ -105,8 +106,8 @@ export async function addIncome(fd: FormData) {
 
   const data = String(fd.get("paid_at") ?? "") || today();
   const id = await insert(
-    `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, account_id, created_by)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, account_id, created_by, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
     [
       Number(fd.get("reservation_id")) || null,
       null,
@@ -116,6 +117,7 @@ export async function addIncome(fd: FormData) {
       String(fd.get("notes") ?? "").trim(),
       Number(fd.get("account_id")) || null,
       user.id,
+      user.company_id,
     ],
   );
 
@@ -145,7 +147,11 @@ export async function createPurpose(fd: FormData) {
 
   if (!nome) redirect(destino(fd, { erro: "Informe o nome da finalidade." }));
 
-  const existente = await one<any>(`SELECT id, name, active FROM expense_purposes WHERE lower(name) = lower(?)`, [nome]);
+  // Finalidades são POR EMPRESA (expense_purposes.company_id).
+  const existente = await one<any>(
+    `SELECT id, name, active FROM expense_purposes WHERE lower(name) = lower(?) AND company_id = ?`,
+    [nome, user.company_id],
+  );
   if (existente) {
     // ja existia desativada: reativar e melhor que recusar, que e o que a
     // pessoa esta querendo fazer de fato
@@ -160,7 +166,7 @@ export async function createPurpose(fd: FormData) {
     redirect(destino(fd, { erro: `A finalidade "${existente.name}" ja existe.`, nova: existente.name }));
   }
 
-  const id = await insert(`INSERT INTO expense_purposes (name, created_by) VALUES (?,?)`, [nome, user.id]);
+  const id = await insert(`INSERT INTO expense_purposes (name, created_by, company_id) VALUES (?,?,?)`, [nome, user.id, user.company_id]);
   await logAction(user, "criar", "configuracao", id, `${user.name} criou a finalidade de saida "${nome}"`);
   revalidatePath("/financeiro");
   revalidatePath("/configuracoes");
@@ -171,10 +177,10 @@ export async function createPurpose(fd: FormData) {
 export async function togglePurpose(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
-  const p = await one<any>(`SELECT * FROM expense_purposes WHERE id = ?`, [id]);
+  const p = await one<any>(`SELECT * FROM expense_purposes WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!p) return;
   const novo = p.active ? 0 : 1;
-  await run(`UPDATE expense_purposes SET active = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [novo, id]);
+  await run(`UPDATE expense_purposes SET active = ?, updated_at = datetime('now','localtime') WHERE id = ? AND company_id = ?`, [novo, id, user.company_id]);
   await logAction(
     user,
     "editar",
@@ -196,18 +202,18 @@ export async function renamePurpose(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
   const nome = String(fd.get("name") ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
-  const p = await one<any>(`SELECT * FROM expense_purposes WHERE id = ?`, [id]);
+  const p = await one<any>(`SELECT * FROM expense_purposes WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!p || !nome || nome === p.name) return;
 
   const conflito = await one<any>(
-    `SELECT id FROM expense_purposes WHERE lower(name) = lower(?) AND id <> ?`,
-    [nome, id],
+    `SELECT id FROM expense_purposes WHERE lower(name) = lower(?) AND id <> ? AND company_id = ?`,
+    [nome, id, user.company_id],
   );
   if (conflito) {
     redirect(`/configuracoes?aba=finalidades&erro=${encodeURIComponent(`Ja existe a finalidade "${nome}".`)}`);
   }
 
-  await run(`UPDATE expense_purposes SET name = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [nome, id]);
+  await run(`UPDATE expense_purposes SET name = ?, updated_at = datetime('now','localtime') WHERE id = ? AND company_id = ?`, [nome, id, user.company_id]);
   await logAction(user, "editar", "configuracao", id, `${user.name} renomeou a finalidade "${p.name}" para "${nome}"`);
   revalidatePath("/financeiro");
   revalidatePath("/configuracoes");
@@ -215,8 +221,10 @@ export async function renamePurpose(fd: FormData) {
 
 /** Finalidades para escolher, mais as usadas no historico que sairam do catalogo. */
 export async function finalidadesDisponiveis(selecionada?: string): Promise<string[]> {
+  const user = await requireUser();
   const ativas = await all<{ name: string }>(
-    `SELECT name FROM expense_purposes WHERE active = 1 ORDER BY name COLLATE NOCASE`,
+    `SELECT name FROM expense_purposes WHERE active = 1 AND company_id = ? ORDER BY name COLLATE NOCASE`,
+    [user.company_id],
   );
   const nomes = ativas.map((p) => p.name);
   if (selecionada && !nomes.some((n) => n.toLowerCase() === selecionada.toLowerCase())) nomes.unshift(selecionada);
@@ -224,8 +232,10 @@ export async function finalidadesDisponiveis(selecionada?: string): Promise<stri
 }
 
 export async function todasFinalidades() {
+  const user = await requireUser();
   return await all<any>(
-    `SELECT p.*, (SELECT COUNT(*) FROM expenses e WHERE lower(e.category) = lower(p.name)) AS usos
-       FROM expense_purposes p ORDER BY p.active DESC, p.name COLLATE NOCASE`,
+    `SELECT p.*, (SELECT COUNT(*) FROM expenses e WHERE lower(e.category) = lower(p.name) AND e.company_id = p.company_id) AS usos
+       FROM expense_purposes p WHERE p.company_id = ? ORDER BY p.active DESC, p.name COLLATE NOCASE`,
+    [user.company_id],
   );
 }

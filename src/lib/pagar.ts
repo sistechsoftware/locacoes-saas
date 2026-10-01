@@ -98,6 +98,10 @@ export async function criarContaPagarManual(i: NovoPagarInput): Promise<{ id: nu
 
   const parcelas = montarParcelas(i.amountCents, i.parcelas, i.dueDate);
   const multiplas = parcelas.length > 1;
+  // tenant do lançamento manual: sessão/cron (tenantCompanyId), com fallback
+  // determinístico para testes (empresa padrão)
+  const { tenantCompanyId } = await import("./tenant");
+  const companyId = await tenantCompanyId();
   // nextNumber le o banco ANTES do batch rodar: chamada por parcela daria o
   // mesmo numero a todas e o lote morreria no UNIQUE. O sequencial e reservado
   // uma vez e incrementado em memoria, no mesmo formato PAG-XXX. nextNumber
@@ -108,8 +112,8 @@ export async function criarContaPagarManual(i: NovoPagarInput): Promise<{ id: nu
     sql: `INSERT INTO financial_entries
             (number, direction, origin, supplier_id, category, description,
              amount_cents, due_date, purchase_date, installment, installments_total,
-             account_id, notes, created_by)
-          VALUES (?,'pagar',?,?,?,?,?,?,?,?,?,?,?,?)`,
+             account_id, notes, created_by, company_id)
+          VALUES (?,'pagar',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     params: [
       `PAG-${String(baseSeq + idx).padStart(3, "0")}`,
       ORIGEM_MANUAL,
@@ -124,6 +128,7 @@ export async function criarContaPagarManual(i: NovoPagarInput): Promise<{ id: nu
       i.accountId ?? null,
       i.notes?.trim() || null,
       i.userId,
+      companyId,
     ],
   }));
 

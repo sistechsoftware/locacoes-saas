@@ -9,9 +9,10 @@ import { updatePurchase } from "../../actions";
 export const dynamic = "force-dynamic";
 
 export default async function EditarCompraPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
-  const compra = await one<any>(`SELECT * FROM purchases WHERE id = ?`, [Number(id)]);
+  // Isolamento: compra de outra empresa é inexistente para este usuário.
+  const compra = await one<any>(`SELECT * FROM purchases WHERE id = ? AND company_id = ?`, [Number(id), user.company_id]);
   if (!compra) notFound();
 
   const [itens, produtos, fornecedores, contas, parcelas] = await Promise.all([

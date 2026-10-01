@@ -6,6 +6,7 @@ import { HOLDING_STATUSES } from "@/lib/domain";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { logsFor } from "@/lib/audit";
 import {
   getReservation,
@@ -713,7 +714,7 @@ export default async function ReservaPage({
                             </SubmitButton>
                           </form>
                         ))}
-                      {user.role === "admin" && (
+                      {ehAdmin(user.role) && (
                         <form action={deletePayment}>
                           <input type="hidden" name="payment_id" value={p.id} />
                           <SubmitButton variant="perigo" confirm="Remover este pagamento?" className="px-2.5 py-1.5 text-xs">
@@ -1002,7 +1003,7 @@ export default async function ReservaPage({
         </Section>
       )}
 
-      {user.role === "admin" && (
+      {ehAdmin(user.role) && (
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-tinta-900">Área do administrador</p>

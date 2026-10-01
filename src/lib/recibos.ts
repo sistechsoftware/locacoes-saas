@@ -142,6 +142,14 @@ export async function emitirRecibo(
     fonte.tipo === "payment" ? await dadosDePagamento(fonte.paymentId) : await dadosDeCaucao(fonte.depositId);
   if ("erro" in dados) return { erro: dados.erro };
 
+  // empresa do recibo = empresa do LANÇAMENTO de origem (linha pai)
+  const companyId = await scalar<number>(
+    fonte.tipo === "payment"
+      ? `SELECT company_id FROM payments WHERE id = ?`
+      : `SELECT company_id FROM deposits WHERE id = ?`,
+    [fonte.tipo === "payment" ? fonte.paymentId : fonte.depositId],
+  );
+
   // 2. já tem recibo? devolve o existente, sem duplicar nada
   const coluna = fonte.tipo === "payment" ? "payment_id" : "deposit_id";
   const alvo = fonte.tipo === "payment" ? fonte.paymentId : fonte.depositId;
@@ -165,8 +173,8 @@ export async function emitirRecibo(
     const numero = await proximoNumero();
     try {
       const id = await insert(
-        `INSERT INTO receipts (number, source_type, payment_id, deposit_id, entry_id, amount_cents, paid_at, method, body, issued_by, issued_by_name, company_signature_included)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO receipts (number, source_type, payment_id, deposit_id, entry_id, amount_cents, paid_at, method, body, issued_by, issued_by_name, company_signature_included, company_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           numero,
           fonte.tipo,
@@ -180,6 +188,7 @@ export async function emitirRecibo(
           opts.userId ?? null,
           opts.userName ?? null,
           temAssinaturaEmpresa ? 1 : 0,
+          companyId || 1,
         ],
       );
       return { erro: null, receiptId: id };
@@ -347,13 +356,16 @@ export async function emitirQuitacao(
       .join(" ");
 
     const temAssinaturaEmpresa = (await getCompanySignature()) !== null;
+    // empresa da quitação = empresa da reserva
+    const companyIdQuitacao =
+      (await scalar<number>(`SELECT company_id FROM reservations WHERE id = ?`, [reservaId])) || 1;
 
     for (let tentativa = 0; tentativa < 5; tentativa++) {
       const numero = await proximoNumero();
       try {
         const id = await insert(
-          `INSERT INTO receipts (number, source_type, amount_cents, paid_at, method, body, issued_by, issued_by_name, company_signature_included, obrigacao_tipo, obrigacao_id, payment_ids)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO receipts (number, source_type, amount_cents, paid_at, method, body, issued_by, issued_by_name, company_signature_included, obrigacao_tipo, obrigacao_id, payment_ids, company_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             numero,
             "quitacao",
@@ -367,6 +379,7 @@ export async function emitirQuitacao(
             tipo,
             reservaId,
             JSON.stringify(lista),
+            companyIdQuitacao,
           ],
         );
         return { erro: null, receiptId: id, criado: true };
