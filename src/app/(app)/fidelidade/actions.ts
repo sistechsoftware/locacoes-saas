@@ -13,15 +13,15 @@ export async function marcarMensagem(fd: FormData) {
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   if (status !== "enviada" && status !== "dispensada") return;
-  /* Isolamento: o escopo vem do DONO da mensagem (customers.company_id).
-     Os INSERTs de fidelity_messages ainda gravam company_id DEFAULT 1
-     (pendência #04), entao filtrar pela propria coluna quebraria a empresa
-     != 1 — amarrar ao cliente fecha o IDOR sem perder funcionalidade. */
+  /* Isolamento: o escopo vem do DONO da mensagem (customers.company_id) E da
+     propria coluna company_id, ja que a migration 0033 backfilla a coluna pelo
+     dono e os INSERTs (pendência #04) gravam o company_id do cliente. Duas
+     travas para o mesmo resultado: mensagem de outro tenant nunca é alterada. */
   await run(
     `UPDATE fidelity_messages SET status=?, sent_at=?
-      WHERE id=? AND status='pendente'
+      WHERE id=? AND company_id=? AND status='pendente'
         AND customer_id IN (SELECT id FROM customers WHERE company_id = ?)`,
-    [status, status === "enviada" ? nowLocal() : null, id, ctx.companyId],
+    [status, status === "enviada" ? nowLocal() : null, id, ctx.companyId, ctx.companyId],
   );
   revalidatePath("/fidelidade");
 }

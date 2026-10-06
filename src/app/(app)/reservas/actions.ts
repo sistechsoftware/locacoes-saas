@@ -261,7 +261,10 @@ export async function saveDeposit(fd: FormData) {
      (IDOR de escrita por id). */
   const reserva = await one<any>(`SELECT id FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!reserva) redirect("/reservas");
-  const dep = await one<any>(`SELECT id FROM deposits WHERE reservation_id = ? ORDER BY id DESC LIMIT 1`, [id]);
+  const dep = await one<any>(`SELECT id FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [
+    id,
+    companyId,
+  ]);
 
   const values = [
     amount,
@@ -276,8 +279,8 @@ export async function saveDeposit(fd: FormData) {
   if (dep) {
     await run(
       `UPDATE deposits SET amount_cents=?, method=?, received_at=?, returned_at=?, status=?, retained_cents=?, reason=?
-        WHERE id = ?`,
-      [...values, dep.id],
+        WHERE id = ? AND company_id = ?`,
+      [...values, dep.id, companyId],
     );
   } else {
     await insert(

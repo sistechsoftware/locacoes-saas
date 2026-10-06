@@ -1,8 +1,9 @@
 "use server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { PermissionError, requireCompanyContext } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
+import { ehAdmin } from "@/lib/roles";
 import { emitirQuitacao, emitirQuitacaoSeQuitada, emitirRecibo, excluirRecibo } from "@/lib/recibos";
 
 /**
@@ -38,18 +39,20 @@ function destinoSeguro(bruto: string, fallback: string): string {
  * individual: volta como aviso no destino.
  */
 export async function gerarReciboPayment(fd: FormData) {
-  const user = await requireUser();
+  /* Isolamento: o company_id vem do CONTEXTO da sessão (requireCompanyContext)
+     e é repassado às libs, que recusam lançamento de outro tenant. */
+  const { user, companyId } = await requireCompanyContext();
   const paymentId = Number(fd.get("payment_id"));
   const voltarPara = destinoSeguro(String(fd.get("voltar") ?? ""), "/financeiro?aba=receber");
 
   const { erro, receiptId } = await emitirRecibo(
     { tipo: "payment", paymentId },
-    { userId: user.id, userName: user.name, companyId: user.company_id },
+    { userId: user.id, userName: user.name, companyId },
   );
   if (!erro && receiptId) {
     await logAction(user, "gerar", "recibo", receiptId, `${user.name} gerou o recibo do pagamento #${paymentId}`);
 
-    const q = await emitirQuitacaoSeQuitada({ tipo: "payment", paymentId }, { userId: user.id, userName: user.name, companyId: user.company_id });
+    const q = await emitirQuitacaoSeQuitada({ tipo: "payment", paymentId }, { userId: user.id, userName: user.name, companyId });
     if (!q.erro && q.receiptId) {
       await logAction(user, "gerar", "recibo", q.receiptId, `${user.name} gerou o recibo de quitação da locação (reserva) — pagamento #${paymentId}`);
     }
@@ -70,18 +73,19 @@ export async function gerarReciboPayment(fd: FormData) {
  * ficou integralmente em caixa, emite o recibo de quitação adicional dela.
  */
 export async function gerarReciboDeposit(fd: FormData) {
-  const user = await requireUser();
+  // mesmo padrão de isolamento de gerarReciboPayment: contexto da sessão.
+  const { user, companyId } = await requireCompanyContext();
   const depositId = Number(fd.get("deposit_id"));
   const voltarPara = destinoSeguro(String(fd.get("voltar") ?? ""), "/financeiro");
 
   const { erro, receiptId } = await emitirRecibo(
     { tipo: "deposit", depositId },
-    { userId: user.id, userName: user.name, companyId: user.company_id },
+    { userId: user.id, userName: user.name, companyId },
   );
   if (!erro && receiptId) {
     await logAction(user, "gerar", "recibo", receiptId, `${user.name} gerou o recibo da caução #${depositId}`);
 
-    const q = await emitirQuitacaoSeQuitada({ tipo: "deposit", depositId }, { userId: user.id, userName: user.name, companyId: user.company_id });
+    const q = await emitirQuitacaoSeQuitada({ tipo: "deposit", depositId }, { userId: user.id, userName: user.name, companyId });
     if (!q.erro && q.receiptId) {
       await logAction(user, "gerar", "recibo", q.receiptId, `${user.name} gerou o recibo de quitação da caução — cauções da reserva quitadas`);
     }
@@ -99,11 +103,14 @@ export async function gerarReciboDeposit(fd: FormData) {
  * Somente o administrador pode, no mesmo padrao das demais exclusoes.
  */
 export async function excluirReciboAction(fd: FormData) {
-  const user = await assertAdmin();
+  /* Isolamento: papel (admin) E tenant (company_id) vêm da sessão; a lib
+     recusa recibo de outro tenant com false, sem dizer de quem ele é. */
+  const { user, role, companyId } = await requireCompanyContext();
+  if (!ehAdmin(role)) throw new PermissionError();
   const receiptId = Number(fd.get("receipt_id"));
   const voltarPara = destinoSeguro(String(fd.get("voltar") ?? ""), "/financeiro");
 
-  const apagou = await excluirRecibo(receiptId, user.company_id);
+  const apagou = await excluirRecibo(receiptId, companyId);
   if (apagou) {
     await logAction(user, "excluir", "recibo", receiptId, `${user.name} excluiu o recibo ${receiptId} (o lançamento original foi preservado)`);
   }
@@ -118,13 +125,13 @@ export async function excluirReciboAction(fd: FormData) {
  * este botão (ou um recebimento novo) pode.
  */
 export async function gerarQuitacaoLocacao(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const reservationId = Number(fd.get("reservation_id"));
 
   const { erro, receiptId } = await emitirQuitacao("locacao", reservationId, {
     userId: user.id,
     userName: user.name,
-    companyId: user.company_id,
+    companyId,
   });
   revalidatePath(`/reservas/${reservationId}`);
   if (!erro && receiptId) {
@@ -136,13 +143,13 @@ export async function gerarQuitacaoLocacao(fd: FormData) {
 
 /** Emite a quitação da caução da reserva, com o mesmo padrão da da locação. */
 export async function gerarQuitacaoCaucao(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const reservationId = Number(fd.get("reservation_id"));
 
   const { erro, receiptId } = await emitirQuitacao("caucao", reservationId, {
     userId: user.id,
     userName: user.name,
-    companyId: user.company_id,
+    companyId,
   });
   revalidatePath(`/reservas/${reservationId}`);
   if (!erro && receiptId) {

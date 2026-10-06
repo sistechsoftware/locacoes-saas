@@ -166,9 +166,9 @@ export async function emitirRecibo(
   const companyId = await scalar<number>(
     fonte.tipo === "payment"
       ? `SELECT company_id FROM payments WHERE id = ? AND company_id = ?`
-      : `SELECT r.company_id FROM deposits d JOIN reservations r ON r.id = d.reservation_id
-          WHERE d.id = ? AND r.company_id = ?`,
-    fonte.tipo === "payment" ? [fonte.paymentId, cid] : [fonte.depositId, cid],
+      : `SELECT d.company_id FROM deposits d JOIN reservations r ON r.id = d.reservation_id
+          WHERE d.id = ? AND d.company_id = ? AND r.company_id = ?`,
+    fonte.tipo === "payment" ? [fonte.paymentId, cid] : [fonte.depositId, cid, cid],
   );
   if (!companyId) return { erro: "Lançamento não encontrado." };
 
@@ -260,8 +260,8 @@ export async function emitirQuitacaoSeQuitada(
     const d = await one<any>(
       `SELECT d.reservation_id FROM deposits d
          JOIN reservations r ON r.id = d.reservation_id
-        WHERE d.id = ? AND r.company_id = ?`,
-      [fonte.depositId, cid],
+        WHERE d.id = ? AND d.company_id = ? AND r.company_id = ?`,
+      [fonte.depositId, cid, cid],
     );
     if (!d) return { erro: null };
     /**
@@ -652,8 +652,8 @@ async function dadosDeCaucao(depositId: number, companyId: number): Promise<Dado
        FROM deposits d
        JOIN reservations r ON r.id = d.reservation_id
        LEFT JOIN customers c ON c.id = r.customer_id
-      WHERE d.id = ? AND r.company_id = ?`,
-    [depositId, companyId],
+      WHERE d.id = ? AND d.company_id = ? AND r.company_id = ?`,
+    [depositId, companyId, companyId],
   );
   if (!d) return { erro: "Caução não encontrada." };
   if (d.status === "nao_recebida") return { erro: "A caução ainda não foi recebida — não há valor a comprovar." };

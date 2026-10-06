@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext, requireUser } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money, parseMoney, today, valorValido } from "@/lib/format";
 import { cancelarContaPagarManual, competenciaPadrao, criarContaPagarManual } from "@/lib/pagar";
@@ -96,12 +96,15 @@ export async function criarPagarManual(fd: FormData) {
 }
 
 export async function cancelarPagarManual(fd: FormData) {
-  const user = await requireUser();
+  /* Isolamento: o company_id vem do CONTEXTO da sessão, nunca do formulario —
+     requireCompanyContext em vez de requireUser, como nas demais actions de
+     escrita. A lib recusa conta de outro tenant com "não encontrada". */
+  const { user, companyId } = await requireCompanyContext();
   // o id chega pelo entry_id, o mesmo campo do formulario de baixa; o value do
   // botao entra como id quando o proprio botao dispara a acao
   const id = Number(fd.get("entry_id")) || Number(fd.get("id"));
   if (!id) redirect(destino(fd, { erro: "Conta a cancelar não foi identificada." }));
-  const erro = await cancelarContaPagarManual(id, user.company_id);
+  const erro = await cancelarContaPagarManual(id, companyId);
 
   // o registro de auditoria so afirma o que de fato aconteceu
   if (!erro) {

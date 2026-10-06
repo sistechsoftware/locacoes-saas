@@ -154,6 +154,9 @@ async function acao(fn: () => Promise<unknown>): Promise<string> {
   throw new Error("action terminou sem redirect");
 }
 
+/** URL decodificada para asserção: decodeURIComponent não traduz "+" em espaço. */
+const legivel = (url: string) => decodeURIComponent(url).replace(/\+/g, " ");
+
 const sql = async (s: string, p: any[] = []) => {
   const { all } = await import("../src/lib/db.ts");
   return await all<any>(s, p);
@@ -348,12 +351,36 @@ describe("PENDÊNCIA #02 — cancelarContaPagarManual", () => {
     assert.equal(entry.status, "aberta", "conta ZB foi cancelada por sessão de outra empresa");
   });
 
+  it("action cancelarPagarManual (requireCompanyContext) recusa conta de outra empresa", async () => {
+    const { cancelarPagarManual } = await carregar("src/app/(app)/financeiro/pagar-actions.ts");
+    const url = await acao(() => cancelarPagarManual(fd({ entry_id: String(ENTRY_B) })));
+
+    assert.match(legivel(url), /erro=.*não encontrada/, `redirect sem erro claro: ${url}`);
+    const entry = await um(`SELECT status FROM financial_entries WHERE id = ?`, [ENTRY_B]);
+    assert.equal(entry.status, "aberta", "conta ZB foi cancelada pela action");
+  });
+
   it("continua cancelando a conta manual da própria empresa (controle positivo)", async () => {
     const { cancelarContaPagarManual } = await carregar("src/lib/pagar.ts");
     const erro = await cancelarContaPagarManual(ENTRY_A, 1);
     assert.equal(erro, null);
     const entry = await um(`SELECT status FROM financial_entries WHERE id = ?`, [ENTRY_A]);
     assert.equal(entry.status, "cancelada");
+  });
+
+  it("action cancelarPagarManual continua cancelando a conta da própria empresa", async () => {
+    // conta nova da empresa 1, criada aqui para não depender do teste anterior
+    const { insert } = await import("../src/lib/db.ts");
+    const minha = await insert(
+      `INSERT INTO financial_entries (id, direction, origin, number, description, amount_cents, due_date, status, company_id)
+       VALUES (301, 'pagar', 'despesa', 'PAG-TESTE-A', 'Manutencao A2', 5000, '2026-10-10', 'aberta', 1)`,
+    );
+    const { cancelarPagarManual } = await carregar("src/app/(app)/financeiro/pagar-actions.ts");
+    const url = await acao(() => cancelarPagarManual(fd({ entry_id: String(minha) })));
+
+    assert.match(legivel(url), /ok=Conta cancelada/, `redirect inesperado: ${url}`);
+    const entry = await um(`SELECT status FROM financial_entries WHERE id = ?`, [minha]);
+    assert.equal(entry.status, "cancelada", "conta da própria empresa não foi cancelada pela action");
   });
 });
 
