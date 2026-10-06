@@ -9,6 +9,16 @@ import { createTestDb } from "./helpers/d1.ts";
 import { all, insert, run, scalar } from "../src/lib/db.ts";
 import { criarContaPagarManual, cancelarContaPagarManual, validarPagar, validarData } from "../src/lib/pagar.ts";
 import { listarEntries, totaisEntries } from "../src/lib/receber.ts";
+import { addDays, today } from "../src/lib/format.ts";
+
+/**
+ * Vencimento relativo ao hoje, no fuso do negocio.
+ *
+ * situacaoParcela compara due_date com hoje, entao uma data fixa envelhece e
+ * contas que nasceram "abertas"/"parciais" virariam "vencidas" com o passar
+ * dos dias. Quem quer testar aqui e a situacao de uma conta ainda no prazo.
+ */
+const VENCIMENTO_FUTURO = addDays(today(), 30);
 
 /**
  * Reproduz a baixa existente (payEntry) ao nivel do banco, sem depender do
@@ -79,12 +89,12 @@ describe("Teste 1 - criar conta manual avulsa", () => {
   });
 
   it("aparece na listagem de A pagar com as duas datas", async () => {
-    const { id } = await criar();
+    const { id } = await criar({ dueDate: VENCIMENTO_FUTURO });
     const lista = await listarEntries({ direction: "pagar" });
     const item = lista.find((x) => x.id === id)!;
     assert.ok(item, "conta manual aparece na tela de Contas a Pagar");
     assert.equal(item.purchase_date, "2026-09-10");
-    assert.equal(item.due_date, "2026-10-05");
+    assert.equal(item.due_date, VENCIMENTO_FUTURO, "as duas datas seguem distintas: compra e vencimento");
     assert.equal(item.situacao, "aberta");
   });
 
@@ -145,7 +155,7 @@ describe("Teste 3 - baixa pelo fluxo existente (payEntry)", () => {
   });
 
   it("pagamento parcial deixa a conta parcial, nao quitada", async () => {
-    const { id } = await criar();
+    const { id } = await criar({ dueDate: VENCIMENTO_FUTURO });
     await baixaParcela(id!, "200,00");
 
     const lista = await listarEntries({ direction: "pagar" });
