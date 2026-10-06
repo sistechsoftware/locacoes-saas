@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { companyContext, requireCompanyContext } from "@/lib/auth";
 import { obterRecibo } from "@/lib/recibos";
 import { dateBR, dateUtcBR, docBR, money, phoneBR } from "@/lib/format";
 import { formaLabel, sanitizarNomeArquivo, tamanhoRecibo, valorPorExtenso } from "@/lib/recibo-visual";
@@ -32,7 +32,10 @@ export const dynamic = "force-dynamic";
  */
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const r = await obterRecibo(Number(id));
+  /* O titulo vaza dados se a consulta nao for escopada: sem contexto de empresa
+     (fora de request / sessao expirada) devolve o titulo generico. */
+  const ctx = await companyContext();
+  const r = ctx ? await obterRecibo(Number(id), ctx.companyId) : null;
   if (!r) return { title: "Recibo" };
   const cliente = sanitizarNomeArquivo(r.cliente?.name);
   return { title: `Recibo-${sanitizarNomeArquivo(r.recibo.number)}${cliente ? `-${cliente}` : ""}` };
@@ -45,10 +48,12 @@ export default async function ReciboPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ aviso?: string }>;
 }) {
-  await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado: recibo de outra empresa
+     e inexistente aqui (fecha o IDOR por id). */
+  const ctx = await requireCompanyContext();
   const { id } = await params;
   const { aviso } = await searchParams;
-  const data = await obterRecibo(Number(id));
+  const data = await obterRecibo(Number(id), ctx.companyId);
   if (!data) notFound();
 
   const { recibo, company, cliente, reserva, frete, lancamentoExiste, composicao } = data;

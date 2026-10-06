@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getSettings } from "@/lib/settings";
 import { CONTRACT_STATUS } from "@/lib/domain";
@@ -25,18 +25,22 @@ export default async function ContratoPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ erro?: string; editar?: string; token?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado: o contrato da URL so
+     resolve se pertencer a esta empresa (fecha o IDOR por id). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const sp = await searchParams;
   const c = await one<any>(
     `SELECT ct.*, r.number AS reservation_number, cu.name AS customer_name
        FROM contracts ct JOIN reservations r ON r.id = ct.reservation_id JOIN customers cu ON cu.id = r.customer_id
-      WHERE ct.id = ?`,
-    [Number(id)],
+      WHERE ct.id = ? AND ct.company_id = ?`,
+    [Number(id), cid],
   );
   if (!c) notFound();
   const s = await getSettings();
-  const assinaturas = await assinaturasDoContrato(c.id);
+  const assinaturas = await assinaturasDoContrato(c.id, cid);
   /**
    * Bloco da empresa no rodape do documento: so entra quando a assinatura ja
    * estava cadastrada NO MOMENTO DA GERACAO (flag company_signature_included,
@@ -48,8 +52,8 @@ export default async function ContratoPage({
   const pendente = assinaturas.find((a: any) => a.status === "pendente");
   const assinada = assinaturas.find((a: any) => a.status === "assinado");
   const cliente = await one<any>(
-    `SELECT cu.whatsapp, cu.phone FROM reservations r JOIN customers cu ON cu.id = r.customer_id WHERE r.id = ?`,
-    [c.reservation_id],
+    `SELECT cu.whatsapp, cu.phone FROM reservations r JOIN customers cu ON cu.id = r.customer_id WHERE r.id = ? AND r.company_id = ?`,
+    [c.reservation_id, cid],
   );
   const zap = String(cliente?.whatsapp || cliente?.phone || "").replace(/\D/g, "");
   // o endereco publico sai do proprio host da requisicao: assim o link funciona

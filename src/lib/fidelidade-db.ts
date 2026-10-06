@@ -351,21 +351,31 @@ export async function prepararMensagem(
 
   const texto = renderTemplate(await modelo(evento), { empresa_nome: s.company_name, ...vars });
   try {
+    /* Pendência #04: a empresa vem do DONO da mensagem (customers.company_id,
+       sempre preenchido) — sem isto todo INSERT gravava company_id DEFAULT 1. */
     return await insert(
-      `INSERT INTO fidelity_messages (customer_id, reward_id, event, body, dedupe_key) VALUES (?,?,?,?,?)`,
-      [customerId, rewardId ?? null, evento, texto, chaveEvento(evento, customerId, referencia)],
+      `INSERT INTO fidelity_messages (customer_id, reward_id, event, body, dedupe_key, company_id)
+       VALUES (?,?,?,?,?,(SELECT company_id FROM customers WHERE id = ?))`,
+      [customerId, rewardId ?? null, evento, texto, chaveEvento(evento, customerId, referencia), customerId],
     );
   } catch {
     return null; // ja existe aviso para esta mesma situacao
   }
 }
 
-export async function mensagensPendentes(limite = 50) {
+export async function mensagensPendentes(limite = 50, companyId?: number) {
+  let cid = companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
+  // O escopo vem do CLIENTE (customers.company_id, sempre preenchido): os
+  // INSERTs de fidelity_messages ainda usam o DEFAULT 1 (pendência #04).
   return await all<any>(
     `SELECT m.*, c.name AS customer_name, c.phone, c.whatsapp
        FROM fidelity_messages m JOIN customers c ON c.id = m.customer_id
-      WHERE m.status = 'pendente' ORDER BY m.id DESC LIMIT ?`,
-    [limite],
+      WHERE c.company_id = ? AND m.status = 'pendente' ORDER BY m.id DESC LIMIT ?`,
+    [cid, limite],
   );
 }
 
@@ -512,13 +522,18 @@ export async function avisarEquipe(
   customerId: number,
   referencia: number | string,
 ) {
-  const usuarios = await all<{ id: number }>(`SELECT id FROM users WHERE active = 1`);
+  /* Pendência #04 + isolamento: o aviso nasce na empresa do CLIENTE e só
+     alcança os usuarios ATIVOS dessa mesma empresa. Averso antigo notificava
+     a base inteira (todos os tenants) e gravava company_id DEFAULT 1. */
+  const dono = await one<{ company_id: number }>(`SELECT company_id FROM customers WHERE id = ?`, [customerId]);
+  const cid = dono?.company_id ?? 1;
+  const usuarios = await all<{ id: number }>(`SELECT id FROM users WHERE active = 1 AND company_id = ?`, [cid]);
   for (const u of usuarios) {
     try {
       await insert(
-        `INSERT INTO user_notifications (user_id, event_id, type, title, body, link, created_at)
-         VALUES (?,NULL,'fidelidade',?,?,?,unixepoch())`,
-        [u.id, EVENTOS[evento], texto, `/clientes/${customerId}`],
+        `INSERT INTO user_notifications (user_id, event_id, type, title, body, link, created_at, company_id)
+         VALUES (?,NULL,'fidelidade',?,?,?,unixepoch(),?)`,
+        [u.id, EVENTOS[evento], texto, `/clientes/${customerId}`, cid],
       );
     } catch {
       // UNIQUE(user_id, event_id) nao cobre event_id nulo; duplicata aqui e inofensiva
@@ -549,18 +564,24 @@ export type ResumoImportacao = {
  * duplicar: o UNIQUE por locacao ja barra o ponto repetido, e a recompensa
  * continua saindo da conta entre devido e emitido.
  */
-export async function importarHistorico(opts: { simular?: boolean; userId?: number } = {}): Promise<ResumoImportacao> {
+export async function importarHistorico(opts: { simular?: boolean; userId?: number; companyId?: number } = {}): Promise<ResumoImportacao> {
   const regra = await regraAtual();
   const marcas = regra.statusElegiveis.map(() => "?").join(",") || "''";
+  let cid = opts.companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
 
   // uma consulta para todo o historico: nada de percorrer reserva por reserva
   const condicao = `
       FROM reservations r JOIN customers c ON c.id = r.customer_id
-     WHERE r.status IN (${marcas})
+     WHERE r.company_id = ?
+       AND r.status IN (${marcas})
        AND r.total_cents >= ?
        AND NOT EXISTS (SELECT 1 FROM fidelity_events e WHERE e.reservation_id = r.id AND e.kind = 'ponto')
        ${regra.contarLocacaoGratuita ? "" : "AND NOT EXISTS (SELECT 1 FROM fidelity_rewards f WHERE f.used_reservation_id = r.id)"}`;
-  const params = [...regra.statusElegiveis, regra.valorMinimoCents];
+  const params = [cid, ...regra.statusElegiveis, regra.valorMinimoCents];
 
   const pendentes = await all<any>(
     `SELECT r.customer_id, c.name, COUNT(*) AS locacoes ${condicao} GROUP BY r.customer_id, c.name ORDER BY locacoes DESC`,
@@ -590,8 +611,8 @@ export async function importarHistorico(opts: { simular?: boolean; userId?: numb
   if (opts.simular) return resumo;
 
   await run(
-    `INSERT OR IGNORE INTO fidelity_events (customer_id, reservation_id, kind, delta, notes, created_by)
-     SELECT r.customer_id, r.id, 'ponto', 1, 'Locacao ' || r.number || ' (historico importado)', ?
+    `INSERT OR IGNORE INTO fidelity_events (customer_id, reservation_id, kind, delta, notes, created_by, company_id)
+     SELECT r.customer_id, r.id, 'ponto', 1, 'Locacao ' || r.number || ' (historico importado)', ?, r.company_id
      ${condicao}`,
     [opts.userId ?? null, ...params],
   );

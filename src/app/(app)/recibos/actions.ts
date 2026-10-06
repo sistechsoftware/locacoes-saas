@@ -44,12 +44,12 @@ export async function gerarReciboPayment(fd: FormData) {
 
   const { erro, receiptId } = await emitirRecibo(
     { tipo: "payment", paymentId },
-    { userId: user.id, userName: user.name },
+    { userId: user.id, userName: user.name, companyId: user.company_id },
   );
   if (!erro && receiptId) {
     await logAction(user, "gerar", "recibo", receiptId, `${user.name} gerou o recibo do pagamento #${paymentId}`);
 
-    const q = await emitirQuitacaoSeQuitada({ tipo: "payment", paymentId }, { userId: user.id, userName: user.name });
+    const q = await emitirQuitacaoSeQuitada({ tipo: "payment", paymentId }, { userId: user.id, userName: user.name, companyId: user.company_id });
     if (!q.erro && q.receiptId) {
       await logAction(user, "gerar", "recibo", q.receiptId, `${user.name} gerou o recibo de quitação da locação (reserva) — pagamento #${paymentId}`);
     }
@@ -76,12 +76,12 @@ export async function gerarReciboDeposit(fd: FormData) {
 
   const { erro, receiptId } = await emitirRecibo(
     { tipo: "deposit", depositId },
-    { userId: user.id, userName: user.name },
+    { userId: user.id, userName: user.name, companyId: user.company_id },
   );
   if (!erro && receiptId) {
     await logAction(user, "gerar", "recibo", receiptId, `${user.name} gerou o recibo da caução #${depositId}`);
 
-    const q = await emitirQuitacaoSeQuitada({ tipo: "deposit", depositId }, { userId: user.id, userName: user.name });
+    const q = await emitirQuitacaoSeQuitada({ tipo: "deposit", depositId }, { userId: user.id, userName: user.name, companyId: user.company_id });
     if (!q.erro && q.receiptId) {
       await logAction(user, "gerar", "recibo", q.receiptId, `${user.name} gerou o recibo de quitação da caução — cauções da reserva quitadas`);
     }
@@ -103,7 +103,7 @@ export async function excluirReciboAction(fd: FormData) {
   const receiptId = Number(fd.get("receipt_id"));
   const voltarPara = destinoSeguro(String(fd.get("voltar") ?? ""), "/financeiro");
 
-  const apagou = await excluirRecibo(receiptId);
+  const apagou = await excluirRecibo(receiptId, user.company_id);
   if (apagou) {
     await logAction(user, "excluir", "recibo", receiptId, `${user.name} excluiu o recibo ${receiptId} (o lançamento original foi preservado)`);
   }
@@ -124,6 +124,7 @@ export async function gerarQuitacaoLocacao(fd: FormData) {
   const { erro, receiptId } = await emitirQuitacao("locacao", reservationId, {
     userId: user.id,
     userName: user.name,
+    companyId: user.company_id,
   });
   revalidatePath(`/reservas/${reservationId}`);
   if (!erro && receiptId) {
@@ -141,6 +142,7 @@ export async function gerarQuitacaoCaucao(fd: FormData) {
   const { erro, receiptId } = await emitirQuitacao("caucao", reservationId, {
     userId: user.id,
     userName: user.name,
+    companyId: user.company_id,
   });
   revalidatePath(`/reservas/${reservationId}`);
   if (!erro && receiptId) {

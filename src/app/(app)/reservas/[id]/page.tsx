@@ -5,7 +5,7 @@ import { stockOptions } from "@/lib/availability-settings";
 import { HOLDING_STATUSES } from "@/lib/domain";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logsFor } from "@/lib/audit";
 import {
@@ -61,11 +61,16 @@ export default async function ReservaPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<AvailabilityParams & { erro?: string; aviso?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant).
+     A reserva-pai ja e carregada escopada; cada leitura abaixo repete o
+     filtro de empresa, inclusive as por id (IDOR por URL). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const sp = await searchParams;
   const { erro, aviso } = sp;
-  const r = await getReservation(Number(id));
+  const r = await getReservation(Number(id), cid);
   if (!r) notFound();
 
   /*
@@ -100,22 +105,22 @@ export default async function ReservaPage({
     // divergencia de composicao dos kits (vazia para reserva cancelada)
     divergencia,
   ] = await Promise.all([
-    reservationItems(r.id),
-    reservationMoney(r.id),
-    reservationOperations(r.id),
-    all<any>(`SELECT * FROM payments WHERE reservation_id = ? ORDER BY paid_at DESC, id DESC`, [r.id]),
+    reservationItems(r.id, cid),
+    reservationMoney(r.id, cid),
+    reservationOperations(r.id, cid),
+    all<any>(`SELECT * FROM payments WHERE reservation_id = ? AND company_id = ? ORDER BY paid_at DESC, id DESC`, [r.id, cid]),
     recibosDaReserva(r.id),
-    one<any>(`SELECT id, status, received_at FROM deposits WHERE reservation_id = ? ORDER BY id DESC LIMIT 1`, [r.id]),
-    all<any>(`SELECT id, name FROM financial_accounts WHERE active = 1 ORDER BY name`),
-    all<any>(`SELECT * FROM contracts WHERE reservation_id = ? ORDER BY id DESC`, [r.id]),
+    one<any>(`SELECT id, status, received_at FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [r.id, cid]),
+    all<any>(`SELECT id, name FROM financial_accounts WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]),
+    all<any>(`SELECT * FROM contracts WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC`, [r.id, cid]),
     all<any>(
       `SELECT d.*, p.name AS product_name, p.kind AS product_kind FROM damage_reports d LEFT JOIN products p ON p.id = d.product_id
-      WHERE d.reservation_id = ? ORDER BY d.id DESC`,
-      [r.id],
+      WHERE d.reservation_id = ? AND d.company_id = ? ORDER BY d.id DESC`,
+      [r.id, cid],
     ),
     logsFor("reserva", r.id),
-    recebiveisDe({ tipo: "locacao", reservationId: r.id }),
-    adiantamentosDaReserva(r.id),
+    recebiveisDe({ tipo: "locacao", reservationId: r.id }, cid),
+    adiantamentosDaReserva(r.id, cid),
     r.status === "cancelada" ? Promise.resolve([]) : recompensasDisponiveis(r.customer_id),
     reservationPhysicalUsage(r.id),
     r.status === "cancelada" ? Promise.resolve([]) : compositionDrift(r.id),
@@ -131,8 +136,8 @@ export default async function ReservaPage({
   // (locação e caução) ou null quando ainda não existe.
   const quitacao = await reciboQuitacaoDaReserva(r.id);
   const recompensaUsada = await one<any>(
-    `SELECT * FROM fidelity_rewards WHERE used_reservation_id = ? LIMIT 1`,
-    [r.id],
+    `SELECT * FROM fidelity_rewards WHERE used_reservation_id = ? AND company_id = ? LIMIT 1`,
+    [r.id, cid],
   );
   // quanto cada recompensa cobriria desta reserva, para o operador decidir vendo o valor
   const previaRecompensas = await Promise.all(

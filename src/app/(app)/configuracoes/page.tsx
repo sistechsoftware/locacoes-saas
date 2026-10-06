@@ -5,7 +5,7 @@ import ReciboSettings from "./ReciboSettings";
 import FidelitySettings from "./FidelitySettings";
 import BirthdaySettings from "./BirthdaySettings";
 import { createPurpose, renamePurpose, todasFinalidades, togglePurpose } from "../financeiro/actions";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { listUsers } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { limiteUsuarios, usuariosAtivos } from "@/lib/billing";
@@ -34,7 +34,10 @@ export default async function ConfiguracoesPage({
 }: {
   searchParams: Promise<{ aba?: string; erro?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem do contexto autenticado (nunca fallback de tenant). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   /*
    * Administrador da Empresa = owner OU admin (ehAdmin).
    *
@@ -49,12 +52,15 @@ export default async function ConfiguracoesPage({
   const { aba = "empresa", erro } = await searchParams;
   const s = await getSettings();
   const categorias = await all<any>(
-    `SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS produtos FROM categories c ORDER BY c.name`,
+    `SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.company_id = c.company_id) AS produtos
+       FROM categories c WHERE c.company_id = ? ORDER BY c.name`,
+    [cid],
   );
-  const vehicles = await all<any>(`SELECT * FROM vehicles ORDER BY active DESC, name`);
+  const vehicles = await all<any>(`SELECT * FROM vehicles WHERE company_id = ? ORDER BY active DESC, name`, [cid]);
   const fornecedores = await all<any>(
-    `SELECT s.*, (SELECT COUNT(*) FROM purchases p WHERE p.supplier_id = s.id) AS compras
-       FROM suppliers s ORDER BY s.active DESC, s.name`,
+    `SELECT s.*, (SELECT COUNT(*) FROM purchases p WHERE p.supplier_id = s.id AND p.company_id = s.company_id) AS compras
+       FROM suppliers s WHERE s.company_id = ? ORDER BY s.active DESC, s.name`,
+    [cid],
   );
   // o saldo de cada conta e sempre recalculado a partir das movimentacoes,
   // nunca um numero guardado que pode divergir do extrato
@@ -65,7 +71,7 @@ export default async function ConfiguracoesPage({
                   COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.account_id = a.id),0) AS entradas,
                   COALESCE((SELECT SUM(e.amount_cents) FROM expenses e WHERE e.account_id = a.id),0) AS saidas
              FROM financial_accounts a WHERE a.company_id = ? ORDER BY a.active DESC, a.name`,
-          [user.company_id],
+          [cid],
         )
       : [];
   const users = admin ? await listUsers() : [];
@@ -74,7 +80,7 @@ export default async function ConfiguracoesPage({
   const assinaturaEmpresa = admin ? await getCompanySignature() : null;
   // uso do plano: limite e ocupação atuais, para a aba de usuários
   const [limitePlano, usuariosEmUso] = admin
-    ? await Promise.all([limiteUsuarios(user.company_id), usuariosAtivos(user.company_id)])
+    ? await Promise.all([limiteUsuarios(cid), usuariosAtivos(cid)])
     : [0, 0];
 
   const ABAS = [

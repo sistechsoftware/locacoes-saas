@@ -27,9 +27,12 @@ export async function logAction(
   } catch {
     // sem request (cron/rotinas): segue sem rede
   }
+  /* Pendência #04: gravamos as DUAS colunas com o mesmo escopo — o legado
+     company_id (que nasceu DEFAULT 1 e continuaria apontando para o tenant 1
+     em toda auditoria) e o company_id_ref, que e o escopo de leitura. */
   await insert(
-    `INSERT INTO audit_logs (user_id, user_name, action, entity, entity_id, summary, meta, company_id_ref, ip, user_agent)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO audit_logs (user_id, user_name, action, entity, entity_id, summary, meta, company_id_ref, company_id, ip, user_agent)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [
       user?.id ?? null,
       user?.name ?? "sistema",
@@ -39,6 +42,7 @@ export async function logAction(
       summary,
       meta ? JSON.stringify(meta) : null,
       user?.company_id ?? null,
+      user?.company_id ?? 1,
       ip,
       userAgent ? userAgent.slice(0, 300) : null,
     ],

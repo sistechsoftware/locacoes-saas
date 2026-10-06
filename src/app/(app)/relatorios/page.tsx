@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { all, scalar } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ACTIVE_STATUSES } from "@/lib/domain";
 import { addDays, dateBR, endOfMonth, money, startOfMonth, startOfWeek, today } from "@/lib/format";
 import { Card, Empty, PageHeader, Section, Stat } from "@/components/ui";
@@ -30,7 +30,10 @@ export default async function RelatoriosPage({
 }: {
   searchParams: Promise<{ p?: string; de?: string; ate?: string }>;
 }) {
-  await requireUser();
+  /* company_id do contexto autenticado — a base de TODOS os agregados abaixo.
+     Sem fallback de tenant: sessao e a unica fonte do escopo. */
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const p = sp.p ?? "mes";
   const { de, ate, label } = periodo(p, sp.de, sp.ate);
@@ -58,48 +61,48 @@ export default async function RelatoriosPage({
     inativos,
     meses,
   ] = await Promise.all([
-    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE paid_at BETWEEN ? AND ?`, [de, ate]),
+    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE company_id = ? AND paid_at BETWEEN ? AND ?`, [cid, de, ate]),
     scalar<number>(
-      `SELECT COALESCE(SUM(total_cents),0) FROM reservations WHERE event_date BETWEEN ? AND ? AND status IN (${ACTIVE})`,
-      [de, ate],
+      `SELECT COALESCE(SUM(total_cents),0) FROM reservations WHERE company_id = ? AND event_date BETWEEN ? AND ? AND status IN (${ACTIVE})`,
+      [cid, de, ate],
     ),
     scalar<number>(
       `SELECT COALESCE(SUM(amount_cents),0) FROM freights
-        WHERE date BETWEEN ? AND ? AND status IN ('agendado','em_rota','concluido')`,
-      [de, ate],
+        WHERE company_id = ? AND date BETWEEN ? AND ? AND status IN ('agendado','em_rota','concluido')`,
+      [cid, de, ate],
     ),
-    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM expenses WHERE date BETWEEN ? AND ?`, [de, ate]),
+    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM expenses WHERE company_id = ? AND date BETWEEN ? AND ?`, [cid, de, ate]),
     scalar<number>(
       `SELECT COALESCE(SUM(r.total_cents - COALESCE((SELECT SUM(pa.amount_cents) FROM payments pa WHERE pa.reservation_id = r.id),0)),0)
-         FROM reservations r WHERE r.status IN (${ACTIVE}) AND r.event_date BETWEEN ? AND ?`,
-      [de, ate],
+         FROM reservations r WHERE r.company_id = ? AND r.status IN (${ACTIVE}) AND r.event_date BETWEEN ? AND ?`,
+      [cid, de, ate],
     ),
-    scalar<number>(`SELECT COUNT(*) FROM reservations WHERE event_date BETWEEN ? AND ? AND status <> 'cancelada'`, [de, ate]),
-    scalar<number>(`SELECT COUNT(*) FROM reservations WHERE event_date BETWEEN ? AND ? AND status = 'cancelada'`, [de, ate]),
+    scalar<number>(`SELECT COUNT(*) FROM reservations WHERE company_id = ? AND event_date BETWEEN ? AND ? AND status <> 'cancelada'`, [cid, de, ate]),
+    scalar<number>(`SELECT COUNT(*) FROM reservations WHERE company_id = ? AND event_date BETWEEN ? AND ? AND status = 'cancelada'`, [cid, de, ate]),
     /* contagens sargable: comparacao direta na coluna (usa idx_op_kind e
        idx_op_sched) em vez de substr() na coluna, que forca varredura */
     scalar<number>(
-      `SELECT COUNT(*) FROM operations WHERE kind = 'entrega' AND scheduled_at BETWEEN ? AND ? AND status <> 'cancelada'`,
-      [`${de}T00:00`, `${ate}T23:59`],
+      `SELECT COUNT(*) FROM operations WHERE company_id = ? AND kind = 'entrega' AND scheduled_at BETWEEN ? AND ? AND status <> 'cancelada'`,
+      [cid, `${de}T00:00`, `${ate}T23:59`],
     ),
     scalar<number>(
-      `SELECT COUNT(*) FROM operations WHERE kind = 'retirada' AND scheduled_at BETWEEN ? AND ? AND status <> 'cancelada'`,
-      [`${de}T00:00`, `${ate}T23:59`],
+      `SELECT COUNT(*) FROM operations WHERE company_id = ? AND kind = 'retirada' AND scheduled_at BETWEEN ? AND ? AND status <> 'cancelada'`,
+      [cid, `${de}T00:00`, `${ate}T23:59`],
     ),
     scalar<number>(
-      `SELECT COUNT(*) FROM operations WHERE kind = 'montagem' AND scheduled_at BETWEEN ? AND ? AND status <> 'cancelada'`,
-      [`${de}T00:00`, `${ate}T23:59`],
+      `SELECT COUNT(*) FROM operations WHERE company_id = ? AND kind = 'montagem' AND scheduled_at BETWEEN ? AND ? AND status <> 'cancelada'`,
+      [cid, `${de}T00:00`, `${ate}T23:59`],
     ),
-    scalar<number>(`SELECT COUNT(*) FROM freights WHERE date BETWEEN ? AND ? AND status <> 'cancelado'`, [de, ate]),
+    scalar<number>(`SELECT COUNT(*) FROM freights WHERE company_id = ? AND date BETWEEN ? AND ? AND status <> 'cancelado'`, [cid, de, ate]),
     /* consumo fisico: expande kits nos componentes que realmente sairam do estoque */
     all<any>(
       `SELECT p.id, p.name, COALESCE(SUM(ric.qty),0) AS unidades, COUNT(DISTINCT r.id) AS reservas
          FROM reservation_item_components ric
          JOIN reservations r ON r.id = ric.reservation_id
          JOIN products p ON p.id = ric.product_id
-        WHERE r.status <> 'cancelada' AND r.event_date BETWEEN ? AND ?
+        WHERE r.company_id = ? AND r.status <> 'cancelada' AND r.event_date BETWEEN ? AND ?
         GROUP BY p.id ORDER BY unidades DESC`,
-      [de, ate],
+      [cid, de, ate],
     ),
     /* produtos (linhas comerciais: kits contam como kits).
        Os LEFT JOIN mantem na lista os produtos sem locacao, por isso a soma
@@ -113,28 +116,31 @@ export default async function RelatoriosPage({
          LEFT JOIN reservation_items i ON i.product_id = p.id
          LEFT JOIN reservations r ON r.id = i.reservation_id AND r.status <> 'cancelada'
                                   AND r.event_date BETWEEN ? AND ?
+        WHERE p.company_id = ?
         GROUP BY p.id ORDER BY unidades DESC`,
-      [de, ate],
+      [de, ate, cid],
     ),
     all<any>(
       `SELECT c.id, c.name, COUNT(r.id) AS locacoes, COALESCE(SUM(r.total_cents),0) AS total
          FROM customers c JOIN reservations r ON r.customer_id = c.id
-        WHERE r.status IN (${ACTIVE}) AND r.event_date BETWEEN ? AND ?
+        WHERE c.company_id = ? AND r.company_id = ? AND r.status IN (${ACTIVE}) AND r.event_date BETWEEN ? AND ?
         GROUP BY c.id ORDER BY total DESC LIMIT 10`,
-      [de, ate],
+      [cid, cid, de, ate],
     ),
     all<any>(
       `SELECT c.id, c.name, COUNT(r.id) AS locacoes FROM customers c JOIN reservations r ON r.customer_id = c.id
-        WHERE r.status <> 'cancelada' GROUP BY c.id HAVING COUNT(r.id) >= 2 ORDER BY locacoes DESC LIMIT 10`,
+        WHERE c.company_id = ? AND r.company_id = ? AND r.status <> 'cancelada' GROUP BY c.id HAVING COUNT(r.id) >= 2 ORDER BY locacoes DESC LIMIT 10`,
+      [cid, cid],
     ),
     all<any>(
       `SELECT c.id, c.name, MAX(r.event_date) AS ultima FROM customers c JOIN reservations r ON r.customer_id = c.id
-        WHERE r.status <> 'cancelada' GROUP BY c.id HAVING MAX(r.event_date) < ? ORDER BY ultima LIMIT 10`,
-      [addDays(today(), -90)],
+        WHERE c.company_id = ? AND r.company_id = ? AND r.status <> 'cancelada' GROUP BY c.id HAVING MAX(r.event_date) < ? ORDER BY ultima LIMIT 10`,
+      [cid, cid, addDays(today(), -90)],
     ),
     all<any>(
       `SELECT substr(event_date,1,7) AS mes, COUNT(*) AS reservas, COALESCE(SUM(total_cents),0) AS total
-         FROM reservations WHERE status IN (${ACTIVE}) GROUP BY mes ORDER BY mes DESC LIMIT 12`,
+         FROM reservations WHERE company_id = ? AND status IN (${ACTIVE}) GROUP BY mes ORDER BY mes DESC LIMIT 12`,
+      [cid],
     ),
   ]);
 

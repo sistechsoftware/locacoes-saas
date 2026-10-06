@@ -50,10 +50,15 @@ function somarDias(dataISO: string, dias: number): string {
 }
 
 /** Assinaturas de um contrato, para a tela administrativa. */
-export async function assinaturasDoContrato(contractId: number) {
+export async function assinaturasDoContrato(contractId: number, companyId?: number) {
+  let cid = companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
   return await all<any>(
-    `SELECT * FROM contract_signatures WHERE contract_id = ? ORDER BY id DESC`,
-    [contractId],
+    `SELECT * FROM contract_signatures WHERE contract_id = ? AND company_id = ? ORDER BY id DESC`,
+    [contractId, cid],
   );
 }
 
@@ -242,7 +247,12 @@ export async function documentosDoCliente(customerId: number) {
 }
 
 /** Versao assinada, congelada, para leitura e impressao. */
-export async function documentoAssinado(signatureId: number) {
+export async function documentoAssinado(signatureId: number, companyId?: number) {
+  let cid = companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
   return await one<any>(
     `SELECT a.*, c.number AS contract_number, cli.name AS customer_name, cli.doc AS customer_doc,
             r.number AS reservation_number
@@ -250,7 +260,7 @@ export async function documentoAssinado(signatureId: number) {
        JOIN contracts c ON c.id = a.contract_id
        JOIN customers cli ON cli.id = a.customer_id
        LEFT JOIN reservations r ON r.id = a.reservation_id
-      WHERE a.id = ? AND a.status = 'assinado'`,
-    [signatureId],
+      WHERE a.id = ? AND a.status = 'assinado' AND a.company_id = ?`,
+    [signatureId, cid],
   );
 }

@@ -16,7 +16,9 @@ export async function savePreferences(fd: FormData) {
   const values = Object.keys(NOTIFICATION_TYPES).map(type=>{
     const mode = String(fd.get(type) ?? "auto");
     if (!["auto","on","off"].includes(mode)) throw new Error("Preferência inválida.");
-    return {sql:"INSERT INTO notification_preferences(user_id,type,mode) VALUES (?,?,?) ON CONFLICT(user_id,type) DO UPDATE SET mode=excluded.mode",params:[user.id,type,mode]};
+    // Pendência #04: company_id explícito (senão gravaria o DEFAULT 1, o
+    // tenant errado para qualquer empresa que nao seja a 1).
+    return {sql:"INSERT INTO notification_preferences(user_id,type,mode,company_id) VALUES (?,?,?,?) ON CONFLICT(user_id,type) DO UPDATE SET mode=excluded.mode",params:[user.id,type,mode,user.company_id]};
   });
   await batch(values);
   revalidatePath("/notificacoes/preferencias");

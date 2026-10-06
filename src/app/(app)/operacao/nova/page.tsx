@@ -1,5 +1,5 @@
 import { all } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import OperationForm from "./OperationForm";
 import { createOperation } from "../actions";
@@ -11,15 +11,17 @@ export default async function NovaOperacaoPage({
 }: {
   searchParams: Promise<{ reserva?: string; tipo?: string }>;
 }) {
-  await requireUser();
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const reservations = await all<any>(
     `SELECT r.id, r.number, r.event_date, c.name AS customer_name
        FROM reservations r JOIN customers c ON c.id = r.customer_id
-      WHERE r.status <> 'cancelada' ORDER BY r.event_date DESC LIMIT 200`,
+      WHERE r.company_id = ? AND r.status <> 'cancelada' ORDER BY r.event_date DESC LIMIT 200`,
+    [cid],
   );
-  const vehicles = await all<any>(`SELECT id, name FROM vehicles WHERE active = 1 ORDER BY name`);
-  const users = await all<{id:number;name:string}>("SELECT id,name FROM users WHERE active=1 ORDER BY name");
+  const vehicles = await all<any>(`SELECT id, name FROM vehicles WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
+  const users = await all<{id:number;name:string}>("SELECT id,name FROM users WHERE company_id=? AND active=1 ORDER BY name", [cid]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">

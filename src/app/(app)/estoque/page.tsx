@@ -3,6 +3,7 @@ import AvailabilityFilter from "@/components/AvailabilityFilter";
 import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-time";
 import { stockOptions } from "@/lib/availability-settings";
 import { all } from "@/lib/db";
+import { requireCompanyContext } from "@/lib/auth";
 import { availabilityAllWithKits } from "@/lib/stock";
 import { money, today } from "@/lib/format";
 import { Badge, Empty, LinkButton, PageHeader, Stat } from "@/components/ui";
@@ -15,14 +16,18 @@ export default async function EstoquePage({
 }: {
   searchParams: Promise<AvailabilityParams & { aba?: string; q?: string }>;
 }) {
+  /* company_id obrigatorio do contexto autenticado (nunca fallback de tenant). */
+  const ctx = await requireCompanyContext();
   const sp = await searchParams;
   const aba = sp.aba ?? "todos";
   const query = availabilityQuery(sp);
   const options = await stockOptions(query);
-  const disponibilidade = await availabilityAllWithKits(query.from, query.to, null, options);
+  const disponibilidade = await availabilityAllWithKits(query.from, query.to, null, options, ctx.companyId);
   const produtos = await all<any>(
     `SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id = p.category_id
+      WHERE p.company_id = ?
       ORDER BY p.active DESC, c.name, p.name`,
+    [ctx.companyId],
   );
   const info = new Map(disponibilidade.map((d) => [d.product_id, d]));
 

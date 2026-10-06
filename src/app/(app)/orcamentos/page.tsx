@@ -1,4 +1,5 @@
 import { all, scalar } from "@/lib/db";
+import { requireCompanyContext } from "@/lib/auth";
 import { QUOTE_STATUS } from "@/lib/domain";
 import { dateBR, money } from "@/lib/format";
 import { Empty, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
@@ -12,13 +13,17 @@ export default async function OrcamentosPage({
 }: {
   searchParams: Promise<{ q?: string; aba?: string; page?: string }>;
 }) {
+  /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
+     do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const aba = sp.aba ?? "abertos";
   const page = Math.max(1, Number(sp.page ?? 1));
 
-  const where: string[] = [];
-  const params: any[] = [];
+  const where: string[] = ["qt.company_id = ?"];
+  const params: any[] = [cid];
   if (q) {
     where.push("(qt.number LIKE ? OR c.name LIKE ?)");
     params.push(`%${q}%`, `%${q}%`);

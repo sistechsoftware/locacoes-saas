@@ -5,7 +5,7 @@ import { stockOptions } from "@/lib/availability-settings";
 import { dateTimeBR } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { availabilityFor, availabilityForDays, componentsOf, holdsForProduct, kitsUsing } from "@/lib/stock";
 import { logsFor } from "@/lib/audit";
@@ -24,15 +24,19 @@ export default async function ProdutoPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<AvailabilityParams & { aviso?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado: o produto da URL so
+     resolve se pertencer a esta empresa (fecha o IDOR por id). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const sp = await searchParams;
   const { aviso } = sp;
   const query = availabilityQuery(sp);
   const options = await stockOptions(query);
   const p = await one<any>(
-    `SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?`,
-    [Number(id)],
+    `SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ? AND p.company_id = ?`,
+    [Number(id), cid],
   );
   if (!p) notFound();
 
@@ -52,16 +56,16 @@ export default async function ProdutoPage({
   }));
   const ehKit = p.kind === "kit";
   const [units, maint, historicoBruto, componentes, kitsQueUsam, usos] = await Promise.all([
-    all<any>(`SELECT * FROM product_units WHERE product_id = ? ORDER BY code`, [p.id]),
-    all<any>(`SELECT * FROM maintenance WHERE product_id = ? ORDER BY status, id DESC LIMIT 20`, [p.id]),
+    all<any>(`SELECT * FROM product_units WHERE product_id = ? AND company_id = ? ORDER BY code`, [p.id, cid]),
+    all<any>(`SELECT * FROM maintenance WHERE product_id = ? AND company_id = ? ORDER BY status, id DESC LIMIT 20`, [p.id, cid]),
     logsFor("produto", p.id),
     ehKit ? componentsOf(p.id) : Promise.resolve([]),
     ehKit ? Promise.resolve([]) : kitsUsing(p.id),
     all<any>(
       `SELECT COUNT(*) AS reservas, COALESCE(SUM(i.qty),0) AS unidades, COALESCE(SUM(i.subtotal_cents),0) AS receita
        FROM reservation_items i JOIN reservations r ON r.id = i.reservation_id
-      WHERE i.product_id = ? AND r.status <> 'cancelada'`,
-      [p.id],
+      WHERE i.product_id = ? AND r.company_id = ? AND r.status <> 'cancelada'`,
+      [p.id, cid],
     ).then((rows) => rows[0]),
   ]);
   historicoBruto.length = Math.min(historicoBruto.length, 10);

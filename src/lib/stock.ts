@@ -1,6 +1,6 @@
 import "server-only";
 import { promocoesAtivasPorProduto } from "./promocoes-db";
-import { all, one, run, batch } from "./db";
+import { all, one, run, batch, scalar } from "./db";
 import { tenantCompanyId } from "./tenant";
 import { addMinutes, normalizeStamp, timeWindow } from "./availability-time";
 import { stockOptions, type StockOptions } from "./availability-settings";
@@ -731,6 +731,12 @@ export async function rebuildReservationComponents(reservationId: number, versio
   );
   const specs = await loadSpecs(companyId);
 
+  /* Pendência #04: a empresa vem da FONTE (a reserva) — a fotografia de
+     consumo nasce no mesmo tenant, nunca no DEFAULT 1. */
+  const cid =
+    (await scalar<number>(`SELECT company_id FROM reservations WHERE id = ?`, [reservationId])) ??
+    (await empresa(companyId));
+
   const statements: { sql: string; params: any[] }[] = [{ sql: `DELETE FROM reservation_item_components WHERE reservation_id = ?`, params: [reservationId] }];
 
   for (const item of items) {
@@ -741,12 +747,11 @@ export async function rebuildReservationComponents(reservationId: number, versio
         ? (spec!.components.find((c) => c.product_id === part.product_id)?.quantity ?? 1)
         : 1;
       statements.push({ sql: `INSERT INTO reservation_item_components
-           (reservation_id, reservation_item_id, product_id, qty_per_unit, qty)
-         VALUES (?,?,?,?,?)`, params: [reservationId, item.id, part.product_id, perUnit, part.qty] });
+           (reservation_id, reservation_item_id, product_id, qty_per_unit, qty, company_id)
+         VALUES (?,?,?,?,?,?)`, params: [reservationId, item.id, part.product_id, perUnit, part.qty, cid] });
     }
   }
   if (version !== undefined) {
-    const cid = await empresa(companyId);
     await commitStockBatch(cid, version, statements);
   } else await batch(statements);
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { documentoAssinado } from "@/lib/assinatura-db";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
 import { getSettings } from "@/lib/settings";
@@ -20,9 +20,11 @@ export const dynamic = "force-dynamic";
  * que o resto do sistema ja usa para gerar documento.
  */
 export default async function DocumentoAssinadoPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado: documento assinado de
+     outra empresa e inexistente aqui (fecha o IDOR por id). */
+  const ctx = await requireCompanyContext();
   const { id } = await params;
-  const doc = await documentoAssinado(Number(id));
+  const doc = await documentoAssinado(Number(id), ctx.companyId);
   if (!doc) notFound();
   const s = await getSettings();
   const assinaturaEmpresa = doc.company_signature_included === 1 ? await getCompanySignature() : null;

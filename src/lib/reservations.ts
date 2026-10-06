@@ -2,6 +2,18 @@ import "server-only";
 import { all, insert, one, run, scalar } from "./db";
 import { stamp } from "./stock";
 
+/**
+ * Escopo de empresa das leituras de reserva.
+ *
+ * As telas passam o company_id do contexto autenticado; quem nao passa
+ * (cron, testes, rotinas internas) resolve pela sessao/empresa padrao.
+ */
+async function empresa(companyId?: number): Promise<number> {
+  if (companyId !== undefined) return companyId;
+  const { tenantCompanyId } = await import("./tenant");
+  return await tenantCompanyId();
+}
+
 /* ------------------------------------------------------------------ */
 /* Totais                                                              */
 /* ------------------------------------------------------------------ */
@@ -131,16 +143,17 @@ export type ReservationMoney = {
   scheduledAdvance: number;
 };
 
-export async function reservationMoney(id: number): Promise<ReservationMoney> {
-  const total = await scalar<number>(`SELECT COALESCE(total_cents,0) FROM reservations WHERE id = ?`, [id]);
-  const paid = await scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE reservation_id = ?`, [id]);
-  const dep = await one<any>(`SELECT * FROM deposits WHERE reservation_id = ? ORDER BY id DESC LIMIT 1`, [id]);
+export async function reservationMoney(id: number, companyId?: number): Promise<ReservationMoney> {
+  const cid = await empresa(companyId);
+  const total = await scalar<number>(`SELECT COALESCE(total_cents,0) FROM reservations WHERE id = ? AND company_id = ?`, [id, cid]);
+  const paid = await scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE reservation_id = ? AND company_id = ?`, [id, cid]);
+  const dep = await one<any>(`SELECT * FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [id, cid]);
   // adiantamento combinado para o futuro: e promessa, nao caixa, entao fica
   // separado do que a reserva ja recebeu de verdade
   const scheduledAdvance = await scalar<number>(
     `SELECT COALESCE(SUM(amount_cents),0) FROM financial_entries
-      WHERE reservation_id = ? AND category = 'Adiantamento' AND status = 'aberta'`,
-    [id],
+      WHERE reservation_id = ? AND company_id = ? AND category = 'Adiantamento' AND status = 'aberta'`,
+    [id, cid],
   );
   return {
     total,
@@ -184,12 +197,13 @@ export async function getReservationByNumber(number: string) {
   return await one<any>(`${RESERVATION_SELECT} WHERE r.number = ?`, [number]);
 }
 
-export async function reservationItems(id: number) {
+export async function reservationItems(id: number, companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
     `SELECT i.*, p.name AS product_name, p.code AS product_code, p.kind AS product_kind
        FROM reservation_items i JOIN products p ON p.id = i.product_id
-      WHERE i.reservation_id = ? ORDER BY i.id`,
-    [id],
+      WHERE i.reservation_id = ? AND i.company_id = ? ORDER BY i.id`,
+    [id, cid],
   );
 }
 
@@ -202,12 +216,13 @@ export async function quoteItems(id: number) {
   );
 }
 
-export async function reservationOperations(id: number) {
+export async function reservationOperations(id: number, companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
     `SELECT o.*, v.name AS vehicle_name FROM operations o
        LEFT JOIN vehicles v ON v.id = o.vehicle_id
-      WHERE o.reservation_id = ? ORDER BY o.scheduled_at`,
-    [id],
+      WHERE o.reservation_id = ? AND o.company_id = ? ORDER BY o.scheduled_at`,
+    [id, cid],
   );
 }
 
@@ -247,26 +262,27 @@ export type ItemResumo = {
  * realmente separado. Duas consultas para a pagina inteira, nunca uma por
  * reserva.
  */
-export async function itemsForReservations(ids: number[]): Promise<Map<number, ItemResumo[]>> {
+export async function itemsForReservations(ids: number[], companyId?: number): Promise<Map<number, ItemResumo[]>> {
   const porReserva = new Map<number, ItemResumo[]>();
   if (ids.length === 0) return porReserva;
   const marcas = ids.map(() => "?").join(",");
+  const cid = await empresa(companyId);
 
   const [itens, componentes] = await Promise.all([
     all<any>(
       `SELECT i.id AS item_id, i.reservation_id, i.product_id, i.qty,
               p.name AS product_name, p.kind AS product_kind
          FROM reservation_items i JOIN products p ON p.id = i.product_id
-        WHERE i.reservation_id IN (${marcas})
+        WHERE i.reservation_id IN (${marcas}) AND i.company_id = ?
         ORDER BY i.reservation_id, i.id`,
-      ids,
+      [...ids, cid],
     ),
     all<any>(
       `SELECT c.reservation_item_id, c.product_id, c.qty, p.name AS product_name
          FROM reservation_item_components c JOIN products p ON p.id = c.product_id
-        WHERE c.reservation_id IN (${marcas})
+        WHERE c.reservation_id IN (${marcas}) AND c.company_id = ?
         ORDER BY c.id`,
-      ids,
+      [...ids, cid],
     ),
   ]);
 

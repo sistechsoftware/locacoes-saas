@@ -1,5 +1,5 @@
 import { all, scalar } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { Empty, PageHeader } from "@/components/ui";
 import { Pagination, SearchForm } from "@/components/List";
 import { utcParaLocal } from "@/lib/format";
@@ -22,13 +22,17 @@ export default async function HistoricoPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string; entidade?: string }>;
 }) {
-  await requireUser();
+  /* Contexto autenticado: o company_id vem da sessao, nunca de fallback.
+     audit_logs guarda o escopo em company_id_ref (migration 0028) — nao na
+     coluna company_id, que ficou DEFAULT 1. A condicao de empresa e a
+     PRIMEIRA do `where`, para nunca ficar fora do filtro dinamico. */
+  const ctx = await requireCompanyContext();
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const page = Math.max(1, Number(sp.page ?? 1));
 
-  const where: string[] = [];
-  const params: any[] = [];
+  const where: string[] = ["company_id_ref = ?"];
+  const params: any[] = [ctx.companyId];
   if (q) {
     where.push("(summary LIKE ? OR user_name LIKE ? OR entity LIKE ?)");
     params.push(`%${q}%`, `%${q}%`, `%${q}%`);

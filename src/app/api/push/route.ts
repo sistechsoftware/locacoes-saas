@@ -87,9 +87,11 @@ export async function POST(request: Request) {
     const expires = input.subscription.expirationTime;
     if (expires != null && (!Number.isFinite(expires) || expires <= Date.now())) throw new Error("Inscrição expirada. Ative novamente.");
     const label = String(input.label ?? "Meu dispositivo").trim().slice(0,80) || "Meu dispositivo";
-    await run(`INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,label,expiration_time) VALUES (?,?,?,?,?,?)
+    // Pendência #04: a inscrição nasce na empresa do usuário (DEFAULT 1
+    // marcava todo aparelho como pertencente ao tenant 1).
+    await run(`INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,label,expiration_time,company_id) VALUES (?,?,?,?,?,?,?)
       ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh,auth=excluded.auth,label=excluded.label,expiration_time=excluded.expiration_time,enabled=1,updated_at=unixepoch(),last_error=NULL
-      WHERE push_subscriptions.user_id=excluded.user_id`,[user.id,s.endpoint,s.p256dh,s.auth,label,expires??null]);
+      WHERE push_subscriptions.user_id=excluded.user_id`,[user.id,s.endpoint,s.p256dh,s.auth,label,expires??null,user.company_id]);
     return Response.json({ok:true});
   } catch(e) { return Response.json({error:e instanceof Error?e.message:"Falha ao salvar dispositivo."},{status:400}); }
 }

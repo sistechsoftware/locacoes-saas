@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { companyContext, requireCompanyContext } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { quoteItems } from "@/lib/reservations";
 import { QUOTE_STATUS, statusLabel } from "@/lib/domain";
@@ -12,13 +12,13 @@ import PrintButton from "@/app/(app)/contratos/[id]/PrintButton";
 export const dynamic = "force-dynamic";
 
 /** Consulta unica usada tanto pelo titulo quanto pelo documento. */
-async function carregar(id: number) {
+async function carregar(id: number, companyId: number) {
   return await one<any>(
     `SELECT qt.*, c.name AS customer_name, c.doc AS customer_doc, c.phone AS customer_phone,
             c.whatsapp AS customer_whatsapp, c.email AS customer_email, c.address AS customer_address,
             c.district AS customer_district, c.city AS customer_city
-       FROM quotes qt JOIN customers c ON c.id = qt.customer_id WHERE qt.id = ?`,
-    [id],
+       FROM quotes qt JOIN customers c ON c.id = qt.customer_id WHERE qt.id = ? AND qt.company_id = ?`,
+    [id, companyId],
   );
 }
 
@@ -28,7 +28,10 @@ async function carregar(id: number) {
  */
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const q = await carregar(Number(id));
+  /* O titulo vaza dados se a consulta nao for escopada: sem contexto de empresa
+     (fora de request / sessao expirada) devolve o titulo generico. */
+  const ctx = await companyContext();
+  const q = ctx ? await carregar(Number(id), ctx.companyId) : null;
   if (!q) return { title: "Orçamento" };
   return { title: `Orçamento-${sanitizar(q.number)}-${sanitizar(q.customer_name)}` };
 }
@@ -45,9 +48,9 @@ function sanitizar(texto: string | null | undefined): string {
 
 export default async function OrcamentoImprimirPage({ params }: { params: Promise<{ id: string }> }) {
   // mesma permissao da tela do orcamento: sem sessao nao ha documento
-  await requireUser();
+  const ctx = await requireCompanyContext();
   const { id } = await params;
-  const q = await carregar(Number(id));
+  const q = await carregar(Number(id), ctx.companyId);
   if (!q) notFound();
 
   const [itens, s] = await Promise.all([quoteItems(q.id), getSettings()]);

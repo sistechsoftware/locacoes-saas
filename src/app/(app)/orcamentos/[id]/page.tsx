@@ -7,7 +7,7 @@ import ConflictList from "@/components/ConflictList";
 import { dateTimeBR } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { quoteItems } from "@/lib/reservations";
 import { messageForQuote } from "@/lib/whatsapp";
@@ -28,14 +28,17 @@ export default async function OrcamentoPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<AvailabilityParams & { erro?: string }>;
 }) {
-  const user = await requireUser();
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const sp = await searchParams;
   const { erro } = sp;
+  // Isolamento: orçamento de outra empresa é inexistente para este usuário.
   const q = await one<any>(
     `SELECT qt.*, c.name AS customer_name, c.phone AS customer_phone, c.whatsapp AS customer_whatsapp
-       FROM quotes qt JOIN customers c ON c.id = qt.customer_id WHERE qt.id = ?`,
-    [Number(id)],
+       FROM quotes qt JOIN customers c ON c.id = qt.customer_id WHERE qt.id = ? AND qt.company_id = ?`,
+    [Number(id), cid],
   );
   if (!q) notFound();
 

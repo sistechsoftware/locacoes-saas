@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all, one, scalar } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logsFor } from "@/lib/audit";
 import { FREIGHT_STATUS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
@@ -14,20 +14,24 @@ import { deleteFreight, payFreight, setFreightStatus } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function FretePage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado: o frete da URL so resolve
+     se pertencer a esta empresa (fecha o IDOR por id). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const f = await one<any>(
     `SELECT f.*, c.name AS customer_name, c.whatsapp, v.name AS vehicle_name
        FROM freights f LEFT JOIN customers c ON c.id = f.customer_id LEFT JOIN vehicles v ON v.id = f.vehicle_id
-      WHERE f.id = ?`,
-    [Number(id)],
+      WHERE f.id = ? AND f.company_id = ?`,
+    [Number(id), cid],
   );
   if (!f) notFound();
 
   // Leituras independentes em paralelo: uma latencia de rede em vez de tres.
   const [pagamentos, pago, historico] = await Promise.all([
-    all<any>(`SELECT * FROM payments WHERE freight_id = ? ORDER BY id DESC`, [f.id]),
-    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE freight_id = ?`, [f.id]),
+    all<any>(`SELECT * FROM payments WHERE freight_id = ? AND company_id = ? ORDER BY id DESC`, [f.id, cid]),
+    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE freight_id = ? AND company_id = ?`, [f.id, cid]),
     logsFor("frete", f.id),
   ]);
   const maps = mapsLink(f.destination);

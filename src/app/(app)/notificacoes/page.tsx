@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { all, scalar } from "@/lib/db";
 import { NOTIFICATION_TYPES } from "@/lib/push-rules";
 import { Empty, PageHeader } from "@/components/ui";
@@ -7,7 +7,13 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { markPersonalRead } from "./push-actions";
 
 export default async function NotificationsPage({searchParams}:{searchParams:Promise<{tipo?:string;lidos?:string;antes?:string}>}) {
-  const user = await requireUser();
+  /* O escopo daqui e o PROPRIO usuario da sessao (user_id): notificacoes sao
+     pessoais e user_id ja e a fronteira do tenant — usuario de outra empresa
+     nunca casa. Um predicado extra de company_id em user_notifications QUEBRA
+     a tela para toda empresa != 1: os INSERTs de chat/aniversarios/fidelidade
+     ainda gravam company_id DEFAULT 1 (pendência #04, escrita). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
   const sp = await searchParams;
   const type = sp.tipo && sp.tipo in NOTIFICATION_TYPES ? sp.tipo : "";
   const before = Number(sp.antes) || Number.MAX_SAFE_INTEGER;

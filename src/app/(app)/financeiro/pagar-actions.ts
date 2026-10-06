@@ -101,7 +101,7 @@ export async function cancelarPagarManual(fd: FormData) {
   // botao entra como id quando o proprio botao dispara a acao
   const id = Number(fd.get("entry_id")) || Number(fd.get("id"));
   if (!id) redirect(destino(fd, { erro: "Conta a cancelar não foi identificada." }));
-  const erro = await cancelarContaPagarManual(id);
+  const erro = await cancelarContaPagarManual(id, user.company_id);
 
   // o registro de auditoria so afirma o que de fato aconteceu
   if (!erro) {

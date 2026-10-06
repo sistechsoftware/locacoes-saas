@@ -12,6 +12,18 @@ import { today } from "./format";
  * que este modulo garante.
  */
 
+/**
+ * Escopo de empresa das leituras de compra.
+ *
+ * As telas passam o company_id do contexto autenticado; quem nao passa
+ * (cron, testes, rotinas internas) resolve pela sessao/empresa padrao.
+ */
+async function empresaCompras(companyId?: number): Promise<number> {
+  if (companyId !== undefined) return companyId;
+  const { tenantCompanyId } = await import("./tenant");
+  return await tenantCompanyId();
+}
+
 export type ItemEntrada = {
   product_id: number;
   qty: number;
@@ -161,50 +173,51 @@ export const PURCHASE_SELECT = `
 
 /** Compra por id, SEMPRE escopada pela empresa (optional companyId = sessão/cron). */
 export async function getPurchase(id: number, companyId?: number) {
-  let cid = companyId;
-  if (cid === undefined) {
-    const { tenantCompanyId } = await import("./tenant");
-    cid = await tenantCompanyId();
-  }
+  const cid = await empresaCompras(companyId);
   return await one<any>(`${PURCHASE_SELECT} WHERE p.id = ? AND p.company_id = ?`, [id, cid]);
 }
 
-export async function purchaseItems(id: number) {
+export async function purchaseItems(id: number, companyId?: number) {
+  const cid = await empresaCompras(companyId);
   return await all<any>(
     `SELECT i.*, pr.name AS product_name, pr.code AS product_code, pr.kind AS product_kind
        FROM purchase_items i JOIN products pr ON pr.id = i.product_id
-      WHERE i.purchase_id = ? ORDER BY i.id`,
-    [id],
+      WHERE i.purchase_id = ? AND i.company_id = ? ORDER BY i.id`,
+    [id, cid],
   );
 }
 
-export async function purchaseEntries(id: number) {
+export async function purchaseEntries(id: number, companyId?: number) {
+  const cid = await empresaCompras(companyId);
   return await all<any>(
     `SELECT e.*,
             COALESCE((SELECT SUM(x.amount_cents) FROM expenses x WHERE x.entry_id = e.id),0) AS pago_cents
        FROM financial_entries e
-      WHERE e.purchase_id = ? ORDER BY e.installment`,
-    [id],
+      WHERE e.purchase_id = ? AND e.company_id = ? ORDER BY e.installment`,
+    [id, cid],
   );
 }
 
-export async function purchaseStockMovements(id: number) {
+export async function purchaseStockMovements(id: number, companyId?: number) {
+  const cid = await empresaCompras(companyId);
   return await all<any>(
     `SELECT m.*, p.name AS product_name FROM stock_movements m
        JOIN products p ON p.id = m.product_id
-      WHERE m.purchase_id = ? ORDER BY m.id`,
-    [id],
+      WHERE m.purchase_id = ? AND m.company_id = ? ORDER BY m.id`,
+    [id, cid],
   );
 }
 
 /** Fornecedores ativos, para os seletores. */
-export async function activeSuppliers() {
-  return await all<any>(`SELECT id, name FROM suppliers WHERE active = 1 ORDER BY name`);
+export async function activeSuppliers(companyId?: number) {
+  const cid = await empresaCompras(companyId);
+  return await all<any>(`SELECT id, name FROM suppliers WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
 }
 
 /** Contas financeiras ativas, para os seletores. */
-export async function activeAccounts() {
-  return await all<any>(`SELECT id, name, kind FROM financial_accounts WHERE active = 1 ORDER BY name`);
+export async function activeAccounts(companyId?: number) {
+  const cid = await empresaCompras(companyId);
+  return await all<any>(`SELECT id, name, kind FROM financial_accounts WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
 }
 
 /** Sugestao de vencimento quando o usuario nao informa: a data da compra. */

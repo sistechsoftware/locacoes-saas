@@ -79,8 +79,10 @@ export async function ensureConversation(me: number, other: number): Promise<num
     [lo, hi, minhaEmpresa ?? (await tenantCompanyId())],
   );
   await batch([
-    { sql: `INSERT INTO chat_participants (conversation_id, user_id) VALUES (?,?)`, params: [conv, lo] },
-    { sql: `INSERT INTO chat_participants (conversation_id, user_id) VALUES (?,?)`, params: [conv, hi] },
+    // Pendência #04: participante nasce na empresa da conversa (DEFAULT 1
+    // marcava o par como do tenant errado em qualquer leitura por empresa).
+    { sql: `INSERT INTO chat_participants (conversation_id, user_id, company_id) VALUES (?,?,?)`, params: [conv, lo, minhaEmpresa ?? 1] },
+    { sql: `INSERT INTO chat_participants (conversation_id, user_id, company_id) VALUES (?,?,?)`, params: [conv, hi, minhaEmpresa ?? 1] },
   ]);
   return conv;
 }
@@ -297,11 +299,14 @@ async function gravar(
   senderId: number,
   campos: Partial<ChatMessage> & { body: string | null; kind: string },
 ): Promise<ChatMessage> {
+  /* Pendência #04: a mensagem nasce na MESMA empresa da conversa — sem isto
+     todo INSERT gravava company_id DEFAULT 1 e a leitura por tenant viajava. */
+  const cid = await scalar<number>(`SELECT company_id FROM chat_conversations WHERE id = ?`, [conversationId]);
   const id = await insert(
     `INSERT INTO chat_messages
        (conversation_id, sender_id, body, kind, file_id, file_name, file_mime, file_size,
-        audio_seconds, duration_ms)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        audio_seconds, duration_ms, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [
       conversationId,
       senderId,
@@ -313,6 +318,7 @@ async function gravar(
       campos.file_size ?? null,
       campos.audio_seconds ?? null,
       campos.duration_ms ?? null,
+      cid ?? 1,
     ],
   );
   // O anexo/ audio ja foi gravado na tabela files antes deste INSERT; se o
@@ -327,9 +333,11 @@ async function gravar(
  * da mensagem nao vaza para a tela de bloqueio.
  */
 async function notificarDestinatario(conversationId: number, remetente: SessionUser, msg: ChatMessage) {
-  const destino = await one<{ user_id: number; last_read: number }>(
-    `SELECT user_id, last_read_message_id AS last_read FROM chat_participants
-      WHERE conversation_id = ? AND user_id <> ?`,
+  const destino = await one<{ user_id: number; last_read: number; company_id: number }>(
+    `SELECT p.user_id, p.last_read_message_id AS last_read, c.company_id
+       FROM chat_participants p
+       JOIN chat_conversations c ON c.id = p.conversation_id
+      WHERE p.conversation_id = ? AND p.user_id <> ?`,
     [conversationId, remetente.id],
   );
   if (!destino) return;
@@ -344,16 +352,16 @@ async function notificarDestinatario(conversationId: number, remetente: SessionU
 
   await batch([
     {
-      sql: `INSERT INTO user_notifications (user_id, event_id, type, title, body, link, created_at)
-            VALUES (?,?,?,?,?,?,unixepoch())
+      sql: `INSERT INTO user_notifications (user_id, event_id, type, title, body, link, created_at, company_id)
+            VALUES (?,?,?,?,?,?,unixepoch(),?)
             ON CONFLICT(user_id,event_id) DO NOTHING`,
-      params: [destino.user_id, null, "chat", title, preview, link],
+      params: [destino.user_id, null, "chat", title, preview, link, destino.company_id],
     },
     // a fila de push pega apenas notificacoes novas de chat (event_id nulo);
     // este gatilho leve evita duplicar quando o mesmo par reabre a conversa
     {
-      sql: `INSERT INTO push_deliveries (notification_id, subscription_id)
-            SELECT n.id, s.id FROM user_notifications n
+      sql: `INSERT INTO push_deliveries (notification_id, subscription_id, company_id)
+            SELECT n.id, s.id, s.company_id FROM user_notifications n
             JOIN push_subscriptions s ON s.user_id = n.user_id AND s.enabled = 1
             WHERE n.id = (SELECT MAX(id) FROM user_notifications WHERE user_id = ? AND type = 'chat' AND link = ?)
               AND s.expiration_time IS NULL

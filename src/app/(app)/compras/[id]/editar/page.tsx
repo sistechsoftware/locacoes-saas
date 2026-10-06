@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { all, one, scalar } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { activeAccounts, activeSuppliers, purchaseItems } from "@/lib/compras";
 import { PageHeader } from "@/components/ui";
 import PurchaseForm from "../../PurchaseForm";
@@ -9,22 +9,24 @@ import { updatePurchase } from "../../actions";
 export const dynamic = "force-dynamic";
 
 export default async function EditarCompraPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const { id } = await params;
   // Isolamento: compra de outra empresa é inexistente para este usuário.
-  const compra = await one<any>(`SELECT * FROM purchases WHERE id = ? AND company_id = ?`, [Number(id), user.company_id]);
+  const compra = await one<any>(`SELECT * FROM purchases WHERE id = ? AND company_id = ?`, [Number(id), cid]);
   if (!compra) notFound();
 
   const [itens, produtos, fornecedores, contas, parcelas] = await Promise.all([
-    purchaseItems(compra.id),
+    purchaseItems(compra.id, cid),
     all<any>(
       `SELECT p.id, p.code, p.name, c.name AS category FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
-        WHERE p.active = 1 AND p.kind <> 'kit' ORDER BY c.name, p.name`,
+        WHERE p.company_id = ? AND p.active = 1 AND p.kind <> 'kit' ORDER BY c.name, p.name`,
+      [cid],
     ),
-    activeSuppliers(),
-    activeAccounts(),
-    scalar<number>(`SELECT COUNT(*) FROM financial_entries WHERE purchase_id = ?`, [compra.id]),
+    activeSuppliers(cid),
+    activeAccounts(cid),
+    scalar<number>(`SELECT COUNT(*) FROM financial_entries WHERE purchase_id = ? AND company_id = ?`, [compra.id, cid]),
   ]);
 
   return (

@@ -2,20 +2,26 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { run } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
 import { nowLocal } from "@/lib/format";
 import { logAction } from "@/lib/audit";
 import { importarHistorico } from "@/lib/fidelidade-db";
 
 /** Marca a mensagem como enviada ou dispensada, para sair da fila. */
 export async function marcarMensagem(fd: FormData) {
-  await requireUser();
+  const ctx = await requireCompanyContext();
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   if (status !== "enviada" && status !== "dispensada") return;
+  /* Isolamento: o escopo vem do DONO da mensagem (customers.company_id).
+     Os INSERTs de fidelity_messages ainda gravam company_id DEFAULT 1
+     (pendência #04), entao filtrar pela propria coluna quebraria a empresa
+     != 1 — amarrar ao cliente fecha o IDOR sem perder funcionalidade. */
   await run(
-    `UPDATE fidelity_messages SET status=?, sent_at=? WHERE id=? AND status='pendente'`,
-    [status, status === "enviada" ? nowLocal() : null, id],
+    `UPDATE fidelity_messages SET status=?, sent_at=?
+      WHERE id=? AND status='pendente'
+        AND customer_id IN (SELECT id FROM customers WHERE company_id = ?)`,
+    [status, status === "enviada" ? nowLocal() : null, id, ctx.companyId],
   );
   revalidatePath("/fidelidade");
 }

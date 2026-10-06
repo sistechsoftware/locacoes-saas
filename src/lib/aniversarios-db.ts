@@ -72,6 +72,19 @@ const SELECT = `
     FROM customers
    WHERE active = 1 AND birth_date IS NOT NULL AND birth_date <> ''`;
 
+/**
+ * Escopo de empresa das leituras de aniversario.
+ *
+ * As telas passam o company_id do contexto autenticado; quem nao passa
+ * (cron, testes, rotinas internas) resolve pela sessao/empresa padrao.
+ * A condicao de empresa e SEMPRE a primeira do `where` dinamico.
+ */
+async function empresa(companyId?: number): Promise<number> {
+  if (companyId !== undefined) return companyId;
+  const { tenantCompanyId } = await import("./tenant");
+  return await tenantCompanyId();
+}
+
 function montar(linhas: any[], hoje: string): Aniversariante[] {
   const p = partes(hoje)!;
   return linhas
@@ -97,12 +110,12 @@ function montar(linhas: any[], hoje: string): Aniversariante[] {
 }
 
 /** Clientes cujo aniversario cai dentro da janela de dias a partir de hoje. */
-export async function aniversariantesNaJanela(dias: number, hoje = today()): Promise<Aniversariante[]> {
+export async function aniversariantesNaJanela(dias: number, hoje = today(), companyId?: number): Promise<Aniversariante[]> {
   const alvos = janela(hoje, dias);
   if (alvos.length === 0) return [];
   const linhas = await all<any>(
-    `${SELECT} AND substr(birth_date, 6, 5) IN (${alvos.map(() => "?").join(",")})`,
-    alvos,
+    `${SELECT} AND company_id = ? AND substr(birth_date, 6, 5) IN (${alvos.map(() => "?").join(",")})`,
+    [await empresa(companyId), ...alvos],
   );
   return montar(linhas, hoje).filter((a) => a.dias <= dias);
 }
@@ -110,11 +123,11 @@ export async function aniversariantesNaJanela(dias: number, hoje = today()): Pro
 export const aniversariantesDeHoje = (hoje = today()) => aniversariantesNaJanela(0, hoje);
 
 /** Aniversariantes de um mes inteiro, para a visao de calendario. */
-export async function aniversariantesDoMes(ano: number, mes: number, hoje = today()): Promise<Aniversariante[]> {
+export async function aniversariantesDoMes(ano: number, mes: number, hoje = today(), companyId?: number): Promise<Aniversariante[]> {
   const alvos = diasDoMes(ano, mes);
   const linhas = await all<any>(
-    `${SELECT} AND substr(birth_date, 6, 5) IN (${alvos.map(() => "?").join(",")})`,
-    alvos,
+    `${SELECT} AND company_id = ? AND substr(birth_date, 6, 5) IN (${alvos.map(() => "?").join(",")})`,
+    [await empresa(companyId), ...alvos],
   );
   // aqui a ordem util e a do calendario, nao a proximidade de hoje
   return montar(linhas, hoje).sort((a, b) => a.birth_date.slice(5).localeCompare(b.birth_date.slice(5)));
@@ -124,9 +137,12 @@ export async function aniversariantesDoMes(ano: number, mes: number, hoje = toda
 export async function buscarAniversariantes(
   filtro: { busca?: string; de?: string; ate?: string; mes?: number },
   hoje = today(),
+  companyId?: number,
 ): Promise<Aniversariante[]> {
-  const where: string[] = [];
-  const params: any[] = [];
+  // A condicao de empresa e a PRIMEIRA do `where` dinamico: o filtro de
+  // escopo nunca pode ficar de fora, qualquer que seja o resto.
+  const where: string[] = ["company_id = ?"];
+  const params: any[] = [await empresa(companyId)];
   if (filtro.busca) {
     // sem esta guarda, buscar por um nome deixaria o padrao do telefone como
     // '%%', que casa com a base inteira e faz a busca parecer quebrada
@@ -144,7 +160,7 @@ export async function buscarAniversariantes(
     params.push(String(filtro.mes).padStart(2, "0"));
   }
   const linhas = await all<any>(
-    `${SELECT} ${where.length ? `AND ${where.join(" AND ")}` : ""} ORDER BY substr(birth_date, 6, 5) LIMIT 500`,
+    `${SELECT} AND ${where.join(" AND ")} ORDER BY substr(birth_date, 6, 5) LIMIT 500`,
     params,
   );
   let saida = montar(linhas, hoje);
@@ -153,17 +169,18 @@ export async function buscarAniversariantes(
 }
 
 /** Quantos clientes ativos ainda nao tem data cadastrada. */
-export async function clientesSemData(): Promise<number> {
+export async function clientesSemData(companyId?: number): Promise<number> {
   return await scalar<number>(
-    `SELECT COUNT(*) FROM customers WHERE active = 1 AND (birth_date IS NULL OR birth_date = '')`,
+    `SELECT COUNT(*) FROM customers WHERE company_id = ? AND active = 1 AND (birth_date IS NULL OR birth_date = '')`,
+    [await empresa(companyId)],
   );
 }
 
 /** Numeros do cartao do painel, em duas consultas. */
-export async function resumoAniversarios(hoje = today()) {
+export async function resumoAniversarios(hoje = today(), companyId?: number) {
   const cfg = await configAniversarios();
   if (!cfg.ativo) return { ativo: false, hoje: [] as Aniversariante[], proximos: 0, diasAntecedencia: cfg.diasAntecedencia };
-  const janelaToda = await aniversariantesNaJanela(cfg.diasAntecedencia, hoje);
+  const janelaToda = await aniversariantesNaJanela(cfg.diasAntecedencia, hoje, companyId);
   return {
     ativo: true,
     hoje: janelaToda.filter((a) => a.dias === 0),
@@ -189,22 +206,27 @@ async function avisar(
   texto: { title: string; body: string },
   comPush: boolean,
 ): Promise<number> {
-  const usuarios = await all<{ id: number }>(`SELECT id FROM users WHERE active = 1`);
+  /* Pendência #04 + isolamento: o aviso e da MESMA empresa que os clientes
+     varridos (empresa() ja resolve a sessao ou o contexto do cron via
+     runWithCompany) — usuarios de outra empresa nao recebem este aviso e a
+     linha nasce com o company_id certo em vez do DEFAULT 1. */
+  const cid = await empresa();
+  const usuarios = await all<{ id: number }>(`SELECT id FROM users WHERE active = 1 AND company_id = ?`, [cid]);
   let criados = 0;
   for (const u of usuarios) {
     try {
       const id = await insert(
-        `INSERT INTO user_notifications (user_id, event_id, type, title, body, link, created_at, dedupe_key)
-         VALUES (?, NULL, 'aniversario', ?, ?, '/aniversarios', unixepoch(), ?)`,
-        [u.id, texto.title, texto.body, `${chave}:u${u.id}`],
+        `INSERT INTO user_notifications (user_id, event_id, type, title, body, link, created_at, dedupe_key, company_id)
+         VALUES (?, NULL, 'aniversario', ?, ?, '/aniversarios', unixepoch(), ?, ?)`,
+        [u.id, texto.title, texto.body, `${chave}:u${u.id}`, cid],
       );
       criados++;
       if (comPush) {
         // uma falha de push nao pode derrubar o aviso interno, que ja esta gravado
         try {
           await insert(
-            `INSERT OR IGNORE INTO push_deliveries (notification_id, subscription_id)
-             SELECT ?, s.id FROM push_subscriptions s WHERE s.user_id = ? AND s.enabled = 1`,
+            `INSERT OR IGNORE INTO push_deliveries (notification_id, subscription_id, company_id)
+             SELECT ?, s.id, s.company_id FROM push_subscriptions s WHERE s.user_id = ? AND s.enabled = 1`,
             [id, u.id],
           );
         } catch {

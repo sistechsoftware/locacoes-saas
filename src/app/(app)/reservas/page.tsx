@@ -1,4 +1,5 @@
 import { all, scalar } from "@/lib/db";
+import { requireCompanyContext } from "@/lib/auth";
 import { RESERVATION_SELECT, itemsForReservations } from "@/lib/reservations";
 import { RESERVATION_STATUS } from "@/lib/domain";
 import { addDays, dateBR, money, startOfWeek, today } from "@/lib/format";
@@ -22,6 +23,10 @@ export default async function ReservasPage({
 }: {
   searchParams: Promise<{ q?: string; status?: string; periodo?: string; page?: string }>;
 }) {
+  /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
+     do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const status = sp.status ?? "";
@@ -29,8 +34,8 @@ export default async function ReservasPage({
   const page = Math.max(1, Number(sp.page ?? 1));
   const d0 = today();
 
-  const where: string[] = [];
-  const params: any[] = [];
+  const where: string[] = ["r.company_id = ?"];
+  const params: any[] = [cid];
 
   if (q) {
     where.push("(r.number LIKE ? OR c.name LIKE ? OR r.address LIKE ? OR r.district LIKE ? OR c.phone LIKE ?)");
@@ -66,7 +71,7 @@ export default async function ReservasPage({
   );
 
   // itens de todas as reservas da pagina em duas consultas, nao uma por cartao
-  const itensPorReserva = await itemsForReservations(rows.map((r) => r.id));
+  const itensPorReserva = await itemsForReservations(rows.map((r) => r.id), cid);
 
   const base = `/reservas?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}) }).toString()}`;
 

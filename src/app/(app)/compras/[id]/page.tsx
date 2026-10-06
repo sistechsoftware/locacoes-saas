@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getPurchase, purchaseEntries, purchaseItems, purchaseStockMovements } from "@/lib/compras";
 import { activeAccounts } from "@/lib/compras";
@@ -30,21 +30,25 @@ export default async function CompraPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ aviso?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado: a compra da URL so
+     resolve se pertencer a esta empresa (fecha o IDOR por id). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const { aviso } = await searchParams;
-  const compra = await getPurchase(Number(id));
+  const compra = await getPurchase(Number(id), cid);
   if (!compra) notFound();
 
   const [itens, parcelas, movimentos, pagamentos, contas, historico] = await Promise.all([
-    purchaseItems(compra.id),
-    purchaseEntries(compra.id),
-    purchaseStockMovements(compra.id),
+    purchaseItems(compra.id, cid),
+    purchaseEntries(compra.id, cid),
+    purchaseStockMovements(compra.id, cid),
     all<any>(
-      `SELECT * FROM expenses WHERE purchase_id = ? ORDER BY date DESC, id DESC`,
-      [compra.id],
+      `SELECT * FROM expenses WHERE purchase_id = ? AND company_id = ? ORDER BY date DESC, id DESC`,
+      [compra.id, cid],
     ),
-    activeAccounts(),
+    activeAccounts(cid),
     logsFor("compra", compra.id),
   ]);
 

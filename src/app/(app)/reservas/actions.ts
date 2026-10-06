@@ -96,7 +96,9 @@ export async function createReservation(_prev: string | null, fd: FormData): Pro
       stock_consider_preparation: options.considerPreparation ? 1 : 0, created_by: user.id }, items);
   } catch (e) { if ((e as Error).message === STOCK_CHANGED) return STOCK_CHANGED; throw e; }
   const { id, number } = saved;
-  await insert("INSERT INTO deposits (reservation_id, amount_cents, status) VALUES (?,?,'nao_recebida')", [id, h.deposit_cents]);
+  // Pendência #04: company_id explícito — sem isto a caução nascia com o
+  // DEFAULT 1 e sumia da leitura por tenant da própria reserva.
+  await insert("INSERT INTO deposits (reservation_id, amount_cents, status, company_id) VALUES (?,?,'nao_recebida',?)", [id, h.deposit_cents, companyId]);
   await recalcReservation(id);
   await syncOperations(id);
   await logAction(user, "criar", "reserva", id, `${user.name} criou a reserva ${number}`, { items: items.length });
@@ -147,7 +149,7 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
   } catch (e) { if ((e as Error).message === STOCK_CHANGED) return STOCK_CHANGED; throw e; }
   const dep = await one<any>("SELECT id FROM deposits WHERE reservation_id=? ORDER BY id DESC LIMIT 1", [id]);
   if (dep) await run("UPDATE deposits SET amount_cents=? WHERE id=?", [h.deposit_cents,dep.id]);
-  else await insert("INSERT INTO deposits(reservation_id,amount_cents,status) VALUES(?,?,'nao_recebida')", [id,h.deposit_cents]);
+  else await insert("INSERT INTO deposits(reservation_id,amount_cents,status,company_id) VALUES(?,?,'nao_recebida',?)", [id,h.deposit_cents,companyId]);
   await recalcReservation(id);
   await syncOperations(id);
   await logAction(user, "editar", "reserva", id, `${user.name} alterou a reserva ${current.number}`);
@@ -249,11 +251,16 @@ export async function deletePayment(fd: FormData) {
 }
 
 export async function saveDeposit(fd: FormData) {
-  const user = await requireUser();
+  const { user, companyId } = await requireCompanyContext();
   const id = Number(fd.get("reservation_id"));
   const amount = parseMoney(String(fd.get("amount") ?? ""));
   const status = String(fd.get("status") ?? "nao_recebida");
   const retained = parseMoney(String(fd.get("retained") ?? ""));
+  /* Isolamento: a caução só existe para a reserva da própria empresa — sem
+     esta checagem, o formulário gravava caução em reserva de outro tenant
+     (IDOR de escrita por id). */
+  const reserva = await one<any>(`SELECT id FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
+  if (!reserva) redirect("/reservas");
   const dep = await one<any>(`SELECT id FROM deposits WHERE reservation_id = ? ORDER BY id DESC LIMIT 1`, [id]);
 
   const values = [
@@ -274,9 +281,9 @@ export async function saveDeposit(fd: FormData) {
     );
   } else {
     await insert(
-      `INSERT INTO deposits (amount_cents, method, received_at, returned_at, status, retained_cents, reason, reservation_id)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [...values, id],
+      `INSERT INTO deposits (amount_cents, method, received_at, returned_at, status, retained_cents, reason, reservation_id, company_id)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [...values, id, companyId],
     );
   }
   await logAction(user, "caucao", "reserva", id, `${user.name} atualizou a caucao (${status})`);

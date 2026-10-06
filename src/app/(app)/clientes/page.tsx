@@ -1,4 +1,5 @@
 import { all, scalar } from "@/lib/db";
+import { requireCompanyContext } from "@/lib/auth";
 import { CUSTOMER_SELECT } from "@/lib/queries";
 import { cutoff3h, dateBR, money, phoneBR } from "@/lib/format";
 import { Badge, Empty, LinkButton, PageHeader } from "@/components/ui";
@@ -12,13 +13,16 @@ export default async function ClientesPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string; inativos?: string }>;
 }) {
+  /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao do
+     `where` dinamico, para o filtro de empresa nunca ficar de fora. */
+  const ctx = await requireCompanyContext();
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const page = Math.max(1, Number(sp.page ?? 1));
   const inativos = sp.inativos === "1";
 
-  const where: string[] = [];
-  const params: any[] = [];
+  const where: string[] = ["c.company_id = ?"];
+  const params: any[] = [ctx.companyId];
   if (!inativos) where.push("c.active = 1");
   if (q) {
     where.push("(c.name LIKE ? OR c.phone LIKE ? OR c.doc LIKE ? OR c.district LIKE ?)");

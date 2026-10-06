@@ -61,12 +61,13 @@ export async function writeRental(companyId: number, version: number, header: Re
   const specs = await loadSpecs();
   let itemId = Number(await scalar("SELECT COALESCE(seq,0) FROM sqlite_sequence WHERE name='reservation_items'"));
   for (const item of items) {
-    itemId++;
-    statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents) VALUES(?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents ?? 0,item.discount_cents ?? 0] });
+    itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,company_id) VALUES(?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents ?? 0,item.discount_cents ?? 0,companyId] });
     const spec = specs.get(item.product_id);
     for (const part of explodeLine(item, specs)) {
       const perUnit = isKit(spec) ? spec!.components.find(c => c.product_id === part.product_id)!.quantity : 1;
-      statements.push({ sql: "INSERT INTO reservation_item_components(reservation_id,reservation_item_id,product_id,qty_per_unit,qty) VALUES(?,?,?,?,?)", params: [id,itemId,part.product_id,perUnit,part.qty] });
+      // Pendência #04: a fotografia do consumo nasce na empresa da reserva
+      // (companyId) — DEFAULT 1 faria o estoque por tenant enxergar outra base.
+      statements.push({ sql: "INSERT INTO reservation_item_components(reservation_id,reservation_item_id,product_id,qty_per_unit,qty,company_id) VALUES(?,?,?,?,?,?)", params: [id,itemId,part.product_id,perUnit,part.qty,companyId] });
     }
   }
   if (quoteId) statements.push({ sql: "UPDATE quotes SET status='convertido',reservation_id=? WHERE id=? AND reservation_id IS NULL", params: [id,quoteId] });

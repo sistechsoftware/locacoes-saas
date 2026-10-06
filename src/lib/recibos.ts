@@ -6,6 +6,18 @@ import { dateBR, docBR, money, phoneBR } from "./format";
 import { valorPorExtenso } from "./recibo-visual";
 
 /**
+ * Escopo de empresa das leituras de recibo.
+ *
+ * As telas passam o company_id do contexto autenticado; quem nao passa
+ * (cron, testes, rotinas internas) resolve pela sessao/empresa padrao.
+ */
+async function empresaRecibos(companyId?: number): Promise<number> {
+  if (companyId !== undefined) return companyId;
+  const { tenantCompanyId } = await import("./tenant");
+  return await tenantCompanyId();
+}
+
+/**
  * Recibos de lançamentos financeiros.
  *
  * Um recibo é um COMPROVANTE de dinheiro que já entrou: nunca é fonte da
@@ -135,20 +147,30 @@ async function proximoNumero(): Promise<string> {
  */
 export async function emitirRecibo(
   fonte: ReciboFonte,
-  opts: { userId?: number; userName?: string } = {},
+  opts: { userId?: number; userName?: string; companyId?: number } = {},
 ): Promise<{ erro: string | null; receiptId?: number }> {
+  /* Isolamento: o lançamento de origem precisa pertencer à empresa de quem
+     chama (sessão/cron) — sem isto, qualquer usuario emitia recibo com dados
+     de outro tenant (IDOR de leitura + escrita). */
+  const cid = await empresaRecibos(opts.companyId);
+
   // 1. o lançamento precisa existir e ser elegível (dinheiro que entrou)
   const dados =
-    fonte.tipo === "payment" ? await dadosDePagamento(fonte.paymentId) : await dadosDeCaucao(fonte.depositId);
+    fonte.tipo === "payment"
+      ? await dadosDePagamento(fonte.paymentId, cid)
+      : await dadosDeCaucao(fonte.depositId, cid);
   if ("erro" in dados) return { erro: dados.erro };
 
-  // empresa do recibo = empresa do LANÇAMENTO de origem (linha pai)
+  // empresa do recibo = empresa do LANÇAMENTO de origem (linha pai), ja
+  // validada como sendo a da sessao acima
   const companyId = await scalar<number>(
     fonte.tipo === "payment"
-      ? `SELECT company_id FROM payments WHERE id = ?`
-      : `SELECT company_id FROM deposits WHERE id = ?`,
-    [fonte.tipo === "payment" ? fonte.paymentId : fonte.depositId],
+      ? `SELECT company_id FROM payments WHERE id = ? AND company_id = ?`
+      : `SELECT r.company_id FROM deposits d JOIN reservations r ON r.id = d.reservation_id
+          WHERE d.id = ? AND r.company_id = ?`,
+    fonte.tipo === "payment" ? [fonte.paymentId, cid] : [fonte.depositId, cid],
   );
+  if (!companyId) return { erro: "Lançamento não encontrado." };
 
   // 2. já tem recibo? devolve o existente, sem duplicar nada
   const coluna = fonte.tipo === "payment" ? "payment_id" : "deposit_id";
@@ -216,11 +238,17 @@ export async function emitirRecibo(
  */
 export async function emitirQuitacaoSeQuitada(
   fonte: ReciboFonte,
-  opts: { userId?: number; userName?: string } = {},
+  opts: { userId?: number; userName?: string; companyId?: number } = {},
 ): Promise<{ erro: string | null; receiptId?: number; criado?: boolean }> {
   try {
+    /* Isolamento: o lançamento de origem precisa pertencer à empresa de quem
+       chama — sem isto, um id de outro tenant dispararia quitação alheia. */
+    const cid = await empresaRecibos(opts.companyId);
     if (fonte.tipo === "payment") {
-      const p = await one<any>(`SELECT reservation_id, freight_id FROM payments WHERE id = ?`, [fonte.paymentId]);
+      const p = await one<any>(`SELECT reservation_id, freight_id FROM payments WHERE id = ? AND company_id = ?`, [
+        fonte.paymentId,
+        cid,
+      ]);
       // frete não faz parte do escopo: recebimentos de frete continuam só
       // com o recibo individual, como sempre foram
       if (!p || p.freight_id || !p.reservation_id) return { erro: null };
@@ -229,7 +257,12 @@ export async function emitirQuitacaoSeQuitada(
       if ((await saldoObrigacao("locacao", p.reservation_id)) !== 0) return { erro: null };
       return await emitirQuitacao("locacao", p.reservation_id, opts);
     }
-    const d = await one<any>(`SELECT reservation_id FROM deposits WHERE id = ?`, [fonte.depositId]);
+    const d = await one<any>(
+      `SELECT d.reservation_id FROM deposits d
+         JOIN reservations r ON r.id = d.reservation_id
+        WHERE d.id = ? AND r.company_id = ?`,
+      [fonte.depositId, cid],
+    );
     if (!d) return { erro: null };
     /**
      * Gatilho automático da caução: só no fluxo de linha única, que é o que o
@@ -272,9 +305,18 @@ export async function emitirQuitacaoSeQuitada(
 export async function emitirQuitacao(
   tipo: ObrigacaoTipo,
   reservaId: number,
-  opts: { userId?: number; userName?: string } = {},
+  opts: { userId?: number; userName?: string; companyId?: number } = {},
 ): Promise<{ erro: string | null; receiptId?: number; criado?: boolean }> {
   try {
+    /* Isolamento: a reserva precisa pertencer à empresa de quem chama — sem
+       isto, qualquer sessão emitiria quitação (escrita) sobre reserva alheia. */
+    const cid = await empresaRecibos(opts.companyId);
+    const reservaDaEmpresa = await scalar<number>(
+      `SELECT id FROM reservations WHERE id = ? AND company_id = ?`,
+      [reservaId, cid],
+    );
+    if (!reservaDaEmpresa) return { erro: "Reserva não encontrada." };
+
     // já existe? nunca duplicar — checagem otimista antes de qualquer cálculo
     const existente = await reciboQuitacao(tipo, reservaId);
     if (existente) return { erro: null, receiptId: existente.id, criado: false };
@@ -454,8 +496,13 @@ export async function recibosDaReserva(reservationId: number) {
  * Para a quitação, o "lançamento" é a obrigação: lê a reserva e o cliente,
  * e `composicao` traz os lançamentos congelados na emissão.
  */
-export async function obterRecibo(id: number) {
-  const rec = await one<any>(`SELECT * FROM receipts WHERE id = ?`, [id]);
+export async function obterRecibo(id: number, companyId?: number) {
+  let cid = companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
+  const rec = await one<any>(`SELECT * FROM receipts WHERE id = ? AND company_id = ?`, [id, cid]);
   if (!rec) return null;
 
   const s = await getSettings();
@@ -572,7 +619,7 @@ type DadosLancamento = {
  * Lê o pagamento com os dados reais dele (reserva OU frete).
  * Recusa estorno (valor negativo): recibo comprova dinheiro que entrou.
  */
-async function dadosDePagamento(paymentId: number): Promise<DadosLancamento | { erro: string }> {
+async function dadosDePagamento(paymentId: number, companyId: number): Promise<DadosLancamento | { erro: string }> {
   const p = await one<any>(
     `SELECT p.amount_cents, p.paid_at, p.method, p.entry_id, p.notes,
             r.number AS reservation_number, rc.name AS customer_name,
@@ -582,8 +629,8 @@ async function dadosDePagamento(paymentId: number): Promise<DadosLancamento | { 
        LEFT JOIN customers rc ON rc.id = r.customer_id
        LEFT JOIN freights f ON f.id = p.freight_id
        LEFT JOIN customers fc ON fc.id = f.customer_id
-      WHERE p.id = ?`,
-    [paymentId],
+      WHERE p.id = ? AND p.company_id = ?`,
+    [paymentId, companyId],
   );
   if (!p) return { erro: "Pagamento não encontrado." };
   if (p.amount_cents < 0) return { erro: "Não é possível gerar recibo de um estorno." };
@@ -599,14 +646,14 @@ async function dadosDePagamento(paymentId: number): Promise<DadosLancamento | { 
 }
 
 /** Lê a caução com os dados reais dela. Só caução recebida tem o que comprovar. */
-async function dadosDeCaucao(depositId: number): Promise<DadosLancamento | { erro: string }> {
+async function dadosDeCaucao(depositId: number, companyId: number): Promise<DadosLancamento | { erro: string }> {
   const d = await one<any>(
     `SELECT d.amount_cents, d.method, d.received_at, d.status, r.number AS reservation_number, c.name AS customer_name
        FROM deposits d
        JOIN reservations r ON r.id = d.reservation_id
        LEFT JOIN customers c ON c.id = r.customer_id
-      WHERE d.id = ?`,
-    [depositId],
+      WHERE d.id = ? AND r.company_id = ?`,
+    [depositId, companyId],
   );
   if (!d) return { erro: "Caução não encontrada." };
   if (d.status === "nao_recebida") return { erro: "A caução ainda não foi recebida — não há valor a comprovar." };
@@ -670,7 +717,9 @@ function montarTextoDeclaracao(
  * apaga pagamento nem caução: a exclusão aqui é só do comprovante. A action
  * que a chama exige admin.
  */
-export async function excluirRecibo(receiptId: number): Promise<boolean> {
-  const r = await run(`DELETE FROM receipts WHERE id = ?`, [receiptId]);
+export async function excluirRecibo(receiptId: number, companyId?: number): Promise<boolean> {
+  /* Isolamento: recibo de outra empresa não é excluível por esta sessão. */
+  const cid = await empresaRecibos(companyId);
+  const r = await run(`DELETE FROM receipts WHERE id = ? AND company_id = ?`, [receiptId, cid]);
   return !!r.meta.changes;
 }

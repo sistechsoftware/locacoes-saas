@@ -20,6 +20,19 @@ export type OrigemRecebivel =
   | { tipo: "locacao"; reservationId: number }
   | { tipo: "frete"; freightId: number };
 
+/**
+ * Escopo de empresa das leituras do livro.
+ *
+ * As telas passam o company_id do contexto autenticado; quem nao passa
+ * (cron, testes, rotinas internas) resolve pela sessao/empresa padrao via
+ * tenantCompanyId — nunca por parametro vindo do cliente.
+ */
+async function empresa(companyId?: number): Promise<number> {
+  if (companyId !== undefined) return companyId;
+  const { tenantCompanyId } = await import("./tenant");
+  return await tenantCompanyId();
+}
+
 /** Quanto ja foi recebido de uma parcela, somado dos pagamentos ligados a ela. */
 export async function recebidoDaParcela(entryId: number): Promise<number> {
   return await scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE entry_id = ?`, [entryId]);
@@ -151,14 +164,15 @@ const ENTRY_SELECT = `
  * botoes de "receber" em dois formularios diferentes — e o formulario de
  * parcela comum nao tem essa trava, porque nunca precisou dela.
  */
-export async function recebiveisDe(origem: OrigemRecebivel) {
+export async function recebiveisDe(origem: OrigemRecebivel, companyId?: number) {
   const coluna = origem.tipo === "locacao" ? "reservation_id" : "freight_id";
   const id = origem.tipo === "locacao" ? origem.reservationId : origem.freightId;
+  const cid = await empresa(companyId);
   return await all<any>(
-    `${ENTRY_SELECT} WHERE e.${coluna} = ? AND e.direction = 'receber'
+    `${ENTRY_SELECT} WHERE e.company_id = ? AND e.${coluna} = ? AND e.direction = 'receber'
        AND (e.category IS NULL OR e.category <> 'Adiantamento')
      ORDER BY e.installment`,
-    [id],
+    [cid, id],
   );
 }
 
@@ -172,9 +186,13 @@ export type FiltroEntries = {
 };
 
 /** Lista de parcelas com a situacao ja resolvida, para as telas de consulta. */
-export async function listarEntries(f: FiltroEntries) {
-  const where: string[] = ["e.direction = ?"];
-  const params: any[] = [f.direction];
+export async function listarEntries(f: FiltroEntries, companyId?: number) {
+  /* A condicao de empresa e a PRIMEIRA do `where` dinamico: o filtro de
+     escopo nunca pode ficar de fora, qualquer que seja o resto. */
+  const where: string[] = ["e.company_id = ?"];
+  const params: any[] = [await empresa(companyId)];
+  where.push("e.direction = ?");
+  params.push(f.direction);
 
   if (f.de && f.ate) {
     where.push("e.due_date BETWEEN ? AND ?");
@@ -209,7 +227,8 @@ export async function listarEntries(f: FiltroEntries) {
 }
 
 /** Totais de previsto, liquidado e em atraso, para os cartoes do painel. */
-export async function totaisEntries(direction: "receber" | "pagar") {
+export async function totaisEntries(direction: "receber" | "pagar", companyId?: number) {
+  const cid = await empresa(companyId);
   const campo = direction === "receber" ? "payments" : "expenses";
   const linha = await one<any>(
     `SELECT
@@ -217,8 +236,8 @@ export async function totaisEntries(direction: "receber" | "pagar") {
        COALESCE(SUM((SELECT SUM(m.amount_cents) FROM ${campo} m WHERE m.entry_id = e.id)),0) AS liquidado,
        COALESCE(SUM(CASE WHEN e.due_date < ? THEN e.amount_cents END),0) AS vencendo
      FROM financial_entries e
-     WHERE e.direction = ? AND e.status <> 'cancelada'`,
-    [today(), direction],
+     WHERE e.company_id = ? AND e.direction = ? AND e.status <> 'cancelada'`,
+    [today(), cid, direction],
   );
 
   // atrasado e o que ja venceu e ainda nao foi liquidado
@@ -226,8 +245,8 @@ export async function totaisEntries(direction: "receber" | "pagar") {
     `SELECT e.amount_cents,
             COALESCE((SELECT SUM(m.amount_cents) FROM ${campo} m WHERE m.entry_id = e.id),0) AS liquidado
        FROM financial_entries e
-      WHERE e.direction = ? AND e.status <> 'cancelada' AND e.due_date < ?`,
-    [direction, today()],
+      WHERE e.company_id = ? AND e.direction = ? AND e.status <> 'cancelada' AND e.due_date < ?`,
+    [cid, direction, today()],
   );
   const atrasado = vencidas.reduce((s, e) => s + Math.max(0, e.amount_cents - e.liquidado), 0);
 
@@ -252,8 +271,9 @@ export async function totaisEntries(direction: "receber" | "pagar") {
  */
 
 /** Quanto ainda pode ser prometido: total menos recebido menos ja agendado. */
-export async function saldoDisponivelAdiantamento(reservationId: number): Promise<number> {
-  const r = await one<any>(`SELECT total_cents FROM reservations WHERE id = ?`, [reservationId]);
+export async function saldoDisponivelAdiantamento(reservationId: number, companyId?: number): Promise<number> {
+  const cid = await empresa(companyId);
+  const r = await one<any>(`SELECT total_cents FROM reservations WHERE id = ? AND company_id = ?`, [reservationId, cid]);
   if (!r) return 0;
   const recebido = await scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE reservation_id = ?`, [
     reservationId,
@@ -276,10 +296,11 @@ export async function adiantamentoAberto(reservationId: number) {
 }
 
 /** Historico completo de adiantamentos da reserva, do mais recente ao mais antigo. */
-export async function adiantamentosDaReserva(reservationId: number) {
+export async function adiantamentosDaReserva(reservationId: number, companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
-    `${ENTRY_SELECT} WHERE e.reservation_id = ? AND e.category = 'Adiantamento' ORDER BY e.id DESC`,
-    [reservationId],
+    `${ENTRY_SELECT} WHERE e.company_id = ? AND e.reservation_id = ? AND e.category = 'Adiantamento' ORDER BY e.id DESC`,
+    [cid, reservationId],
   );
 }
 
@@ -458,14 +479,15 @@ export async function confirmarAdiantamento(
 }
 
 /** Adiantamentos agendados que vencem hoje ou ja venceram, para o painel e a rotina diaria. */
-export async function adiantamentosPendentes(hoje = today()) {
+export async function adiantamentosPendentes(hoje = today(), companyId?: number) {
+  const cid = await empresa(companyId);
   return await all<any>(
     `SELECT e.*, c.name AS customer_name, r.number AS reservation_number
        FROM financial_entries e
        JOIN customers c ON c.id = e.customer_id
        LEFT JOIN reservations r ON r.id = e.reservation_id
-      WHERE e.category = 'Adiantamento' AND e.status = 'aberta' AND e.due_date <= ?
+      WHERE e.company_id = ? AND e.category = 'Adiantamento' AND e.status = 'aberta' AND e.due_date <= ?
       ORDER BY e.due_date, e.id`,
-    [hoje],
+    [cid, hoje],
   );
 }

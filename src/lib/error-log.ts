@@ -1,5 +1,5 @@
 import "server-only";
-import { all, insert, run, scalar, runWithDb } from "./db";
+import { all, currentCompanyId, insert, run, scalar, runWithDb } from "./db";
 
 /**
  * Diario de erros do servidor (tabela error_logs, migration 0026).
@@ -63,9 +63,20 @@ function paraJson(valor: unknown): string | null {
 /** Grava o erro e resolve mesmo se o INSERT falhar. Devolve o id, ou null. */
 export async function registrarErro(erro: ErroLog): Promise<number | null> {
   try {
+    /* Pendência #04: a empresa do erro = empresa do usuário afetado; sem
+       sessão (cron/onRequestError) vale a empresa corrente do contexto.
+       Qualquer falha aqui e engolida — o diário nunca derruba o fluxo. */
+    let companyId = 1;
+    try {
+      companyId = erro.userId
+        ? (await scalar<number>(`SELECT company_id FROM users WHERE id = ?`, [erro.userId])) ?? 1
+        : await currentCompanyId();
+    } catch {
+      // segue com 1 (DEFAULT) em vez de perder o registro
+    }
     return await insert(
-      `INSERT INTO error_logs (created_at, source, kind, route, method, message, digest, user_id, user_name, context)
-       VALUES (unixepoch(),?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO error_logs (created_at, source, kind, route, method, message, digest, user_id, user_name, context, company_id)
+       VALUES (unixepoch(),?,?,?,?,?,?,?,?,?,?)`,
       [
         erro.source,
         erro.kind,
@@ -76,6 +87,7 @@ export async function registrarErro(erro: ErroLog): Promise<number | null> {
         erro.userId ?? null,
         erro.userName ?? null,
         paraJson(erro.context),
+        companyId,
       ],
     );
   } catch (e) {

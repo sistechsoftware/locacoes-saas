@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getOperation } from "@/lib/queries";
 import { attachmentsFor } from "@/lib/uploads";
@@ -25,31 +25,35 @@ export default async function OperacaoDetalhePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ erro?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado: a operacao da URL so
+     resolve se pertencer a esta empresa (fecha o IDOR por id). */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const { erro } = await searchParams;
-  const op = await getOperation(Number(id));
+  const op = await getOperation(Number(id), cid);
   if (!op) notFound();
 
   const kind = OPERATION_KINDS.find((k) => k.value === op.kind)!;
   const itens = op.reservation_id
     ? await all<any>(
         `SELECT i.*, p.name AS product_name, p.id AS product_id FROM reservation_items i
-           JOIN products p ON p.id = i.product_id WHERE i.reservation_id = ? ORDER BY p.name`,
-        [op.reservation_id],
+           JOIN products p ON p.id = i.product_id WHERE i.reservation_id = ? AND i.company_id = ? ORDER BY p.name`,
+        [op.reservation_id, cid],
       )
     : [];
-  const vehicles = await all<any>(`SELECT id, name FROM vehicles WHERE active = 1 ORDER BY name`);
-  const users = await all<{id:number;name:string}>("SELECT id,name FROM users WHERE active=1 ORDER BY name");
-  const checklist = await one<any>(`SELECT * FROM checklists WHERE operation_id = ? ORDER BY id DESC LIMIT 1`, [op.id]);
+  const vehicles = await all<any>(`SELECT id, name FROM vehicles WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
+  const users = await all<{id:number;name:string}>("SELECT id,name FROM users WHERE company_id = ? AND active=1 ORDER BY name", [cid]);
+  const checklist = await one<any>(`SELECT * FROM checklists WHERE operation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [op.id, cid]);
   const marcados: Record<string, boolean> = checklist ? JSON.parse(checklist.data) : {};
   const fotos = await attachmentsFor("operacao", op.id);
   const itensChecklist = checklistFor(op.kind);
   const danos = op.reservation_id
     ? await all<any>(
         `SELECT d.*, p.name AS product_name, p.kind AS product_kind FROM damage_reports d LEFT JOIN products p ON p.id = d.product_id
-          WHERE d.reservation_id = ? ORDER BY d.id DESC`,
-        [op.reservation_id],
+          WHERE d.reservation_id = ? AND d.company_id = ? ORDER BY d.id DESC`,
+        [op.reservation_id, cid],
       )
     : [];
   const historico = (await logsFor("operacao", op.id)).slice(0, 10);

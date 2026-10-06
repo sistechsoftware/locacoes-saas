@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { all, scalar } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { ACTIVE_STATUSES, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
 import { dateBR, endOfMonth, money, startOfMonth, today } from "@/lib/format";
@@ -24,7 +24,11 @@ export default async function FinanceiroPage({
 }: {
   searchParams: Promise<{ aba?: string; de?: string; ate?: string; erro?: string; ok?: string; nova?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant):
+     cada leitura abaixo carrega a clausula de empresa na primeira posicao. */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const aba = sp.aba ?? "resumo";
   const de = sp.de || startOfMonth(today());
@@ -40,46 +44,50 @@ export default async function FinanceiroPage({
        LEFT JOIN reservations r ON r.id = p.reservation_id
        LEFT JOIN customers c ON c.id = r.customer_id
        LEFT JOIN freights f ON f.id = p.freight_id
-      WHERE p.paid_at BETWEEN ? AND ? ORDER BY p.paid_at DESC, p.id DESC`,
-      [de, ate],
+      WHERE p.company_id = ? AND p.paid_at BETWEEN ? AND ? ORDER BY p.paid_at DESC, p.id DESC`,
+      [cid, de, ate],
     ),
     all<any>(
     `SELECT e.*, r.number AS reservation_number FROM expenses e
        LEFT JOIN reservations r ON r.id = e.reservation_id
-      WHERE e.date BETWEEN ? AND ? ORDER BY e.date DESC, e.id DESC`,
-      [de, ate],
+      WHERE e.company_id = ? AND e.date BETWEEN ? AND ? ORDER BY e.date DESC, e.id DESC`,
+      [cid, de, ate],
     ),
     all<any>(
     `SELECT r.id, r.number, r.event_date, r.total_cents, c.name AS customer_name,
             COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.reservation_id = r.id),0) AS paid
        FROM reservations r JOIN customers c ON c.id = r.customer_id
-      WHERE r.status IN (${ACTIVE})
+      WHERE r.company_id = ?
+        AND r.status IN (${ACTIVE})
         AND r.total_cents > COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.reservation_id = r.id),0)
         ORDER BY r.event_date`,
+      [cid],
     ),
     scalar<number>(
-      `SELECT COALESCE(SUM(retained_cents),0) FROM deposits WHERE status IN ('retida_parcial','retida_integral')`,
+      `SELECT COALESCE(SUM(retained_cents),0) FROM deposits WHERE company_id = ? AND status IN ('retida_parcial','retida_integral')`,
+      [cid],
     ),
     all<any>(
       `SELECT r.id, r.number, c.name AS customer_name FROM reservations r JOIN customers c ON c.id = r.customer_id
-        WHERE r.status <> 'cancelada' ORDER BY r.id DESC LIMIT 100`,
+        WHERE r.company_id = ? AND r.status <> 'cancelada' ORDER BY r.id DESC LIMIT 100`,
+      [cid],
     ),
   ]);
 
   // o cadastro manda no que aparece, mas uma conta desativada que ja tem
   // lancamento continua sendo mostrada pelo nome, sem virar "—"
-  const nomesContas = new Map((await all<any>(`SELECT id, name FROM financial_accounts`)).map((c) => [c.id, c.name]));
+  const nomesContas = new Map((await all<any>(`SELECT id, name FROM financial_accounts WHERE company_id = ?`, [cid])).map((c) => [c.id, c.name]));
 
   const [parcelasReceber, parcelasPagar, totReceber, totPagar, contasAtivas] = await Promise.all([
-    listarEntries({ direction: "receber", situacao: "todas" }),
-    listarEntries({ direction: "pagar", situacao: "todas" }),
-    totaisEntries("receber"),
-    totaisEntries("pagar"),
-    all<any>(`SELECT id, name FROM financial_accounts WHERE active = 1 ORDER BY name`),
+    listarEntries({ direction: "receber", situacao: "todas" }, cid),
+    listarEntries({ direction: "pagar", situacao: "todas" }, cid),
+    totaisEntries("receber", cid),
+    totaisEntries("pagar", cid),
+    all<any>(`SELECT id, name FROM financial_accounts WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]),
   ]);
 
   // dados do lancamento manual: fornecedores e finalidades seguem o que ja existe
-  const fornecedores = await all<any>(`SELECT id, name FROM suppliers WHERE active = 1 ORDER BY name`);
+  const fornecedores = await all<any>(`SELECT id, name FROM suppliers WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
 
   const totalEntradas = entradas.reduce((s, e) => s + e.amount_cents, 0);
   const totalSaidas = saidas.reduce((s, e) => s + e.amount_cents, 0);

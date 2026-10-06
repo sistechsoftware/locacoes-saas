@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { all } from "@/lib/db";
 import { regraAtual, mensagensPendentes, importarHistorico } from "@/lib/fidelidade-db";
@@ -17,7 +17,9 @@ export default async function FidelidadePage({
 }: {
   searchParams: Promise<{ importado?: string; recompensas?: string }>;
 }) {
-  const user = await requireUser();
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const regra = await regraAtual();
   const d0 = today();
@@ -27,17 +29,19 @@ export default async function FidelidadePage({
     `SELECT c.id, c.name, c.phone, c.whatsapp,
             COALESCE((SELECT SUM(e.delta) FROM fidelity_events e WHERE e.customer_id = c.id),0) AS pontos
        FROM customers c
-      WHERE c.active = 1
-        AND EXISTS (SELECT 1 FROM fidelity_events e WHERE e.customer_id = c.id)
+      WHERE c.company_id = ? AND c.active = 1
+        AND EXISTS (SELECT 1 FROM fidelity_events e WHERE e.customer_id = c.id AND e.company_id = c.company_id)
       ORDER BY pontos DESC, c.name`,
+    [cid],
   );
   const recompensas = await all<any>(
     `SELECT r.*, c.name AS customer_name FROM fidelity_rewards r JOIN customers c ON c.id = r.customer_id
-      ORDER BY r.id DESC LIMIT 100`,
+      WHERE c.company_id = ? ORDER BY r.id DESC LIMIT 100`,
+    [cid],
   );
-  const pendentes = await mensagensPendentes();
+  const pendentes = await mensagensPendentes(50, cid);
   // o que existe de locacao concluida ainda fora do programa
-  const aImportar = await importarHistorico({ simular: true });
+  const aImportar = await importarHistorico({ simular: true, companyId: cid });
 
   const comSituacao = recompensas.map((r: any) => ({ ...r, situacao: situacao(r, d0) }));
   const disponiveis = comSituacao.filter((r: any) => r.situacao === "disponivel");

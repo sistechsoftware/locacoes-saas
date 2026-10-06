@@ -1,24 +1,36 @@
 import Link from "next/link";
 import { all, one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { NOTIFICATION_TYPES, type Activity } from "@/lib/push-rules";
 import { Empty, PageHeader } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { completeSeparation, updateActivity } from "../push-actions";
 
 export default async function ActivitiesPage({searchParams}:{searchParams:Promise<{reserva?:string;tipo?:string;estado?:string}>}) {
-  const user = await requireUser();
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const roles = await all<{role:string}>("SELECT role FROM user_operational_roles WHERE user_id=?",[user.id]);
   const manager = user.role==="admin" || roles.some(r=>r.role==="gestor");
-  const users = await all<{id:number;name:string}>("SELECT id,name FROM users WHERE active=1 ORDER BY name");
+  const users = await all<{id:number;name:string}>("SELECT id,name FROM users WHERE company_id=? AND active=1 ORDER BY name",[cid]);
   const params:(number|string)[]=[];
   let filter="";
   if (Number(sp.reserva)) { filter+=" AND a.reservation_id=?"; params.push(Number(sp.reserva)); }
   if (sp.tipo && sp.tipo in NOTIFICATION_TYPES) { filter+=" AND a.kind=?"; params.push(sp.tipo); }
   if (sp.estado!=="todos") filter+=" AND a.status='pending'";
-  const activities = await all<Activity & {source:string;source_id:number;reservation_id:number|null;assignee_name:string}>(`SELECT a.*,u.name AS assignee_name FROM activities a LEFT JOIN users u ON u.id=a.assignee_id WHERE 1=1 ${filter} ORDER BY a.scheduled_at DESC LIMIT 100`,params);
-  const items = Number(sp.reserva) ? await all<{name:string;qty:number}>(`SELECT p.name,SUM(c.qty) AS qty FROM reservation_item_components c JOIN products p ON p.id=c.product_id WHERE c.reservation_id=? GROUP BY p.id ORDER BY p.name`,[Number(sp.reserva)]) : [];
+  /* Escopo da atividade vem da FONTE dela (reserva/operação/frete), que tem
+     company_id confiavel: os triggers da migration 0006 gravam activities com
+     company_id DEFAULT 1, entao so filtrar a.company_id deixaria a empresa 1
+     vendo atividades de todas e as demais sem ver nada. Fallback para
+     a.company_id quando a fonte nao e dessas entidades. */
+  const escopoAtividade = `CASE
+      WHEN a.source='reservations' THEN EXISTS(SELECT 1 FROM reservations rw WHERE rw.id=a.source_id AND rw.company_id=?)
+      WHEN a.source='operations'   THEN EXISTS(SELECT 1 FROM operations ow WHERE ow.id=a.source_id AND ow.company_id=?)
+      WHEN a.source='freights'     THEN EXISTS(SELECT 1 FROM freights fw WHERE fw.id=a.source_id AND fw.company_id=?)
+      ELSE a.company_id=? END`;
+  const activities = await all<Activity & {source:string;source_id:number;reservation_id:number|null;assignee_name:string}>(`SELECT a.*,u.name AS assignee_name FROM activities a LEFT JOIN users u ON u.id=a.assignee_id WHERE ${escopoAtividade} ${filter} ORDER BY a.scheduled_at DESC LIMIT 100`,[cid,cid,cid,cid,...params]);
+  const items = Number(sp.reserva) ? await all<{name:string;qty:number}>(`SELECT p.name,SUM(c.qty) AS qty FROM reservation_item_components c JOIN products p ON p.id=c.product_id WHERE c.reservation_id=? AND c.company_id=? GROUP BY p.id ORDER BY p.name`,[Number(sp.reserva),cid]) : [];
   return <div className="space-y-4"><PageHeader title="Atividades Operacionais" subtitle="Atribuição direta, agenda integrada e separação de materiais"/>
     <Link href="/notificacoes" className="text-marca-600 underline">Central de Notificações</Link>
     <form className="flex flex-wrap gap-2"><select name="tipo" defaultValue={sp.tipo??""} className="campo max-w-56"><option value="">Todos os tipos</option>{Object.entries(NOTIFICATION_TYPES).filter(([k])=>!["alteracao","cancelamento"].includes(k)).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><select name="estado" className="campo max-w-44" defaultValue={sp.estado??"pending"}><option value="pending">Pendentes</option><option value="todos">Todos os estados</option></select>{sp.reserva&&<input type="hidden" name="reserva" value={sp.reserva}/>}<button className="border rounded-xl px-4">Filtrar</button></form>

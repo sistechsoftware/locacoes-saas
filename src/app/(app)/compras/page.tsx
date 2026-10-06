@@ -1,4 +1,5 @@
 import { all, scalar } from "@/lib/db";
+import { requireCompanyContext } from "@/lib/auth";
 import { PURCHASE_SELECT } from "@/lib/compras";
 import { dateBR, money } from "@/lib/format";
 import { Badge, Empty, LinkButton, PageHeader, Stat } from "@/components/ui";
@@ -12,13 +13,17 @@ export default async function ComprasPage({
 }: {
   searchParams: Promise<{ q?: string; aba?: string; page?: string }>;
 }) {
+  /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
+     do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const aba = sp.aba ?? "todas";
   const page = Math.max(1, Number(sp.page ?? 1));
 
-  const where: string[] = [];
-  const params: any[] = [];
+  const where: string[] = ["p.company_id = ?"];
+  const params: any[] = [cid];
   if (q) {
     where.push("(p.number LIKE ? OR s.name LIKE ? OR p.notes LIKE ?)");
     params.push(`%${q}%`, `%${q}%`, `%${q}%`);
@@ -38,7 +43,8 @@ export default async function ComprasPage({
     all<any>(
       `SELECT COALESCE(SUM(total_cents),0) AS total,
               COALESCE(SUM(CASE WHEN kind = 'investimento' THEN total_cents END),0) AS investido
-         FROM purchases WHERE status <> 'cancelada'`,
+         FROM purchases WHERE company_id = ? AND status <> 'cancelada'`,
+      [cid],
     ),
   ]);
 

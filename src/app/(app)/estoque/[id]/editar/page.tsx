@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import ProductForm from "../../ProductForm";
 import { updateProduct } from "../../actions";
@@ -8,20 +8,22 @@ import { updateProduct } from "../../actions";
 export const dynamic = "force-dynamic";
 
 export default async function EditarProdutoPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const { id } = await params;
   // Isolamento: produto de outra empresa é inexistente para este usuário.
-  const product = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [Number(id), user.company_id]);
+  const product = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [Number(id), cid]);
   if (!product) notFound();
 
-  const categories = await all<any>(`SELECT id, name FROM categories WHERE active = 1 ORDER BY name`);
+  const categories = await all<any>(`SELECT id, name FROM categories WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
   const simpleProducts = await all<any>(
     `SELECT id, name, code, total_qty, rent_price_cents FROM products
-      WHERE active = 1 AND kind <> 'kit' ORDER BY name`,
+      WHERE company_id = ? AND active = 1 AND kind <> 'kit' ORDER BY name`,
+    [cid],
   );
   const components = await all<any>(
-    `SELECT component_product_id AS product_id, quantity FROM product_components WHERE parent_product_id = ?`,
-    [product.id],
+    `SELECT component_product_id AS product_id, quantity FROM product_components WHERE parent_product_id = ? AND company_id = ?`,
+    [product.id, cid],
   );
 
   return (

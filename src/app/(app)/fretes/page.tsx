@@ -1,4 +1,5 @@
 import { all, scalar } from "@/lib/db";
+import { requireCompanyContext } from "@/lib/auth";
 import { FREIGHT_STATUS } from "@/lib/domain";
 import { dateBR, money, timeBR } from "@/lib/format";
 import { Empty, LinkButton, PageHeader, Stat, StatusBadge } from "@/components/ui";
@@ -12,13 +13,17 @@ export default async function FretesPage({
 }: {
   searchParams: Promise<{ q?: string; aba?: string; page?: string }>;
 }) {
+  /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
+     do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
+  const ctx = await requireCompanyContext();
+  const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const aba = sp.aba ?? "todos";
   const page = Math.max(1, Number(sp.page ?? 1));
 
-  const where: string[] = [];
-  const params: any[] = [];
+  const where: string[] = ["f.company_id = ?"];
+  const params: any[] = [cid];
   if (q) {
     where.push("(f.number LIKE ? OR f.contact_name LIKE ? OR c.name LIKE ? OR f.destination LIKE ? OR f.origin LIKE ?)");
     const like = `%${q}%`;
@@ -40,8 +45,8 @@ export default async function FretesPage({
      ${clause} ORDER BY f.date DESC, f.id DESC LIMIT ? OFFSET ?`,
     [...params, PER_PAGE, (page - 1) * PER_PAGE],
   );
-  const faturado = await scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM freights WHERE status = 'concluido'`);
-  const agendados = await scalar<number>(`SELECT COUNT(*) FROM freights WHERE status IN ('agendado','em_rota')`);
+  const faturado = await scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM freights WHERE company_id = ? AND status = 'concluido'`, [cid]);
+  const agendados = await scalar<number>(`SELECT COUNT(*) FROM freights WHERE company_id = ? AND status IN ('agendado','em_rota')`, [cid]);
 
   return (
     <div className="space-y-4">

@@ -1,5 +1,5 @@
 import { all } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { PageHeader } from "@/components/ui";
 import ReservationForm from "../ReservationForm";
@@ -16,13 +16,16 @@ export default async function NovaReservaPage({
 }: {
   searchParams: Promise<{ cliente?: string; frete?: string }>;
 }) {
-  const user = await requireUser();
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { cliente, frete } = await searchParams;
 
-  const products = await sellableProducts();
-  const contas = await activeAccounts();
+  const products = await sellableProducts(cid);
+  const contas = await activeAccounts(cid);
   const customers = await all<any>(
-    `SELECT ${CUSTOMER_PICK_COLUMNS} FROM customers c WHERE c.active = 1 ORDER BY c.name`,
+    `SELECT ${CUSTOMER_PICK_COLUMNS} FROM customers c WHERE c.company_id = ? AND c.active = 1 ORDER BY c.name`,
+    [cid],
   );
 
   return (

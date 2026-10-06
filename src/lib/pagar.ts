@@ -162,8 +162,18 @@ function descricaoComParcela(descricao: string, parcela: number, total: number, 
  * cancelamento de parcelas de compra. Recusa quando ja existe saida de caixa
  * ligada: estornar o pagamento e outro fluxo, com confirmacao propria.
  */
-export async function cancelarContaPagarManual(entryId: number): Promise<string | null> {
-  const entry = await one<any>(`SELECT id, direction, origin, status, number FROM financial_entries WHERE id = ?`, [entryId]);
+export async function cancelarContaPagarManual(entryId: number, companyId?: number): Promise<string | null> {
+  /* Isolamento: a conta precisa pertencer à empresa de quem chama (sessão),
+     senão qualquer admin poderia cancelar lançamento de outro tenant por id. */
+  let cid = companyId;
+  if (cid === undefined) {
+    const { tenantCompanyId } = await import("./tenant");
+    cid = await tenantCompanyId();
+  }
+  const entry = await one<any>(
+    `SELECT id, direction, origin, status, number FROM financial_entries WHERE id = ? AND company_id = ?`,
+    [entryId, cid],
+  );
   if (!entry) return `Conta #${entryId || "?"} não encontrada.`;
   if (entry.direction !== "pagar" || entry.origin !== ORIGEM_MANUAL) {
     return "Somente contas lançadas manualmente podem ser canceladas aqui.";
@@ -174,8 +184,8 @@ export async function cancelarContaPagarManual(entryId: number): Promise<string 
 
   const r = await run(
     `UPDATE financial_entries SET status = 'cancelada', updated_at = datetime('now','localtime')
-      WHERE id = ? AND status <> 'cancelada'`,
-    [entryId],
+      WHERE id = ? AND company_id = ? AND status <> 'cancelada'`,
+    [entryId, cid],
   );
   if (!r.meta.changes) return "Esta conta já está cancelada.";
   return null;

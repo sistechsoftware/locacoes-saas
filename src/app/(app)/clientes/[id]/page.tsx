@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireCompanyContext } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getCustomer } from "@/lib/queries";
 import { logsFor } from "@/lib/audit";
@@ -30,10 +30,14 @@ export default async function ClientePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ aviso?: string; portal_link?: string; portal_wa?: string }>;
 }) {
-  const user = await requireUser();
+  /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant):
+     o cliente da URL so resolve se pertencer a esta empresa. */
+  const ctx = await requireCompanyContext();
+  const user = ctx.user;
+  const cid = ctx.companyId;
   const { id } = await params;
   const { aviso, portal_link, portal_wa } = await searchParams;
-  const c = await getCustomer(Number(id));
+  const c = await getCustomer(Number(id), cid);
   if (!c) notFound();
   const s = await getSettings();
 
@@ -48,14 +52,14 @@ export default async function ClientePage({
     acessoPortalDe(c.id),
     all<any>(
       `SELECT r.*, (SELECT COALESCE(SUM(amount_cents),0) FROM payments p WHERE p.reservation_id = r.id) AS paid
-       FROM reservations r WHERE r.customer_id = ? ORDER BY r.event_date DESC LIMIT 50`,
-      [c.id],
+       FROM reservations r WHERE r.customer_id = ? AND r.company_id = ? ORDER BY r.event_date DESC LIMIT 50`,
+      [c.id, cid],
     ),
-    all<any>(`SELECT * FROM quotes WHERE customer_id = ? ORDER BY id DESC LIMIT 20`, [c.id]),
+    all<any>(`SELECT * FROM quotes WHERE customer_id = ? AND company_id = ? ORDER BY id DESC LIMIT 20`, [c.id, cid]),
     all<any>(
       `SELECT p.*, r.number FROM payments p LEFT JOIN reservations r ON r.id = p.reservation_id
-      WHERE r.customer_id = ? ORDER BY p.paid_at DESC LIMIT 20`,
-      [c.id],
+      WHERE r.customer_id = ? AND p.company_id = ? ORDER BY p.paid_at DESC LIMIT 20`,
+      [c.id, cid],
     ),
     logsFor("cliente", c.id),
     painelDoCliente(c.id),
