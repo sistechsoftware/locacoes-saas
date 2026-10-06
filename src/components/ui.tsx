@@ -101,13 +101,18 @@ export function StatusBadge({ defs, value }: { defs: StatusDef[]; value: string 
 const BTN_BASE =
   "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.98] disabled:opacity-50";
 
+/*
+ * Acoes da marca Locô. O fundo primario e marca-600 (#BC4800): texto branco a
+ * 5.17:1 (AA para texto normal). O hover ESCURECE para marca-700 em vez de
+ * clarear, porque o laranja claro da marca (#FE7316) nao sustenta branco.
+ */
 export const BTN: Record<string, string> = {
-  primario: `${BTN_BASE} bg-marca-600 text-white hover:bg-marca-500`,
+  primario: `${BTN_BASE} bg-marca-600 text-white hover:bg-marca-700`,
   secundario: `${BTN_BASE} border border-nuvem-300 bg-white text-tinta-900 hover:bg-nuvem-50`,
-  escuro: `${BTN_BASE} bg-marca-600 text-white hover:bg-marca-500`,
+  escuro: `${BTN_BASE} bg-marca-600 text-white hover:bg-marca-700`,
   perigo: `${BTN_BASE} border border-red-300 bg-red-50 text-red-700 hover:bg-red-100`,
   sucesso: `${BTN_BASE} bg-emerald-600 text-white hover:bg-emerald-700`,
-  fantasma: `${BTN_BASE} text-marca-600 hover:bg-marca-50`,
+  fantasma: `${BTN_BASE} text-marca-600 hover:bg-marca-50 hover:text-marca-700`,
 };
 
 export function LinkButton({

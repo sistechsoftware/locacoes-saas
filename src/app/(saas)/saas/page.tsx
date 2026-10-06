@@ -149,7 +149,7 @@ export default async function SaasDashboard() {
         <Card>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">Pagamentos recentes</h2>
-            <Link href="/saas/cobrancas" className="text-xs font-semibold text-emerald-700 hover:underline">
+            <Link href="/saas/cobrancas" className="text-xs font-semibold text-marca-600 hover:underline">
               ver todas
             </Link>
           </div>
@@ -178,7 +178,7 @@ export default async function SaasDashboard() {
         <Card>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">Atividade administrativa</h2>
-            <Link href="/saas/atividade" className="text-xs font-semibold text-emerald-700 hover:underline">
+            <Link href="/saas/atividade" className="text-xs font-semibold text-marca-600 hover:underline">
               ver tudo
             </Link>
           </div>
@@ -202,7 +202,7 @@ export default async function SaasDashboard() {
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">Empresas</h2>
-          <Link href="/saas/empresas" className="text-xs font-semibold text-emerald-700 hover:underline">
+          <Link href="/saas/empresas" className="text-xs font-semibold text-marca-600 hover:underline">
             gerenciar
           </Link>
         </div>

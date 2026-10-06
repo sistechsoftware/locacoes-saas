@@ -1,5 +1,4 @@
 import { requirePlatformAdmin } from "@/lib/auth";
-import { getSettings } from "@/lib/settings";
 import { SaasShell } from "@/components/SaasShell";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +13,12 @@ export const dynamic = "force-dynamic";
  */
 export default async function SaasLayout({ children }: { children: React.ReactNode }) {
   const user = await requirePlatformAdmin();
-  const settings = await getSettings();
 
-  return (
-    <SaasShell user={user} plataforma={settings.company_name ?? "Lima's Locações"}>
-      {children}
-    </SaasShell>
-  );
+  /*
+   * Sem getSettings() aqui: o canto administrativo nao recebe NENHUM dado de
+   * empresa. Antes o rodape da marca mostrava company_name do tenant (com
+   * fallback "Lima's Locações"), o que misturava a identidade do cliente com a
+   * do produto. O shell ja traz a assinatura Locô proprio.
+   */
+  return <SaasShell user={user}>{children}</SaasShell>;
 }

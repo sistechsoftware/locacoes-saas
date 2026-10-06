@@ -21,6 +21,8 @@ export default async function RedefinirSenhaPage({
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-nuvem-200 to-nuvem-100 p-5">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icones/icone-512.png" alt="" className="mx-auto mb-3 h-12 w-12" />
           <h1 className="text-2xl font-black tracking-tight text-tinta-900">Definir nova senha</h1>
           <p className="text-sm text-stone-500">Escolha uma senha forte — mínimo de 8 caracteres.</p>
         </div>

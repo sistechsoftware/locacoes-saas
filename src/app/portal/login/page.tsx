@@ -20,7 +20,7 @@ export default async function PortalLoginPage({
   const s = await getSettings();
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-marca-800 via-marca-700 to-marca-600 p-5">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-marca-900 via-marca-800 to-marca-700 p-5">
       <div className="mb-6 text-center">
         {s.company_logo ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -51,7 +51,7 @@ export default async function PortalLoginPage({
           </p>
         </div>
 
-        <p className="mt-5 text-center text-xs leading-relaxed text-marca-100/80">
+        <p className="mt-5 text-center text-xs leading-relaxed text-marca-100">
           Área exclusiva para clientes. {" "}
           <Link href="/login" className="underline">
             entre aqui

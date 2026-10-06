@@ -50,7 +50,7 @@ async function lerConfig(): Promise<EmailConfig | null> {
     if (!env.RESEND_API_KEY) return null;
     return {
       apiKey: env.RESEND_API_KEY,
-      from: env.RESEND_FROM || "Lima's Locações <onboarding@resend.dev>",
+      from: env.RESEND_FROM || "Locô <onboarding@resend.dev>",
     };
   } catch {
     return null; // fora de request (teste/cron sem contexto): sem envio
@@ -142,25 +142,26 @@ export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
 function layout(titulo: string, corpo: string, botao?: { href: string; label: string }): string {
   return `<!doctype html>
 <html lang="pt-BR">
-  <body style="margin:0;padding:0;background:#F5F7FF;font-family:Segoe UI,Arial,sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F7FF;padding:24px 12px;">
+  <body style="margin:0;padding:0;background:#F6F3EC;font-family:Segoe UI,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F3EC;padding:24px 12px;">
       <tr><td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border:1px solid #D7DEF2;border-radius:16px;">
-          <tr><td style="padding:20px 24px;border-bottom:1px solid #E8ECFA;">
-            <span style="display:inline-block;background:#051094;color:#ffffff;font-weight:800;font-size:16px;border-radius:10px;padding:6px 10px;">L</span>
-            <span style="font-weight:800;color:#1A1816;margin-left:8px;">Lima's Locações</span>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border:1px solid #DED8CD;border-radius:16px;">
+          <tr><td style="padding:20px 24px;border-bottom:1px solid #EDE8DF;">
+            <span style="display:inline-block;background:#FE7316;color:#14161B;font-weight:800;font-size:16px;border-radius:10px;padding:6px 10px;">L</span>
+            <span style="font-weight:800;color:#14161B;margin-left:8px;">Locô</span>
+            <span style="font-size:11px;font-weight:700;letter-spacing:0.1em;color:#6B7280;margin-left:8px;text-transform:uppercase;">Gestão para locações</span>
           </td></tr>
           <tr><td style="padding:24px;">
-            <h1 style="margin:0 0 12px;font-size:18px;color:#1A1816;">${titulo}</h1>
-            <div style="font-size:14px;line-height:1.6;color:#4A4A52;">${corpo}</div>
+            <h1 style="margin:0 0 12px;font-size:18px;color:#14161B;">${titulo}</h1>
+            <div style="font-size:14px;line-height:1.6;color:#4A4E57;">${corpo}</div>
             ${
               botao
-                ? `<p style="margin:20px 0 4px;"><a href="${botao.href}" style="display:inline-block;background:#051094;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;border-radius:12px;padding:12px 20px;">${botao.label}</a></p>`
+                ? `<p style="margin:20px 0 4px;"><a href="${botao.href}" style="display:inline-block;background:#C94F00;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;border-radius:12px;padding:12px 20px;">${botao.label}</a></p>`
                 : ""
             }
           </td></tr>
-          <tr><td style="padding:16px 24px;border-top:1px solid #E8ECFA;font-size:12px;color:#6B7280;">
-            Enviado pelo sistema Lima's Locações. Se você não esperava este e-mail, ignore.
+          <tr><td style="padding:16px 24px;border-top:1px solid #EDE8DF;font-size:12px;color:#6B7280;">
+            Enviado pelo sistema Locô — Gestão para locações. Se você não esperava este e-mail, ignore.
           </td></tr>
         </table>
       </td></tr>

@@ -5,7 +5,7 @@ import { listarPlanos } from "@/lib/billing";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Lima's Locações — Sistema de gestão para locadoras e eventos",
+  title: "Locô — Gestão para locações",
   description:
     "Reservas, orçamentos, contratos, estoque, financeiro e portal do cliente em um só sistema. Teste grátis por 14 dias, sem cartão de crédito.",
 };
@@ -95,10 +95,14 @@ export default async function Home() {
       {/* ------------------------------ topo ------------------------------ */}
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-4">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-marca-600 text-xl font-black text-white shadow">
-            L
-          </div>
-          <span className="text-sm font-black tracking-tight text-tinta-900">Lima&apos;s Locações</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icones/icone-512.png" alt="" className="h-10 w-10 shrink-0" />
+          <span>
+            <span className="block text-base font-black leading-none tracking-tight text-tinta-900">Locô</span>
+            <span className="mt-1 block text-[0.6rem] font-semibold uppercase leading-none tracking-[0.18em] text-stone-500">
+              Gestão para locações
+            </span>
+          </span>
         </div>
         <nav className="flex items-center gap-1 sm:gap-2">
           <a href="#recursos" className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-stone-600 hover:bg-white/60 sm:block">
@@ -135,7 +139,7 @@ export default async function Home() {
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link
               href="/assinar"
-              className="rounded-xl bg-marca-600 px-6 py-3.5 text-base font-bold text-white shadow-lg shadow-marca-600/20 hover:bg-marca-500"
+              className="rounded-xl bg-marca-600 px-6 py-3.5 text-base font-bold text-white shadow-lg shadow-marca-600/20 hover:bg-marca-700"
             >
               Começar grátis agora
             </Link>
@@ -245,7 +249,7 @@ export default async function Home() {
           <div className="mt-8 text-center">
             <Link
               href="/assinar"
-              className="inline-block rounded-xl bg-marca-600 px-6 py-3.5 text-base font-bold text-white shadow-lg shadow-marca-600/20 hover:bg-marca-500"
+              className="inline-block rounded-xl bg-marca-600 px-6 py-3.5 text-base font-bold text-white shadow-lg shadow-marca-600/20 hover:bg-marca-700"
             >
               Criar minha conta grátis
             </Link>
@@ -273,8 +277,8 @@ export default async function Home() {
       <footer className="border-t border-nuvem-200 bg-white/70">
         <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-3 px-5 py-8 text-center sm:flex-row sm:justify-between sm:text-left">
           <div>
-            <p className="font-black text-tinta-900">Lima&apos;s Locações</p>
-            <p className="text-xs text-stone-500">Sistema de gestão para locadoras e eventos · Limas Sistemas</p>
+            <p className="font-black text-tinta-900">Locô</p>
+            <p className="text-xs text-stone-500">Gestão para locações · Software para locadoras e eventos</p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm font-semibold text-marca-600">
             <Link href="/planos" className="hover:underline">Planos</Link>

@@ -403,7 +403,7 @@ export async function gerarCobrancaPeriodo(
     if (owner?.email) {
       void enviarEmail({
         to: owner.email,
-        subject: "Cobrança gerada — Lima's Locações",
+        subject: "Cobrança gerada — Locô",
         html: emailCobrancaGerada(empresa.name, plano.name, dinheiroFmt(plano.price_cents), vencimento, payment.invoiceUrl ?? null),
       }).catch(() => false);
     }
@@ -526,7 +526,7 @@ async function ativarAssinatura(companyId: number, subscriptionId: number, amoun
   if (empresa && plano && owner?.email) {
     void enviarEmail({
       to: owner.email,
-      subject: "Pagamento confirmado — Lima's Locações",
+      subject: "Pagamento confirmado — Locô",
       html: emailPagamentoConfirmado(empresa.name, plano.name, dinheiroFmt(amountCents), novoFim),
     }).catch(() => false);
   }
@@ -577,8 +577,8 @@ async function avisarTrial(
     to: owner.email,
     subject:
       tipo === "expirando"
-        ? "Seu teste termina em breve — Lima's Locações"
-        : "Teste encerrado — reative seu acesso — Lima's Locações",
+        ? "Seu teste termina em breve — Locô"
+        : "Teste encerrado — reative seu acesso — Locô",
     html,
   }).catch(() => false);
 

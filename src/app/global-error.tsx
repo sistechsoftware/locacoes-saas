@@ -31,7 +31,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
 
   return (
     <html lang="pt-BR">
-      <body style={{ fontFamily: "system-ui, sans-serif", background: "#F5F7FF", color: "#1E293B" }}>
+      <body style={{ fontFamily: "system-ui, sans-serif", background: "#F6F3EC", color: "#14161B" }}>
         <div
           style={{
             maxWidth: 480,

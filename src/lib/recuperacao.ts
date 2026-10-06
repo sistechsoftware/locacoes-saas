@@ -67,7 +67,7 @@ export async function pedirRedefinicao(entrada: { username: string }): Promise<{
   const base = await baseUrl();
   await enviarEmail({
     to: user.email ?? "",
-    subject: "Redefinição de senha — Lima's Locações",
+    subject: "Redefinição de senha — Locô",
     html: emailHtml(`${base}/redefinir-senha?token=${token}`, user.name),
     text: `Para redefinir sua senha, abra o link (expira em 1 hora): ${base}/redefinir-senha?token=${token}`,
   });
@@ -76,8 +76,8 @@ export async function pedirRedefinicao(entrada: { username: string }): Promise<{
 
 function emailHtml(link: string, nome: string): string {
   return `<p>Olá, ${nome}.</p>
-   <p>Recebemos um pedido de redefinição de senha para a sua conta no sistema Lima's Locações.</p>
-   <p><a href="${link}" style="display:inline-block;background:#051094;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;border-radius:12px;padding:12px 20px;">Definir nova senha</a></p>
+   <p>Recebemos um pedido de redefinição de senha para a sua conta no sistema Locô — Gestão para locações.</p>
+   <p><a href="${link}" style="display:inline-block;background:#C94F00;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;border-radius:12px;padding:12px 20px;">Definir nova senha</a></p>
    <p>Se o botão não abrir, copie e cole no navegador:<br>${link}</p>
    <p>O link expira em 1 hora e só pode ser usado uma vez. Se não foi você, ignore este e-mail.</p>`;
 }

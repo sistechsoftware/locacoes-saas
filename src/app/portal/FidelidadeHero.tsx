@@ -39,7 +39,7 @@ export default function FidelidadeHero({
       className={`overflow-hidden rounded-3xl shadow-lg ${
         conquistou
           ? "bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-600"
-          : "bg-gradient-to-br from-marca-800 via-marca-700 to-marca-500"
+          : "bg-gradient-to-br from-marca-900 via-marca-800 to-marca-700"
       } text-white`}
     >
       <div className="p-5 sm:p-6">

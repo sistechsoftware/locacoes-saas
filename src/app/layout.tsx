@@ -10,7 +10,7 @@ import "./globals.css";
  * modelo, escolhida por media query, via <link rel="apple-touch-startup-image">.
  *
  * As imagens estao em public/splash (geradas por scripts/splash.cjs a partir
- * do icone 512, sobre o fundo do app #F5F7FF) e sao servidas com cache HTTP,
+ * do icone 512, sobre o fundo do app #F6F3EC — o creme da marca Locô) e sao servidas com cache HTTP,
  * entao o custo e zero a partir da primeira abertura. O iPhone baixa apenas a
  * imagem do modelo em uso — as outras 21 sao so links no HTML.
  *
@@ -52,12 +52,20 @@ const SPLASH_LINKS = IPHONES.flatMap(({ w, h, dpr }) => {
 });
 
 export const metadata: Metadata = {
-  title: "Lima's Locações",
-  description: "Gestão de Locações e Eventos",
-  applicationName: "Lima's Locações",
+  /*
+   * Identidade do PRODUTO (SaaS). O nome da empresa que usa o sistema nunca
+   * entra aqui: title/applicationName/PWA sao sempre Locô, para todo tenant.
+   * A marca do cliente aparece so dentro da area autenticada (company_settings).
+   */
+  title: "Locô — Gestão para locações",
+  description:
+    "Locô — Gestão para locações. Reservas, orçamentos, contratos, estoque, financeiro e portal do cliente em um só sistema.",
+  applicationName: "Locô",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
+      // o .ico e o fallback que o navegador pede sozinho em /favicon.ico
+      { url: "/favicon.ico", sizes: "any" },
       { url: "/icones/icone-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icones/icone-512.png", sizes: "512x512", type: "image/png" },
     ],
@@ -66,7 +74,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "Lima's",
+    title: "Locô",
     statusBarStyle: "default",
   },
 };
@@ -79,7 +87,9 @@ export const viewport: Viewport = {
   // env(safe-area-inset-bottom) = 0 e a barra inferior encosta na Home Bar do
   // iPhone — toques na borda caem na area reservada aos gestos do iOS.
   viewportFit: "cover",
-  themeColor: "#051094",
+  // Barra de status/PWA: tinta da marca, a mesma do icone — instalado, o
+  // chrome escuro e a continuidade visual do app icon sobre o creme do app.
+  themeColor: "#14161B",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -47,7 +47,7 @@ export async function setupAction(_prev: string | null, formData: FormData): Pro
   const url = await baseUrl();
   void enviarEmail({
     to: resultado.email,
-    subject: "Bem-vindo(a) à Lima's Locações",
+    subject: "Bem-vindo(a) ao Locô",
     html: emailBoasVindasSetup(resultado.nome, resultado.empresa, url),
     text: `Conta criada! Entre em ${url}/login.`,
   }).catch(() => false);

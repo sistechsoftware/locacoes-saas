@@ -10,17 +10,19 @@
   /* Campos de formulario padronizados */
   .campo {
     width: 100%;
-    border-radius: 0.75rem;
+    border-radius: 0.875rem;
     border: 1px solid var(--color-nuvem-300);
     background: #fff;
     padding: 0.7rem 0.85rem;
     font-size: 1rem;
     color: var(--color-tinta-900);
     outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
   .campo:focus {
-    border-color: var(--color-marca-400);
-    box-shadow: 0 0 0 3px rgba(5, 16, 148, 0.14);
+    /* O anel em si vem de `:focus-visible` (regra global, fora de camada):
+       aqui fica so a borda, para nao montar dois aneis sobre o mesmo campo. */
+    border-color: var(--color-marca-500);
   }
   .campo:disabled {
     background: var(--color-nuvem-100);
@@ -42,7 +44,10 @@
   .cartao {
     background: #fff;
     border: 1px solid var(--color-nuvem-300);
-    border-radius: 1rem;
+    border-radius: 1.125rem;
+    /* Sombra basica, quase imperceptivel: da profundidade sem sujar a tela.
+       Utilitarios shadow-* do Tailwind (camada utilities) continuam vencendo. */
+    box-shadow: 0 1px 2px rgba(20, 22, 27, 0.04);
   }
 
   /*
@@ -89,30 +94,43 @@
 
 @theme {
   /*
-   * Paleta da marca. A hierarquia pretendida e 60% azul (navegacao, acoes
-   * primarias, identidade), 30% neutro (fundos e superficies) e 10% amarelo,
-   * usado so como destaque pontual.
+   * Paleta da marca LOCO — coletada das artes oficiais em brand/:
+   * laranja #FE7316, tinta #14161B, creme #F6F3EC.
+   *
+   * Hierarquia pretendida: 60% neutro quente (fundos e superficies),
+   * 30% tinta (texto e navegacao escura) e 10% laranja (acoes e destaque).
    *
    * A escala segue a convencao do Tailwind: quanto maior o numero, mais
-   * escuro. O azul principal e o 600; o 500, mais claro, e o estado de hover.
+   * escuro. Dois papier distintos para o laranja:
+   *   - marca-600 e a cor de ACOES: fundo de botao/pill com texto branco
+   *     (5.17:1, AA para texto normal) e texto de link sobre branco/creme
+   *     (5.17:1 no branco, 4.76:1 no creme do corpo);
+   *   - marca-500 e o laranja EXATO da marca, reservado a superficies sem
+   *     texto claro (anel de foco, bordas, cabecalhas escuras, botao
+   *     flutuante com icone escuro — mesmo contraste do icone oficial).
+   * Por isso os hovers escurecem (600 -> 700) em vez de clarearem.
+   * #BC4800 foi calibrado para passar AA em TODOS os fundos reais do produto,
+   * nao so no branco dos cartoes: 5.17:1 sobre branco, 4.76:1 sobre o creme
+   * do corpo (#F6F3EC) e 5.17:1 para texto branco em cima. O laranja claro da
+   * marca reprovava em cima do creme — e o creme e o fundo de quase toda tela.
    */
-  --color-marca-50: #EEF1FF;
-  --color-marca-100: #DDE4FF;
-  --color-marca-200: #B9C4FF;
-  --color-marca-300: #8E9BF0;
-  --color-marca-400: #3B4AD6;
-  --color-marca-500: #0715C7;
-  --color-marca-600: #051094;
-  --color-marca-700: #040C75;
-  --color-marca-800: #030957;
-  --color-marca-900: #02063A;
+  --color-marca-50: #FFF6F0;
+  --color-marca-100: #FFE9D9;
+  --color-marca-200: #FFD2B3;
+  --color-marca-300: #FFB485;
+  --color-marca-400: #FF9451;
+  --color-marca-500: #FE7316;
+  --color-marca-600: #BC4800;
+  --color-marca-700: #A63F00;
+  --color-marca-800: #7E3102;
+  --color-marca-900: #5A2301;
 
-  /* Neutros: 100 e o fundo da aplicacao, o branco fica nos cartoes. */
-  --color-nuvem-50: #FBFCFF;
-  --color-nuvem-100: #F5F7FF;
-  --color-nuvem-200: #E8ECFA;
-  --color-nuvem-300: #D7DEF2;
-  --color-nuvem-400: #AEB8D6;
+  /* Neutros QUENTES: 100 e o creme da marca, o fundo da aplicacao. */
+  --color-nuvem-50: #FCFBF9;
+  --color-nuvem-100: #F6F3EC;
+  --color-nuvem-200: #EDE8DF;
+  --color-nuvem-300: #DED8CD;
+  --color-nuvem-400: #B5AE9F;
 
   /* Destaque, sempre com texto escuro por causa do contraste. */
   --color-destaque-100: #FDF1D8;
@@ -121,16 +139,32 @@
   --color-destaque-600: #DDA22A;
   --color-destaque-700: #8A6314;
 
-  /* Texto. */
-  --color-tinta-700: #4A4A52;
-  --color-tinta-800: #2A2A31;
-  --color-tinta-900: #1A1816;
+  /* Texto — tinta-900 e a tinta oficial da marca (#14161B). */
+  --color-tinta-700: #4A4E57;
+  --color-tinta-800: #2A2D34;
+  --color-tinta-900: #14161B;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 :root {
   color-scheme: light;
+}
+
+/*
+ * Foco de teclado visivel em qualquer controle interativo (WCAG 2.4.7).
+ * O anel e o laranja de acao (#BC4800): 5.17:1 contra o creme/branco dos
+ * fundos e ~4:1 contra a barra escura do ambiente SaaS. O offset de 2px
+ * abre um espaco que impede o anel de se misturar ao proprio botao laranja.
+ *
+ * Regra fora de @layer: no Tailwind v4 as utilidades (inclusive `outline-none`)
+ * vivem em @layer utilities e camadas perdem para CSS sem camada — entao este
+ * anel tambem vale nos controles que hoje apagam o outline padrao e nao
+ * tinham nenhum indicador de foco visivel.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-marca-600);
+  outline-offset: 2px;
 }
 
 html,

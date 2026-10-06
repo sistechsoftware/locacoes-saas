@@ -15,29 +15,24 @@ const active = (pathname: string, href: string) =>
  * Shell do ambiente administrativo — INDEPENDENTE do Shell operacional.
  * Nenhuma funcionalidade de locação (reservas, estoque, agenda) existe aqui:
  * a navegação inteira vem de SAAS_NAV/MOBILE_SAAS_NAV.
+ *
+ * Este é o canto do PRODUTO: a marca exibida aqui é sempre a do Locô. Nenhum
+ * dado de empresa/cliente entra neste shell — a identidade do tenant mora no
+ * Shell operacional, escopada por company_settings.
  */
-export function SaasShell({
-  user,
-  plataforma,
-  children,
-}: {
-  user: User;
-  plataforma: string;
-  children: React.ReactNode;
-}) {
+export function SaasShell({ user, children }: { user: User; children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [menuMobile, setMenuMobile] = useState(false);
 
   const sidebar = (
-    <aside className="nao-imprimir hidden w-60 shrink-0 flex-col border-r border-stone-200 bg-tinta-900 md:flex md:h-screen md:sticky md:top-0">
+    <aside className="nao-imprimir hidden w-60 shrink-0 flex-col border-r border-white/10 bg-tinta-900 md:flex md:h-screen md:sticky md:top-0">
       <Link href="/saas" className="flex items-center gap-2.5 border-b border-white/10 px-4 py-4">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-lg font-black text-white">
-          S
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icones/icone-512.png" alt="" className="h-9 w-9 shrink-0" />
         <span className="min-w-0">
-          <span className="block truncate text-sm font-bold leading-tight text-white">Central SaaS</span>
-          <span className="block text-[0.68rem] uppercase tracking-wide text-stone-400">{plataforma}</span>
+          <span className="block truncate text-sm font-bold leading-tight text-white">Locô</span>
+          <span className="block text-[0.68rem] uppercase tracking-wide text-stone-400">Gestão para locações</span>
         </span>
       </Link>
       <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
@@ -46,7 +41,7 @@ export function SaasShell({
             key={n.href}
             href={n.href}
             className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-              active(pathname, n.href) ? "bg-emerald-600 text-white" : "text-stone-300 hover:bg-white/10"
+              active(pathname, n.href) ? "bg-marca-600 text-white" : "text-stone-300 hover:bg-white/10"
             }`}
           >
             <Icon name={n.icon} className="h-[18px] w-[18px] shrink-0" />
@@ -67,25 +62,24 @@ export function SaasShell({
   );
 
   return (
-    <div className="flex min-h-screen bg-stone-100">
+    <div className="flex min-h-screen bg-nuvem-100">
       {sidebar}
 
       {/* Barra superior (desktop + mobile) */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="nao-imprimir sticky top-0 z-30 border-b border-stone-200 bg-white/95 backdrop-blur">
+        <header className="nao-imprimir sticky top-0 z-30 border-b border-nuvem-200 bg-white/95 backdrop-blur">
           <div className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
             <button
-              className="rounded-xl p-2 text-tinta-700 hover:bg-stone-100 md:hidden"
+              className="rounded-xl p-2 text-tinta-700 hover:bg-nuvem-100 md:hidden"
               onClick={() => setMenuMobile((v) => !v)}
               aria-label="Menu administrativo"
             >
               <Icon name={menuMobile ? "fechar" : "menu"} />
             </button>
             <Link href="/saas" className="flex items-center gap-2 md:hidden">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-base font-black text-white">
-                S
-              </span>
-              <span className="text-sm font-bold text-tinta-900">Central SaaS</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icones/icone-512.png" alt="" className="h-8 w-8" />
+              <span className="text-sm font-bold text-tinta-900">Locô</span>
             </Link>
             <span className="hidden min-w-0 flex-1 truncate text-sm font-bold text-tinta-900 md:block">
               Administração da plataforma
@@ -96,7 +90,7 @@ export function SaasShell({
                 className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full"
                 aria-label="Menu do usuário"
               >
-                <Avatar src={user.avatar_url} name={user.name} className="h-9 w-9 text-xs" bg="bg-emerald-600 text-white" />
+                <Avatar src={user.avatar_url} name={user.name} className="h-9 w-9 text-xs" bg="bg-marca-600 text-white" />
               </button>
               {open && (
                 <>
@@ -104,7 +98,7 @@ export function SaasShell({
                   <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-lg">
                     <div className="border-b border-stone-200 px-3 py-2.5">
                       <p className="text-sm font-bold text-tinta-900">{user.name}</p>
-                      <p className="text-xs text-emerald-700">Administrador da plataforma</p>
+                      <p className="text-xs text-marca-600">Administrador da plataforma</p>
                     </div>
                     <form action="/api/logout" method="post">
                       <button className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50">
@@ -118,14 +112,14 @@ export function SaasShell({
           </div>
           {/* Navegação mobile desdobrada (menu hambúrguer) */}
           {menuMobile && (
-            <nav className="border-t border-stone-200 bg-white px-2 py-2 md:hidden">
+            <nav className="border-t border-nuvem-200 bg-white px-2 py-2 md:hidden">
               {MOBILE_SAAS_NAV.map((n) => (
                 <Link
                   key={n.href}
                   href={n.href}
                   onClick={() => setMenuMobile(false)}
                   className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium ${
-                    active(pathname, n.href) ? "bg-emerald-600 text-white" : "text-tinta-700 hover:bg-stone-100"
+                    active(pathname, n.href) ? "bg-marca-600 text-white" : "text-tinta-700 hover:bg-nuvem-100"
                   }`}
                 >
                   <Icon name={n.icon} className="h-[18px] w-[18px]" />

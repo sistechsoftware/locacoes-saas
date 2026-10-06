@@ -800,7 +800,7 @@ export default function ChatApp({ me, initialUsers, initialConversations }: Prop
                 );
               })}
               {arrastando && (
-                <div className="rounded-xl border-2 border-dashed border-marca-400 bg-marca-50 p-4 text-center text-sm font-semibold text-marca-600">
+                <div className="rounded-xl border-2 border-dashed border-marca-400 bg-marca-50 p-4 text-center text-sm font-semibold text-marca-700">
                   Solte o arquivo para enviar
                 </div>
               )}

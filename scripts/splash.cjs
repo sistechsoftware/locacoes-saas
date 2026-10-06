@@ -3,12 +3,12 @@
  * splash: usa <link rel="apple-touch-startup-image"> com uma imagem por
  * modelo de iPhone, filtrada por media query).
  *
- * Fonte: public/icones/icone-512.png (a marca da empresa, sem altera-la).
- * Fundo: --color-nuvem-100 (#F5F7FF), o mesmo fundo do app, para a transicao
+ * Fonte: public/icones/icone-512.png (o simbolo do Locô, sem altera-lo).
+ * Fundo: --color-nuvem-100 (#F6F3EC), o mesmo creme do app, para a transicao
  * splash -> tela nao dar "pulo" de cor.
  *
  * Rodar com: node scripts/splash.cjs
- * (Regenerar so se a marca mudar ou um novo modelo de iPhone precisar de
+ * (Regenerar somente quando a marca mudar ou um novo modelo de iPhone precisar de
  * suporte. As imagens sao staticas e versionadas em public/splash.)
  *
  * Sem dependencias novas: decodifica e codifica PNG com zlib embutido do
@@ -21,7 +21,7 @@ const zlib = require("node:zlib");
 
 const SRC = path.join(__dirname, "..", "public", "icones", "icone-512.png");
 const OUT_DIR = path.join(__dirname, "..", "public", "splash");
-const FUNDO = [0xf5, 0xf7, 0xff]; // --color-nuvem-100 (globals.css)
+const FUNDO = [0xf6, 0xf3, 0xec]; // --color-nuvem-100 (globals.css)
 
 /* ------------------------------ PNG decode ------------------------------ */
 

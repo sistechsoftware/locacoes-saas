@@ -23,14 +23,18 @@ function mascaraFone(v: string): string {
 /**
  * Formulario do convite. O token viaja em campo escondido; CPF, telefone e
  * senha sao conferidos no servidor (portal-auth.ts), nunca apenas aqui.
+ *
+ * `empresa` vem do servidor (company_settings do tenant): o texto fala da
+ * EMPRESA DO CLIENTE, nunca do software — antes estava hardcoded com o nome
+ * de um tenant especifico, o que vazava a marca de uma empresa para outra.
  */
-export default function PortalSetupForm({ token }: { token: string }) {
+export default function PortalSetupForm({ token, empresa }: { token: string; empresa: string }) {
   const [error, action] = useActionState(portalSetupAction, null);
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="token" value={token} />
 
-      <Field label="Seu CPF" hint="Use o CPF cadastrado na Lima's.">
+      <Field label="Seu CPF" hint={`Use o CPF cadastrado na ${empresa}.`}>
         <input
           name="cpf"
           inputMode="numeric"
@@ -44,7 +48,7 @@ export default function PortalSetupForm({ token }: { token: string }) {
         />
       </Field>
 
-      <Field label="Telefone cadastrado" hint="O celular que a Lima's usa para falar com você.">
+      <Field label="Telefone cadastrado" hint={`O celular que a ${empresa} usa para falar com você.`}>
         <input
           name="telefone"
           inputMode="tel"

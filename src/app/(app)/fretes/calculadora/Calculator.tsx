@@ -246,7 +246,7 @@ export default function Calculator({
             <div className="flex flex-wrap gap-2">
               <Link
                 href={`/fretes/novo?valor=${(resultado.valorSugeridoCents / 100).toFixed(2)}`}
-                className="inline-flex items-center gap-2 rounded-xl bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-marca-500"
+                className="inline-flex items-center gap-2 rounded-xl bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-marca-700"
               >
                 <Icon name="fretes" className="h-4 w-4" />                  Novo Frete com este Valor
               </Link>

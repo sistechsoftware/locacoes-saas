@@ -15,7 +15,7 @@ export default async function PortalAreaLayout({ children }: { children: React.R
 
   return (
     <div className="flex min-h-screen flex-col bg-nuvem-100">
-      <header className="bg-gradient-to-r from-marca-700 to-marca-600 text-white">
+      <header className="bg-gradient-to-r from-marca-800 to-marca-700 text-white">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3">
           {cfg.logo ? (
             // eslint-disable-next-line @next/next/no-img-element

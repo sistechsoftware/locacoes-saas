@@ -26,8 +26,9 @@ export default async function PlanosPage() {
   return (
     <main className="mx-auto w-full max-w-5xl px-5 py-10">
       <header className="mb-10 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-marca-600 text-2xl font-black text-white shadow-lg">
-          L
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icones/icone-512.png" alt="" className="h-14 w-14" />
         </div>
         <h1 className="text-3xl font-black tracking-tight text-tinta-900 sm:text-4xl">
           Sistema de locações para quem não quer planilha
@@ -39,7 +40,7 @@ export default async function PlanosPage() {
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/assinar"
-            className="rounded-xl bg-marca-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-marca-500"
+            className="rounded-xl bg-marca-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-marca-700"
           >
             Começar agora
           </Link>
@@ -83,7 +84,7 @@ export default async function PlanosPage() {
               href={`/assinar?plano=${p.slug}`}
               className={`mt-5 rounded-xl px-4 py-2.5 text-center text-sm font-semibold transition ${
                 i === 1
-                  ? "bg-marca-600 text-white hover:bg-marca-500"
+                  ? "bg-marca-600 text-white hover:bg-marca-700"
                   : "border border-nuvem-300 bg-white text-tinta-900 hover:bg-nuvem-50"
               }`}
             >
@@ -94,7 +95,7 @@ export default async function PlanosPage() {
       </section>
 
       <footer className="mt-10 text-center text-xs text-stone-400">
-        Dúvidas? Entre em contato com a equipe Limas Sistemas.
+        Dúvidas? Entre em contato com a equipe Locô.
       </footer>
     </main>
   );

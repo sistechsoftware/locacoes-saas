@@ -21,7 +21,7 @@ export default async function PrimeiroAcessoPage({
   const temToken = !!token && token.length >= 16 && token.length <= 128;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-marca-800 via-marca-700 to-marca-600 p-5">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-marca-900 via-marca-800 to-marca-700 p-5">
       <div className="mb-6 text-center">
         {s.company_logo ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -41,16 +41,17 @@ export default async function PrimeiroAcessoPage({
             <p className="text-3xl">🔗</p>
             <p className="mt-2 text-sm font-semibold text-tinta-900">Link de acesso inválido</p>
             <p className="mt-1 text-sm text-stone-500">
-              Este link está incompleto. Peça um novo link de acesso à Lima&apos;s pelo WhatsApp.
+              Este link está incompleto. Peça um novo link de acesso à{" "}
+              {s.company_name || "empresa"} pelo WhatsApp.
             </p>
           </div>
         ) : (
           <div className="cartao p-5 shadow-xl">
-            <PortalSetupForm token={token!} />
+            <PortalSetupForm token={token!} empresa={s.company_name || "a empresa"} />
           </div>
         )}
 
-        <p className="mt-5 text-center text-xs text-marca-100/80">
+        <p className="mt-5 text-center text-xs text-marca-100">
           Já tem acesso?{" "}
           <Link href="/portal/login" className="font-semibold text-white underline">
             Entrar no portal

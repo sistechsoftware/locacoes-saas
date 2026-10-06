@@ -55,6 +55,23 @@ export function Sidebar({ company, logo }: { company: string; logo?: string }) {
           </Link>
         ))}
       </nav>
+
+      {/*
+       * Assinatura do PRODUTO, separada do bloco acima. O topo da lateral e a
+       * identidade do cliente (company_settings.company_name/logo); este rodape
+       * e sempre o Locô, igual para todo tenant — a logo do cliente nunca
+       * substitui a marca global do SaaS.
+       */}
+      <div className="flex items-center gap-2 border-t border-nuvem-200 px-4 py-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icones/icone-512.png" alt="" className="h-7 w-7 shrink-0" />
+        <span className="min-w-0">
+          <span className="block text-[0.72rem] font-bold leading-tight text-tinta-800">Locô</span>
+          <span className="block truncate text-[0.62rem] font-medium leading-tight text-stone-500">
+            Gestão para locações
+          </span>
+        </span>
+      </div>
     </aside>
   );
 }
@@ -149,7 +166,7 @@ function GlobalSearch() {
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Buscar cliente, LIMA-001, telefone..."
+        placeholder="Buscar cliente, telefone, número da reserva..."
         className="w-full rounded-xl border border-nuvem-300 bg-nuvem-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-marca-400 focus:bg-white"
       />
     </form>
@@ -226,7 +243,7 @@ export function BottomNav() {
                     (minimo Apple/Google), com feedback imediato ao pressionar. */}
                 <span
                   className={`flex h-8 w-full max-w-14 items-center justify-center rounded-full transition-colors ${
-                    isActive ? "bg-marca-100 text-marca-600" : "text-stone-500 active:bg-nuvem-100"
+                    isActive ? "bg-marca-100 text-marca-700" : "text-stone-500 active:bg-nuvem-100"
                   }`}
                 >
                   <Icon name={n.icon} className="h-[22px] w-[22px]" />
@@ -244,7 +261,7 @@ export function BottomNav() {
           >
             <span
               className={`relative flex h-8 w-full max-w-14 items-center justify-center rounded-full transition-colors ${
-                sheet || noMais ? "bg-marca-100 text-marca-600" : "text-stone-500 active:bg-nuvem-100"
+                sheet || noMais ? "bg-marca-100 text-marca-700" : "text-stone-500 active:bg-nuvem-100"
               }`}
             >
               <Icon name="menu" className="h-[22px] w-[22px]" />
@@ -318,7 +335,7 @@ export function FloatingAction() {
         <button
           onClick={() => setOpen((v) => !v)}
           aria-label="Ações rápidas"
-          className="relative flex h-14 w-14 items-center justify-center rounded-full bg-marca-600 text-white shadow-xl transition active:scale-95"
+          className="relative flex h-14 w-14 items-center justify-center rounded-full bg-marca-500 text-tinta-900 shadow-xl transition hover:bg-marca-600 hover:text-white active:scale-95"
         >
           <Icon name={open ? "fechar" : "mais"} className="h-7 w-7" />
           {/* Ponto discreto de nao lidas: da pra saber sem abrir o menu. */}

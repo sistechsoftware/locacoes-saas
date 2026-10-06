@@ -1,5 +1,5 @@
 /*
- * Service Worker da Lima's Locacoes.
+ * Service Worker do Locô (Gestão para locações).
  *
  * DUAS funcoes, com fronteiras claras:
  *
@@ -28,7 +28,12 @@
  * assume sem deixar o usuario preso em versao antiga. Caches de versoes anteriores
  * sao apagados no activate (limpeza por whitelist).
  */
-const CACHE = "limas-static-v1";
+/*
+ * Nome do cache = versao da identidade estatica. Trocar o nome no rebranding
+ * obriga o activate a apagar o cache anterior — sem isso a PWA ja instalada
+ * continuaria servindo os icones e o manifesto antigos em cache-first.
+ */
+const CACHE = "loco-static-v2";
 const PREFIXOS_CACHEAVEIS = ["/_next/static/", "/icones/", "/manifest.webmanifest"];
 
 /** URL cacheavel? Somente GET, mesma origem e caminho da lista acima. */
@@ -123,7 +128,7 @@ self.addEventListener("push", event => {
     try { fresh = await claimNotification(String(data.id)); } catch { /* Notification tag remains a second dedupe layer. */ }
     if (!fresh) return;
     const url = new URL(data.url || "/notificacoes", self.location.origin);
-    await self.registration.showNotification(data.title || "Lima's Locacoes", {
+    await self.registration.showNotification(data.title || "Locô", {
       body: data.body || "Confira suas atividades.", icon:"/icones/icone-192.png", badge:"/icones/icone-192.png",
       tag:`limas-${data.id}`, renotify:false, vibrate:[150,80,150],
       data:{url:url.origin===self.location.origin?url.href:new URL("/notificacoes",self.location.origin).href},

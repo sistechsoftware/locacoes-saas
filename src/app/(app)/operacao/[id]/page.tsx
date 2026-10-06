@@ -232,7 +232,7 @@ export default async function OperacaoDetalhePage({
                   type="checkbox"
                   name={`chk:${item}`}
                   defaultChecked={!!marcados[item]}
-                  className="h-5 w-5 accent-[#051094]"
+                  className="h-5 w-5 accent-marca-600"
                 />
                 {item}
               </label>

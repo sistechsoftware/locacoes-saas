@@ -50,7 +50,7 @@ export async function criarEmpresaAction(_prev: string | null, formData: FormDat
   const { emailBoasVindas, enviarEmail } = await import("@/lib/email");
   void enviarEmail({
     to: resultado.email,
-    subject: "Bem-vindo(a) à Lima's Locações",
+    subject: "Bem-vindo(a) ao Locô",
     html: emailBoasVindas(resultado.nome, resultado.empresa, resultado.trialEndsAt, (await baseUrl()) ?? ""),
     text: `Conta criada! Trial até ${resultado.trialEndsAt}. Entre em ${await baseUrl() ?? ""}/login.`,
   }).catch(() => false);

@@ -75,7 +75,7 @@ export default async function SaasCobrancasPage() {
                 <div className="flex items-center gap-2">
                   <Badge tone={TONE_COBRANCA[c.status] ?? "cinza"}>{ROTULO_COBRANCA[c.status] ?? c.status}</Badge>
                   {c.invoice_url && (
-                    <a href={c.invoice_url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-700 underline">
+                    <a href={c.invoice_url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-marca-600 underline">
                       fatura
                     </a>
                   )}
