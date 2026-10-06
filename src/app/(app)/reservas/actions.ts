@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, one, run, scalar } from "@/lib/db";
 import { assertAdmin, currentUser, PermissionError, requireModuleEdit, requireUser } from "@/lib/auth";
+import { exigirAssinaturaAtiva } from "@/lib/assinatura-gate";
 import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { removeAttachment } from "@/lib/uploads";
@@ -364,6 +365,10 @@ export async function checkStock(payload: {
 /** Envia mensagem de WhatsApp: apenas registra no historico (o link abre no cliente). */
 export async function logWhatsApp(fd: FormData) {
   const user = await currentUser();
+  // Pendência #05: é a única action sem guard de sessão (registro silencioso
+  // de auditoria — documentado na matriz de autorização), então o gate de
+  // assinatura é chamado explicitamente aqui: conta bloqueada não escreve nada.
+  if (user) await exigirAssinaturaAtiva(user);
   const id = Number(fd.get("reservation_id"));
   const kind = String(fd.get("kind") ?? "mensagem");
   await logAction(user, "whatsapp", "reserva", id, `${user?.name} enviou mensagem de ${kind} pelo WhatsApp`);

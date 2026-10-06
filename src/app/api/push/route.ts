@@ -6,6 +6,7 @@ import { explicaFalha, sanitizeError, webPushSender } from "@/lib/push-scheduler
 
 export async function GET(request: Request) {
   const user = await apiUser(request);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Entre novamente." }, { status: 401 });
   const env = getCloudflareContext().env;
   const devices = await all("SELECT id,label,enabled,created_at,last_success_at,last_error FROM push_subscriptions WHERE user_id=? ORDER BY id DESC",[user.id]);
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
 }
 export async function POST(request: Request) {
   const user = await apiUser(request,true);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Sessão expirada ou origem inválida." }, { status:401 });
   try {
     if (!await rateLimit(`push:${user.id}`,20)) return Response.json({error:"Aguarde um minuto."},{status:429});

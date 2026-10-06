@@ -14,6 +14,7 @@ import { UploadError } from "@/lib/uploads";
  */
 export async function GET(request: Request) {
   const user = await apiUser(request);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Sessão expirada." }, { status: 401 });
   const url = new URL(request.url);
   const c = Number(url.searchParams.get("c")) || 0;
@@ -56,6 +57,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const user = await apiUser(request, true);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Sessão expirada ou origem inválida." }, { status: 401 });
   try {
     if (!(await rateLimit(`chat:${user.id}`, 60))) {
@@ -89,6 +91,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   const user = await apiUser(request, true);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Sessão expirada ou origem inválida." }, { status: 401 });
   try {
     const input = (await request.json()) as { action?: string; c?: number; arquivar?: boolean };
@@ -116,6 +119,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   const user = await apiUser(request, true);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Sessão expirada ou origem inválida." }, { status: 401 });
   try {
     const id = Number(new URL(request.url).searchParams.get("id"));

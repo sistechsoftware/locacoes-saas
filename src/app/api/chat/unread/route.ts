@@ -14,6 +14,7 @@ import { unreadCounters } from "@/lib/chat";
  */
 export async function GET(request: Request) {
   const user = await apiUser(request);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Sessão expirada." }, { status: 401 });
   const contadores = await unreadCounters(user.id, true);
   return Response.json(contadores, { headers: { "Cache-Control": "no-store" } });

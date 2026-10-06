@@ -2,6 +2,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { AssinaturaBloqueadaError, exigirAssinaturaAtiva } from "./assinatura-gate";
 import { all, one, run } from "./db";
 import { canEdit, canView, type Module, type Role } from "./roles";
 import { hashPassword, verifyPassword } from "./password";
@@ -191,20 +192,60 @@ export async function companyIdFromRequestContext(): Promise<number> {
   return await currentCompanyId();
 }
 
-/** Exige usuario logado; redireciona para /login caso contrario. */
-export async function requireUser(): Promise<SessionUser> {
+/**
+ * O que fazer quando a assinatura da empresa está bloqueada (pendência #05):
+ *
+ *  * "lançar"       — AssinaturaBloqueadaError: é o que SERVER ACTIONS querem
+ *                     (o cliente vê o erro, nada é gravado);
+ *  * "redirecionar" — manda para /assinatura-bloqueada: é o comportamento de
+ *                     PÁGINA (nenhuma tela nossa deve estourar erro 500 por
+ *                     causa de assinatura);
+ *  * "ignorar"      — só para o código que JÁ trata o bloqueio ele mesmo:
+ *                     o layout, a própria tela bloqueada e o diário de erros
+ *                     (exclusão da pendência). Listados em teste estático.
+ */
+export type BloqueioDeAssinatura = "lançar" | "redirecionar" | "ignorar";
+export type OpcoesDeBloqueio = { bloqueio?: BloqueioDeAssinatura };
+
+/** Aplica o gate de assinatura no modo escolhido pelo chamador. */
+async function aplicarBloqueioDeAssinatura(
+  user: { company_id: number; platform_admin: boolean },
+  modo: BloqueioDeAssinatura,
+): Promise<void> {
+  if (modo === "ignorar") return;
+  try {
+    await exigirAssinaturaAtiva(user);
+  } catch (e) {
+    if (modo === "redirecionar" && e instanceof AssinaturaBloqueadaError) redirect("/assinatura-bloqueada");
+    throw e;
+  }
+}
+
+/**
+ * Exige usuario logado; redireciona para /login caso contrario.
+ *
+ * Gate de assinatura (pendência #05): por padrão LANÇA AssinaturaBloqueadaError
+ * — este é o ponto de entrada das actions que usam requireUser/assertAdmin.
+ */
+export async function requireUser(opcoes?: OpcoesDeBloqueio): Promise<SessionUser> {
   const u = await currentUser();
   if (!u) redirect("/login");
+  await aplicarBloqueioDeAssinatura(u, opcoes?.bloqueio ?? "lançar");
   return u;
 }
 
 /**
  * Exige contexto de empresa; redireciona para /login caso contrario.
  * Páginas de leitura de tenant devem usar este em vez de requireUser.
+ *
+ * Gate de assinatura: por padrão REDIRECIONA para /assinatura-bloqueada
+ * (é o helper das páginas). requireModuleEdit, que é de action, pede
+ * explicitamente o modo "lançar".
  */
-export async function requireCompanyContext(): Promise<CompanyContext> {
+export async function requireCompanyContext(opcoes?: OpcoesDeBloqueio): Promise<CompanyContext> {
   const ctx = await companyContext();
   if (!ctx) redirect("/login");
+  await aplicarBloqueioDeAssinatura(ctx.user, opcoes?.bloqueio ?? "redirecionar");
   return ctx;
 }
 
@@ -227,10 +268,21 @@ export async function requireModule(module: Module): Promise<CompanyContext> {
  * vivem em dois mundos — baixar uma compra/frete é escrita do módulo de origem
  * E do módulo financeiro. O papel financeiro baixa dinheiro em qualquer aba;
  * o operacional baixa nas suas; o viewer nunca.
+ *
+ * Gate de assinatura (pendência #05): por padrão LANÇA AssinaturaBloqueadaError
+ * — este é o ponto de entrada da maioria das actions. Um objeto final
+ * `{ bloqueio: ... }` muda o modo; hoje só gerarCobrancaAction usa, porque é o
+ * caminho de RECUPERAÇÃO exibido na própria tela bloqueada (bloqueá-lo
+ * trancaria a porta por dentro). A exceção é listada em teste estático.
  */
-export async function requireModuleEdit(module: Module, ...alternatives: Module[]): Promise<CompanyContext> {
-  const ctx = await requireCompanyContext();
-  const permitido = [module, ...alternatives].some((m) => canEdit(ctx.role, m));
+export async function requireModuleEdit(
+  module: Module,
+  ...rest: (Module | OpcoesDeBloqueio)[]
+): Promise<CompanyContext> {
+  const opcoes = rest.find((r): r is OpcoesDeBloqueio => typeof r === "object" && r !== null);
+  const alternativas = rest.filter((r): r is Module => typeof r === "string");
+  const ctx = await requireCompanyContext({ bloqueio: opcoes?.bloqueio ?? "lançar" });
+  const permitido = [module, ...alternativas].some((m) => canEdit(ctx.role, m));
   if (!permitido) throw new PermissionError();
   return ctx;
 }
