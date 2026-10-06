@@ -21,10 +21,18 @@ export default async function LoginPage({
          * autenticada (company_settings, escopado por company_id).
          */}
         <div className="mb-6 text-center">
+          <h1 className="sr-only">Locô — Gestão para locações</h1>
+          {/*
+           * Lockup oficial (brand/loco-logo.png), nao uma recriacao com a
+           * fonte do sistema: wordmark e tagline sao a arte da marca.
+           * largura limitada para o lockup nao estourar a coluna no celular.
+           */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icones/icone-512.png" alt="" className="mx-auto mb-3 h-20 w-20" />
-          <h1 className="text-2xl font-black tracking-tight text-tinta-900">Locô</h1>
-          <p className="text-sm text-stone-500">Gestão para locações</p>
+          <img
+            src="/icones/loco-logo.png"
+            alt=""
+            className="mx-auto block h-auto w-full max-w-[19rem]"
+          />
         </div>
 
         <div className="cartao p-5 shadow-sm">

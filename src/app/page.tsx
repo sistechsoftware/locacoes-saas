@@ -277,8 +277,10 @@ export default async function Home() {
       <footer className="border-t border-nuvem-200 bg-white/70">
         <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-3 px-5 py-8 text-center sm:flex-row sm:justify-between sm:text-left">
           <div>
-            <p className="font-black text-tinta-900">Locô</p>
-            <p className="text-xs text-stone-500">Gestão para locações · Software para locadoras e eventos</p>
+            {/* Lockup oficial da marca, em tamanho que deixa tagline legível. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icones/loco-logo.png" alt="Locô — Gestão para locações" className="h-14 w-auto" />
+            <p className="mt-2 text-xs text-stone-500">Software para locadoras e eventos</p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm font-semibold text-marca-600">
             <Link href="/planos" className="hover:underline">Planos</Link>
