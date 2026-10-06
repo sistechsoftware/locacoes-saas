@@ -1,5 +1,5 @@
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { PageHeader } from "@/components/ui";
 import QuoteForm from "../QuoteForm";
 import { createQuote } from "../actions";
@@ -14,7 +14,7 @@ export default async function NovoOrcamentoPage({
 }: {
   searchParams: Promise<{ cliente?: string }>;
 }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("orcamentos");
   const cid = ctx.companyId;
   const { cliente } = await searchParams;
   const products = await sellableProducts(cid);

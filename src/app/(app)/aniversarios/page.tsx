@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import {
   aniversariantesDoMes,
   aniversariantesNaJanela,
@@ -31,7 +31,7 @@ export default async function AniversariosPage({
 }: {
   searchParams: Promise<{ periodo?: string; q?: string; dia?: string }>;
 }) {
-  await requireUser();
+  await requireModule("clientes");
   const sp = await searchParams;
   const periodo = sp.periodo ?? "7";
   const q = (sp.q ?? "").trim();

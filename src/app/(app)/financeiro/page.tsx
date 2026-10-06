@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { all, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { ACTIVE_STATUSES, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
 import { dateBR, endOfMonth, money, startOfMonth, today } from "@/lib/format";
@@ -26,7 +26,7 @@ export default async function FinanceiroPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant):
      cada leitura abaixo carrega a clausula de empresa na primeira posicao. */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("financeiro");
   const user = ctx.user;
   const cid = ctx.companyId;
   const sp = await searchParams;

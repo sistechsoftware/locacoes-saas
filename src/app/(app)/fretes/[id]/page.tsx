@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all, one, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logsFor } from "@/lib/audit";
 import { FREIGHT_STATUS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function FretePage({ params }: { params: Promise<{ id: string }> }) {
   /* company_id vem SEMPRE do contexto autenticado: o frete da URL so resolve
      se pertencer a esta empresa (fecha o IDOR por id). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("fretes");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money, parseMoney, today, valorValido } from "@/lib/format";
 
@@ -26,7 +26,7 @@ function destino(fd: FormData, extra: Record<string, string>): string {
  * nenhuma saida termina em silencio: ou grava e confirma, ou diz o que houve.
  */
 export async function addExpense(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   const bruto = String(fd.get("amount") ?? "");
   const amount = parseMoney(bruto);
 
@@ -93,7 +93,7 @@ export async function deleteExpense(fd: FormData) {
 
 /** Lancamento avulso de entrada, sem reserva vinculada. */
 export async function addIncome(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   const bruto = String(fd.get("amount") ?? "");
   const amount = parseMoney(bruto);
 
@@ -221,7 +221,7 @@ export async function renamePurpose(fd: FormData) {
 
 /** Finalidades para escolher, mais as usadas no historico que sairam do catalogo. */
 export async function finalidadesDisponiveis(selecionada?: string): Promise<string[]> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   const ativas = await all<{ name: string }>(
     `SELECT name FROM expense_purposes WHERE active = 1 AND company_id = ? ORDER BY name COLLATE NOCASE`,
     [user.company_id],
@@ -232,7 +232,7 @@ export async function finalidadesDisponiveis(selecionada?: string): Promise<stri
 }
 
 export async function todasFinalidades() {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   return await all<any>(
     `SELECT p.*, (SELECT COUNT(*) FROM expenses e WHERE lower(e.category) = lower(p.name) AND e.company_id = p.company_id) AS usos
        FROM expense_purposes p WHERE p.company_id = ? ORDER BY p.active DESC, p.name COLLATE NOCASE`,

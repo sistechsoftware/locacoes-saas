@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { contactableUsers, listConversations, unreadCounters } from "@/lib/chat";
 import { seedUnread } from "@/lib/chat-unread";
 import ChatApp from "./ChatApp";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * fonte do sino do topo e do badge do menu inferior.
  */
 export default async function ChatPage() {
-  const user = await requireUser();
+  const { user } = await requireModule("chat");
   const [users, conversations, contadores] = await Promise.all([
     contactableUsers(user.id),
     listConversations(user.id),

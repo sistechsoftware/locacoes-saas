@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { contarErros, ERROS_POR_PAGINA, ultimosErros } from "@/lib/error-log";
 import { alternarResolvido } from "./actions";
@@ -39,7 +39,7 @@ export default async function ErrosPage({
 }: {
   searchParams: Promise<{ aba?: string; page?: string }>;
 }) {
-  const user = await requireUser();
+  const { user } = await requireModule("erros");
   const sp = await searchParams;
   const aba = sp.aba === "client" ? "client" : "server";
   const page = Math.max(1, Number(sp.page ?? 1));

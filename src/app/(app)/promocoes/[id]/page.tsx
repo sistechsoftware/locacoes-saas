@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getPromocao } from "@/lib/promocoes-db";
 import { rotuloFaixa, validarFaixas, vigente } from "@/lib/promocoes";
@@ -13,7 +13,7 @@ import { deletePromotion, togglePromotion } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function PromocaoPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const { user } = await requireModule("promocoes");
   const { id } = await params;
   const promocao = await getPromocao(Number(id));
   if (!promocao) notFound();

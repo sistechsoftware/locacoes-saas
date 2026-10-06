@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModuleEdit, requireUser } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money, parseMoney, today } from "@/lib/format";
 import {
@@ -23,7 +23,7 @@ import {
  * parcelamento comum.
  */
 export async function criarAdiantamentoAction(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const reservationId = Number(fd.get("reservation_id"));
   const imediato = String(fd.get("type") ?? "agendado") === "agora";
   // Isolamento: adiantamento só nasce sobre reserva da própria empresa.
@@ -60,7 +60,7 @@ export async function criarAdiantamentoAction(fd: FormData) {
 }
 
 export async function atualizarAdiantamentoAction(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const entryId = Number(fd.get("entry_id"));
   const reservationId = Number(fd.get("reservation_id"));
   // Isolamento: o lançamento precisa pertencer à empresa do usuário.
@@ -85,7 +85,7 @@ export async function atualizarAdiantamentoAction(fd: FormData) {
 }
 
 export async function confirmarAdiantamentoAction(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const entryId = Number(fd.get("entry_id"));
   const reservationId = Number(fd.get("reservation_id"));
   if (!await one(`SELECT id FROM financial_entries WHERE id = ? AND company_id = ?`, [entryId, companyId])) {
@@ -117,7 +117,7 @@ export async function confirmarAdiantamentoAction(fd: FormData) {
 }
 
 export async function cancelarAdiantamentoAction(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const entryId = Number(fd.get("entry_id"));
   const reservationId = Number(fd.get("reservation_id"));
   // Só cancela se o lançamento é da empresa do usuário.
@@ -134,5 +134,8 @@ export async function cancelarAdiantamentoAction(fd: FormData) {
 
 /** Usado pela tela para saber se ja existe um adiantamento em aberto, sem duplicar a consulta. */
 export async function temAdiantamentoAberto(reservationId: number) {
+  // leitura (sem escrita): sessão basta, como checkStock. O escopo por empresa
+  // vem do proprio adiantamentoAberto.
+  await requireUser();
   return (await adiantamentoAberto(reservationId)) ?? null;
 }

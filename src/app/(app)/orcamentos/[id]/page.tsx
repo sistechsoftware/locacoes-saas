@@ -7,7 +7,7 @@ import ConflictList from "@/components/ConflictList";
 import { dateTimeBR } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { quoteItems } from "@/lib/reservations";
 import { messageForQuote } from "@/lib/whatsapp";
@@ -28,7 +28,7 @@ export default async function OrcamentoPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<AvailabilityParams & { erro?: string }>;
 }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("orcamentos");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

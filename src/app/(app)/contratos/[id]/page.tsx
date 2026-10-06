@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getSettings } from "@/lib/settings";
 import { CONTRACT_STATUS } from "@/lib/domain";
@@ -27,7 +27,7 @@ export default async function ContratoPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado: o contrato da URL so
      resolve se pertencer a esta empresa (fecha o IDOR por id). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("contratos");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

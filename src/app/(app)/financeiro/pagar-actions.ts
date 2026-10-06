@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { one } from "@/lib/db";
-import { requireCompanyContext, requireUser } from "@/lib/auth";
+import { requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money, parseMoney, today, valorValido } from "@/lib/format";
 import { cancelarContaPagarManual, competenciaPadrao, criarContaPagarManual } from "@/lib/pagar";
@@ -29,7 +29,7 @@ function destino(fd: FormData, extra: Record<string, string>): string {
 }
 
 export async function criarPagarManual(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   const bruto = String(fd.get("amount") ?? "");
   const amount = parseMoney(bruto);
 
@@ -99,7 +99,7 @@ export async function cancelarPagarManual(fd: FormData) {
   /* Isolamento: o company_id vem do CONTEXTO da sessão, nunca do formulario —
      requireCompanyContext em vez de requireUser, como nas demais actions de
      escrita. A lib recusa conta de outro tenant com "não encontrada". */
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("financeiro");
   // o id chega pelo entry_id, o mesmo campo do formulario de baixa; o value do
   // botao entra como id quando o proprio botao dispara a acao
   const id = Number(fd.get("entry_id")) || Number(fd.get("id"));

@@ -1,5 +1,5 @@
 import { all, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { RESERVATION_SELECT, itemsForReservations } from "@/lib/reservations";
 import { RESERVATION_STATUS } from "@/lib/domain";
 import { addDays, dateBR, money, startOfWeek, today } from "@/lib/format";
@@ -25,7 +25,7 @@ export default async function ReservasPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
      do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("reservas");
   const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();

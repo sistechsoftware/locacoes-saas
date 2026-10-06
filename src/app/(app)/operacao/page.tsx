@@ -1,5 +1,5 @@
 import { freightsOn, lateFreights, lateOperations, operationsBetween, ordenarOperacoesMistas } from "@/lib/queries";
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { addDays, dateBR, today } from "@/lib/format";
 import { Card, Empty, LinkButton, PageHeader } from "@/components/ui";
 import { OperationCard } from "@/components/OperationCard";
@@ -23,7 +23,7 @@ export default async function OperacaoPage({
 }: {
   searchParams: Promise<{ aba?: string; data?: string; dias?: string }>;
 }) {
-  await requireUser();
+  await requireModule("operacao");
   const sp = await searchParams;
   const aba = sp.aba ?? "entregas";
   const data = sp.data || today();

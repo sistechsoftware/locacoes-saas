@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, nextNumber, one, run, scalar } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { recalcPurchase, syncPurchaseEntries, syncPurchaseStock, vencimentoPadrao } from "@/lib/compras";
 import { money, parseMoney, today } from "@/lib/format";
@@ -41,7 +41,7 @@ function readHeader(fd: FormData) {
 }
 
 export async function createPurchase(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("compras");
   const h = readHeader(fd);
   const items = readItems(fd);
   if (!items.length) return "Adicione ao menos um item a compra.";
@@ -83,7 +83,7 @@ export async function createPurchase(_prev: string | null, fd: FormData): Promis
 }
 
 export async function updatePurchase(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("compras");
   const id = Number(fd.get("id"));
   const h = readHeader(fd);
   const items = readItems(fd);
@@ -188,7 +188,7 @@ export async function cancelPurchase(fd: FormData) {
  * soma destes lancamentos, entao previsto e realizado nao podem divergir.
  */
 export async function payEntry(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("compras", "financeiro");
   const entryId = Number(fd.get("entry_id"));
   const valor = parseMoney(String(fd.get("amount") ?? ""));
   const entry = await one<any>(`SELECT * FROM financial_entries WHERE id = ? AND company_id = ?`, [entryId, user.company_id]);
@@ -273,7 +273,7 @@ export async function reverseExpense(fd: FormData) {
 /* ------------------------------------------------------------------ */
 
 export async function createSupplier(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("compras");
   const name = String(fd.get("name") ?? "").trim();
   if (!name) return;
   const id = await insert(`INSERT INTO suppliers (name, doc, phone, email, notes, company_id) VALUES (?,?,?,?,?,?)`, [

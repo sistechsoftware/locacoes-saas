@@ -1,5 +1,5 @@
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { PageHeader } from "@/components/ui";
 import ReservationForm from "../ReservationForm";
@@ -16,7 +16,7 @@ export default async function NovaReservaPage({
 }: {
   searchParams: Promise<{ cliente?: string; frete?: string }>;
 }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("reservas");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { cliente, frete } = await searchParams;

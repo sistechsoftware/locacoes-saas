@@ -4,7 +4,7 @@ import { stockVersion, writeRental, STOCK_CHANGED } from "@/lib/stock-write";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, nextNumber, one, run, tx } from "@/lib/db";
-import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { recalcQuote, recalcReservation, syncOperations } from "@/lib/reservations";
@@ -53,7 +53,7 @@ function readHeader(fd: FormData) {
 }
 
 export async function createQuote(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("orcamentos");
   let h: ReturnType<typeof readHeader>;
   try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
   const invalidWindow = windowError(h.delivery_at, h.pickup_at);
@@ -113,7 +113,7 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
 }
 
 export async function updateQuote(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("orcamentos");
   const id = Number(fd.get("id"));
   let h: ReturnType<typeof readHeader>;
   try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
@@ -174,7 +174,7 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
 }
 
 export async function setQuoteStatus(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("orcamentos");
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   const q = await one<any>(`SELECT * FROM quotes WHERE id = ? AND company_id = ?`, [id, companyId]);
@@ -186,7 +186,7 @@ export async function setQuoteStatus(fd: FormData) {
 
 /** Converte o orcamento em reserva mantendo todos os dados e itens. */
 export async function convertQuote(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("orcamentos");
   const companyId = await tenantCompanyId();
   const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));

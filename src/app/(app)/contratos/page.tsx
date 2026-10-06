@@ -1,5 +1,5 @@
 import { all, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { CONTRACT_STATUS } from "@/lib/domain";
 import { dateBR, money } from "@/lib/format";
 import { Empty, PageHeader, StatusBadge } from "@/components/ui";
@@ -15,7 +15,7 @@ export default async function ContratosPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
      do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("contratos");
   const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();

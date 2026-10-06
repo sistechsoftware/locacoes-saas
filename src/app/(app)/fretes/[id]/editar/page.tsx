@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import FreightForm from "../../FreightForm";
 import { updateFreight } from "../../actions";
@@ -9,7 +9,7 @@ import { CUSTOMER_PICK_COLUMNS } from "@/lib/queries";
 export const dynamic = "force-dynamic";
 
 export default async function EditarFretePage({ params }: { params: Promise<{ id: string }> }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("fretes");
   const cid = ctx.companyId;
   const { id } = await params;
   // Isolamento: frete de outra empresa é inexistente para este usuário.

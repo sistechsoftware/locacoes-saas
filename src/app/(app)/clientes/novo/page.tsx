@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import CustomerForm from "../CustomerForm";
 import { createCustomer } from "../actions";
@@ -8,7 +8,7 @@ export default async function NovoClientePage({
 }: {
   searchParams: Promise<{ next?: string }>;
 }) {
-  await requireUser();
+  await requireModule("clientes");
   const { next } = await searchParams;
   return (
     <div className="mx-auto max-w-2xl space-y-4">

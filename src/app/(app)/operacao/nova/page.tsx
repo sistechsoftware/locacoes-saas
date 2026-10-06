@@ -1,5 +1,5 @@
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import OperationForm from "./OperationForm";
 import { createOperation } from "../actions";
@@ -11,7 +11,7 @@ export default async function NovaOperacaoPage({
 }: {
   searchParams: Promise<{ reserva?: string; tipo?: string }>;
 }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("operacao");
   const cid = ctx.companyId;
   const sp = await searchParams;
   const reservations = await all<any>(

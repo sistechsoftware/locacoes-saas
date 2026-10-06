@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { one } from "@/lib/db";
-import { companyContext, requireCompanyContext } from "@/lib/auth";
+import { companyContext, requireModule } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { quoteItems } from "@/lib/reservations";
 import { QUOTE_STATUS, statusLabel } from "@/lib/domain";
@@ -48,7 +48,7 @@ function sanitizar(texto: string | null | undefined): string {
 
 export default async function OrcamentoImprimirPage({ params }: { params: Promise<{ id: string }> }) {
   // mesma permissao da tela do orcamento: sem sessao nao ha documento
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("orcamentos");
   const { id } = await params;
   const q = await carregar(Number(id), ctx.companyId);
   if (!q) notFound();

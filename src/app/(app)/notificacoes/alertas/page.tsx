@@ -3,7 +3,7 @@ import AvailabilityFilter from "@/components/AvailabilityFilter";
 import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-time";
 import { stockOptions } from "@/lib/availability-settings";
 import { scanConflicts } from "@/lib/stock";
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { listNotifications, rebuildNotifications } from "@/lib/notifications";
 import { Empty, PageHeader, Stat } from "@/components/ui";
 import { Tabs } from "@/components/List";
@@ -29,7 +29,7 @@ export default async function NotificacoesPage({
 }: {
   searchParams: Promise<AvailabilityParams & { tipo?: string }>;
 }) {
-  await requireUser();
+  await requireModule("notificacoes");
   const sp = await searchParams;
   const { tipo = "todos" } = sp;
   const query = availabilityQuery(sp);

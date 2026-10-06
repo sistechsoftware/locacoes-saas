@@ -1,5 +1,5 @@
 import { all, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { PURCHASE_SELECT } from "@/lib/compras";
 import { dateBR, money } from "@/lib/format";
 import { Badge, Empty, LinkButton, PageHeader, Stat } from "@/components/ui";
@@ -15,7 +15,7 @@ export default async function ComprasPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
      do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("compras");
   const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();

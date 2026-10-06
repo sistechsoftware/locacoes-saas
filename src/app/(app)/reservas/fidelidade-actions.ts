@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { one } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money } from "@/lib/format";
 import { prepararMensagem, usarRecompensa } from "@/lib/fidelidade-db";
@@ -15,7 +15,7 @@ import { prepararMensagem, usarRecompensa } from "@/lib/fidelidade-db";
  * jeito de sempre.
  */
 export async function aplicarRecompensa(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("fidelidade");
   const reservationId = Number(fd.get("reservation_id"));
   const rewardId = Number(fd.get("reward_id"));
 

@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, one, run } from "@/lib/db";
-import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { attach, removeAttachment, UploadError } from "@/lib/uploads";
 import { parseMoney, nowLocal, today } from "@/lib/format";
@@ -13,7 +13,7 @@ import { completeDamageMaintenance, resolveDamage as resolverDanoCore, revertDam
 /* ------------------------------- criar / editar ------------------------------- */
 
 export async function createOperation(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("operacao");
   const kind = String(fd.get("kind") ?? "entrega");
   const reservationId = Number(fd.get("reservation_id")) || null;
   const scheduled = stamp(String(fd.get("scheduled_at") ?? ""), "08:00");
@@ -49,7 +49,7 @@ export async function createOperation(_prev: string | null, fd: FormData): Promi
 }
 
 export async function updateOperation(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("operacao");
   const id = Number(fd.get("id"));
   const op = await one<any>(`SELECT * FROM operations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!op) return;
@@ -68,7 +68,7 @@ export async function updateOperation(fd: FormData) {
 }
 
 export async function setOperationStatus(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("operacao");
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   const op = await one<any>(
@@ -113,7 +113,7 @@ export async function cancelOperation(fd: FormData) {
 /* --------------------------------- checklist ---------------------------------- */
 
 export async function saveChecklist(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("operacao");
   const id = Number(fd.get("operation_id"));
   const op = await one<any>(`SELECT * FROM operations WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!op) return;
@@ -152,7 +152,7 @@ export async function saveChecklist(fd: FormData) {
 }
 
 export async function deletePhoto(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("operacao");
   const attachmentId = Number(fd.get("attachment_id"));
   const operationId = Number(fd.get("operation_id"));
   await removeAttachment(attachmentId, companyId);
@@ -163,7 +163,7 @@ export async function deletePhoto(fd: FormData) {
 /* ----------------------------------- danos ------------------------------------ */
 
 export async function reportDamage(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("operacao");
   const operationId = Number(fd.get("operation_id"));
   const reservationId = Number(fd.get("reservation_id"));
   // Isolamento: a reserva do dano precisa pertencer à empresa do usuário.
@@ -242,7 +242,7 @@ function voltaDoDano(operationId: number | null, reservationId: number | null) {
  * O estoque so muda aqui, nunca no registro do dano.
  */
 export async function resolverDano(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("operacao");
   const damageId = Number(fd.get("damage_id"));
   const action = String(fd.get("action") ?? "") === "manutencao" ? "manutencao" : "baixa";
   const operationId = Number(fd.get("operation_id")) || null;
@@ -259,7 +259,7 @@ export async function resolverDano(fd: FormData) {
 
 /** Conclui a manutencao aberta a partir de um dano: o item volta ao disponivel. */
 export async function consertarDano(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("operacao");
   const damageId = Number(fd.get("damage_id"));
   const operationId = Number(fd.get("operation_id")) || null;
   const reservationId = Number(fd.get("reservation_id")) || null;
@@ -274,7 +274,7 @@ export async function consertarDano(fd: FormData) {
 
 /** Estorna uma baixa definitiva: devolve as unidades por movimentacao inversa. */
 export async function estornarBaixaDano(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("operacao");
   const damageId = Number(fd.get("damage_id"));
   const operationId = Number(fd.get("operation_id")) || null;
   const reservationId = Number(fd.get("reservation_id")) || null;
@@ -300,7 +300,7 @@ async function attachOne(file: File, userId: number, reservationId: number) {
 /* ---------------------------------- veiculos ---------------------------------- */
 
 export async function saveVehicle(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("operacao");
   const id = Number(fd.get("id")) || null;
   const values = [
     String(fd.get("name") ?? "").trim(),

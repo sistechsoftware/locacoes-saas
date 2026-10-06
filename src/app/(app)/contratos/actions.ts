@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { one, run } from "@/lib/db";
-import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { buildContractBody, buildContractBodyDigital, ensureContract } from "@/lib/contracts";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
@@ -10,7 +10,7 @@ import { nowLocal, today } from "@/lib/format";
 import { assinaturasDoContrato, gerarLink, revogarLink } from "@/lib/assinatura-db";
 
 export async function generateContract(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("contratos");
   const reservationId = Number(fd.get("reservation_id"));
   // Isolamento: contrato só nasce sobre reserva da própria empresa.
   if (!await one(`SELECT id FROM reservations WHERE id = ? AND company_id = ?`, [reservationId, companyId])) {
@@ -32,7 +32,7 @@ export async function generateContract(fd: FormData) {
  * sobrescrito (o redirect acima já bloqueia esse caminho).
  */
 export async function regenerateContract(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("contratos");
   const id = Number(fd.get("id"));
   const c = await one<any>(`SELECT * FROM contracts WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!c) return;
@@ -62,7 +62,7 @@ export async function regenerateContract(fd: FormData) {
 }
 
 export async function setContractStatus(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("contratos");
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   const signer = String(fd.get("signer_name") ?? "");
@@ -101,7 +101,7 @@ export async function saveContractBody(fd: FormData) {
  * volta pela URL uma unica vez, para o operador copiar e mandar ao cliente.
  */
 export async function gerarLinkAssinatura(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("contratos");
   const contractId = Number(fd.get("id"));
   // O contrato precisa pertencer à empresa do usuário antes de gerar link.
   if (!await one(`SELECT id FROM contracts WHERE id = ? AND company_id = ?`, [contractId, companyId])) {
@@ -121,7 +121,7 @@ export async function gerarLinkAssinatura(fd: FormData) {
 }
 
 export async function revogarLinkAssinatura(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("contratos");
   const contractId = Number(fd.get("contract_id"));
   const id = Number(fd.get("id"));
   // Só revoga se o contrato é da empresa do usuário.

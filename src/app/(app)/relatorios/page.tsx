@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { all, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ACTIVE_STATUSES } from "@/lib/domain";
 import { addDays, dateBR, endOfMonth, money, startOfMonth, startOfWeek, today } from "@/lib/format";
 import { Card, Empty, PageHeader, Section, Stat } from "@/components/ui";
@@ -32,7 +32,7 @@ export default async function RelatoriosPage({
 }) {
   /* company_id do contexto autenticado — a base de TODOS os agregados abaixo.
      Sem fallback de tenant: sessao e a unica fonte do escopo. */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("relatorios");
   const cid = ctx.companyId;
   const sp = await searchParams;
   const p = sp.p ?? "mes";

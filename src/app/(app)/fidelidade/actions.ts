@@ -2,14 +2,14 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { run } from "@/lib/db";
-import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { nowLocal } from "@/lib/format";
 import { logAction } from "@/lib/audit";
 import { importarHistorico } from "@/lib/fidelidade-db";
 
 /** Marca a mensagem como enviada ou dispensada, para sair da fila. */
 export async function marcarMensagem(fd: FormData) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModuleEdit("fidelidade");
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   if (status !== "enviada" && status !== "dispensada") return;

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getPurchase, purchaseEntries, purchaseItems, purchaseStockMovements } from "@/lib/compras";
 import { activeAccounts } from "@/lib/compras";
@@ -32,7 +32,7 @@ export default async function CompraPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado: a compra da URL so
      resolve se pertencer a esta empresa (fecha o IDOR por id). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("compras");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

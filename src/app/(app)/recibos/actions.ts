@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { PermissionError, requireCompanyContext } from "@/lib/auth";
+import { PermissionError, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { ehAdmin } from "@/lib/roles";
 import { emitirQuitacao, emitirQuitacaoSeQuitada, emitirRecibo, excluirRecibo } from "@/lib/recibos";
@@ -41,7 +41,7 @@ function destinoSeguro(bruto: string, fallback: string): string {
 export async function gerarReciboPayment(fd: FormData) {
   /* Isolamento: o company_id vem do CONTEXTO da sessão (requireCompanyContext)
      e é repassado às libs, que recusam lançamento de outro tenant. */
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("recibos");
   const paymentId = Number(fd.get("payment_id"));
   const voltarPara = destinoSeguro(String(fd.get("voltar") ?? ""), "/financeiro?aba=receber");
 
@@ -74,7 +74,7 @@ export async function gerarReciboPayment(fd: FormData) {
  */
 export async function gerarReciboDeposit(fd: FormData) {
   // mesmo padrão de isolamento de gerarReciboPayment: contexto da sessão.
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("recibos");
   const depositId = Number(fd.get("deposit_id"));
   const voltarPara = destinoSeguro(String(fd.get("voltar") ?? ""), "/financeiro");
 
@@ -105,7 +105,7 @@ export async function gerarReciboDeposit(fd: FormData) {
 export async function excluirReciboAction(fd: FormData) {
   /* Isolamento: papel (admin) E tenant (company_id) vêm da sessão; a lib
      recusa recibo de outro tenant com false, sem dizer de quem ele é. */
-  const { user, role, companyId } = await requireCompanyContext();
+  const { user, role, companyId } = await requireModuleEdit("recibos");
   if (!ehAdmin(role)) throw new PermissionError();
   const receiptId = Number(fd.get("receipt_id"));
   const voltarPara = destinoSeguro(String(fd.get("voltar") ?? ""), "/financeiro");
@@ -125,7 +125,7 @@ export async function excluirReciboAction(fd: FormData) {
  * este botão (ou um recebimento novo) pode.
  */
 export async function gerarQuitacaoLocacao(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("recibos");
   const reservationId = Number(fd.get("reservation_id"));
 
   const { erro, receiptId } = await emitirQuitacao("locacao", reservationId, {
@@ -143,7 +143,7 @@ export async function gerarQuitacaoLocacao(fd: FormData) {
 
 /** Emite a quitação da caução da reserva, com o mesmo padrão da da locação. */
 export async function gerarQuitacaoCaucao(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("recibos");
   const reservationId = Number(fd.get("reservation_id"));
 
   const { erro, receiptId } = await emitirQuitacao("caucao", reservationId, {

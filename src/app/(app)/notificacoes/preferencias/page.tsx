@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser, listUsers } from "@/lib/auth";
+import { requireModule, listUsers } from "@/lib/auth";
 import { all, one } from "@/lib/db";
 import { NOTIFICATION_TYPES, OFFSETS } from "@/lib/push-rules";
 import { PageHeader, Section } from "@/components/ui";
@@ -9,7 +9,7 @@ import PushDiagnostico from "../PushDiagnostico";
 import { savePreferences, savePushRules, saveRoles } from "../push-actions";
 
 export default async function PreferencesPage() {
-  const user = await requireUser();
+  const { user } = await requireModule("notificacoes");
   const prefs = await all<{type:string;mode:string}>("SELECT type,mode FROM notification_preferences WHERE user_id=?",[user.id]);
   const roles = await all<{key:string;label:string}>("SELECT * FROM operational_roles");
   // escopo de empresa: atribuicoes e regras visiveis sao so da empresa do usuario

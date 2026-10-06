@@ -5,7 +5,7 @@ import { stockOptions } from "@/lib/availability-settings";
 import { HOLDING_STATUSES } from "@/lib/domain";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logsFor } from "@/lib/audit";
 import {
@@ -64,7 +64,7 @@ export default async function ReservaPage({
   /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant).
      A reserva-pai ja e carregada escopada; cada leitura abaixo repete o
      filtro de empresa, inclusive as por id (IDOR por URL). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("reservas");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { all, one, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { activeAccounts, activeSuppliers, purchaseItems } from "@/lib/compras";
 import { PageHeader } from "@/components/ui";
 import PurchaseForm from "../../PurchaseForm";
@@ -9,7 +9,7 @@ import { updatePurchase } from "../../actions";
 export const dynamic = "force-dynamic";
 
 export default async function EditarCompraPage({ params }: { params: Promise<{ id: string }> }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("compras");
   const cid = ctx.companyId;
   const { id } = await params;
   // Isolamento: compra de outra empresa é inexistente para este usuário.

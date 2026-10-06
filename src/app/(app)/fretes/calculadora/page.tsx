@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { freightConfig } from "@/lib/freight-config";
 import { PageHeader } from "@/components/ui";
@@ -8,7 +8,7 @@ import { salvarPrecoCombustivel } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function CalculadoraFretePage() {
-  await requireUser();
+  await requireModule("fretes");
   const s = await getSettings();
 
   const config: ConfigFrete = {

@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { listarPromocoes } from "@/lib/promocoes-db";
 import { rotuloFaixa, vigente } from "@/lib/promocoes";
 import { dateBR, money, today } from "@/lib/format";
@@ -18,7 +18,7 @@ export default async function PromocoesPage({
 }: {
   searchParams: Promise<{ q?: string; situacao?: string }>;
 }) {
-  await requireUser();
+  await requireModule("promocoes");
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const situacao = sp.situacao ?? "todas";

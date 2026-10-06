@@ -222,10 +222,16 @@ export async function requireModule(module: Module): Promise<CompanyContext> {
  * Exige contexto de empresa COM direito de EDITAR o módulo.
  * Uso nas server actions: o viewer/financeiro que tentar chamar a action
  * diretamente recebe PermissionError — não é escondido só na interface.
+ *
+ * Aceita módulos alternativos (qualquer um basta): operações de dinheiro que
+ * vivem em dois mundos — baixar uma compra/frete é escrita do módulo de origem
+ * E do módulo financeiro. O papel financeiro baixa dinheiro em qualquer aba;
+ * o operacional baixa nas suas; o viewer nunca.
  */
-export async function requireModuleEdit(module: Module): Promise<CompanyContext> {
+export async function requireModuleEdit(module: Module, ...alternatives: Module[]): Promise<CompanyContext> {
   const ctx = await requireCompanyContext();
-  if (!canEdit(ctx.role, module)) throw new PermissionError();
+  const permitido = [module, ...alternatives].some((m) => canEdit(ctx.role, m));
+  if (!permitido) throw new PermissionError();
   return ctx;
 }
 

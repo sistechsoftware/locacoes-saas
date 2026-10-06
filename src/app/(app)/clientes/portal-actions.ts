@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { requireUser } from "@/lib/auth";
+import { requireModuleEdit } from "@/lib/auth";
 import { gerarConviteAcesso } from "@/lib/portal-auth";
 import { one } from "@/lib/db";
 import { origemDaRequisicao } from "@/lib/portal-core";
@@ -23,7 +23,7 @@ import { waLink } from "@/lib/format";
  * para ambientes onde o proxy esconde o host real.
  */
 export async function gerarAcessoPortal(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("clientes");
   const id = Number(fd.get("id"));
   // Isolamento: só é possível convidar cliente da PRÓPRIA empresa.
   const meu = await one(`SELECT id FROM customers WHERE id = ? AND company_id = ?`, [id, user.company_id]);

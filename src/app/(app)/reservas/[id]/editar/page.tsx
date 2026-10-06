@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { reservationItems } from "@/lib/reservations";
 import { PageHeader } from "@/components/ui";
@@ -14,7 +14,7 @@ import { activeAccounts } from "@/lib/compras";
 export const dynamic = "force-dynamic";
 
 export default async function EditarReservaPage({ params }: { params: Promise<{ id: string }> }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("reservas");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

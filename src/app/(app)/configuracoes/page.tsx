@@ -5,7 +5,7 @@ import ReciboSettings from "./ReciboSettings";
 import FidelitySettings from "./FidelitySettings";
 import BirthdaySettings from "./BirthdaySettings";
 import { createPurpose, renamePurpose, todasFinalidades, togglePurpose } from "../financeiro/actions";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { listUsers } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { limiteUsuarios, usuariosAtivos } from "@/lib/billing";
@@ -35,7 +35,7 @@ export default async function ConfiguracoesPage({
   searchParams: Promise<{ aba?: string; erro?: string }>;
 }) {
   /* company_id vem do contexto autenticado (nunca fallback de tenant). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("configuracoes");
   const user = ctx.user;
   const cid = ctx.companyId;
   /*

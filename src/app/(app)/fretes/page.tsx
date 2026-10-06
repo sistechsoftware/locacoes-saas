@@ -1,5 +1,5 @@
 import { all, scalar } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { FREIGHT_STATUS } from "@/lib/domain";
 import { dateBR, money, timeBR } from "@/lib/format";
 import { Empty, LinkButton, PageHeader, Stat, StatusBadge } from "@/components/ui";
@@ -15,7 +15,7 @@ export default async function FretesPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado; e a primeira condicao
      do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("fretes");
   const cid = ctx.companyId;
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();

@@ -1,5 +1,5 @@
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { activeAccounts, activeSuppliers } from "@/lib/compras";
 import { PageHeader } from "@/components/ui";
 import PurchaseForm from "../PurchaseForm";
@@ -8,7 +8,7 @@ import { createPurchase } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function NovaCompraPage() {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("compras");
   const cid = ctx.companyId;
   const [produtos, fornecedores, contas] = await Promise.all([
     all<any>(

@@ -3,7 +3,7 @@ import AvailabilityFilter from "@/components/AvailabilityFilter";
 import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-time";
 import { stockOptions } from "@/lib/availability-settings";
 import { dateTimeBR } from "@/lib/format";
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { availabilityByCategory, timelinesByProduct, type Availability } from "@/lib/stock";
 import { timeBR } from "@/lib/format";
 import { dateBR, today, waLink } from "@/lib/format";
@@ -30,7 +30,7 @@ export default async function DisponibilidadePage({
 }: {
   searchParams: Promise<AvailabilityParams>;
 }) {
-  await requireUser();
+  await requireModule("agenda");
   const sp = await searchParams;
   const query = availabilityQuery(sp);
   const options = await stockOptions(query);

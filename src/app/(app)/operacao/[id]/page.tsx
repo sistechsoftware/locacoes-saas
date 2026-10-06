@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getOperation } from "@/lib/queries";
 import { attachmentsFor } from "@/lib/uploads";
@@ -27,7 +27,7 @@ export default async function OperacaoDetalhePage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado: a operacao da URL so
      resolve se pertencer a esta empresa (fecha o IDOR por id). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("operacao");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

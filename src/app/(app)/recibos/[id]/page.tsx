@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { companyContext, requireCompanyContext } from "@/lib/auth";
+import { companyContext, requireModule } from "@/lib/auth";
 import { obterRecibo } from "@/lib/recibos";
 import { dateBR, dateUtcBR, docBR, money, phoneBR } from "@/lib/format";
 import { formaLabel, sanitizarNomeArquivo, tamanhoRecibo, valorPorExtenso } from "@/lib/recibo-visual";
@@ -50,7 +50,7 @@ export default async function ReciboPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado: recibo de outra empresa
      e inexistente aqui (fecha o IDOR por id). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("recibos");
   const { id } = await params;
   const { aviso } = await searchParams;
   const data = await obterRecibo(Number(id), ctx.companyId);

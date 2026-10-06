@@ -3,7 +3,7 @@ import { preparationValue } from "@/lib/availability-time";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, hashPassword, requireUser, verifyPassword, type SessionUser } from "@/lib/auth";
+import { assertAdmin, hashPassword, requireModuleEdit, requireUser, verifyPassword, type SessionUser } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { podeCriarUsuario } from "@/lib/billing";
 import { atualizarUsuario, criarUsuario, excluirUsuario, alternarStatusUsuario } from "@/lib/usuarios";
@@ -362,7 +362,7 @@ export async function removeCompanySignature(): Promise<void> {
 /* --------------------------------- categorias ----------------------------------- */
 
 export async function addCategory(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("configuracoes");
   const name = String(fd.get("name") ?? "").trim();
   if (!name) return;
   await run(`INSERT OR IGNORE INTO categories (name, company_id) VALUES (?,?)`, [name, user.company_id]);

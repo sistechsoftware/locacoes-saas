@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { estadoAssinatura, listarPlanos, STATUS_ROTULO, assinaturaDaEmpresa } from "@/lib/billing";
 import { all } from "@/lib/db";
 import { PageHeader, Card, Badge, Empty } from "@/components/ui";
@@ -24,7 +24,7 @@ const TONE: Record<string, string> = {
 };
 
 export default async function FaturamentoPage() {
-  const user = await requireUser();
+  const { user } = await requireModule("assinatura");
   const estado = await estadoAssinatura(user.company_id);
   const planos = await listarPlanos();
   const sub = await assinaturaDaEmpresa(user.company_id);

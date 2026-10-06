@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { documentoAssinado } from "@/lib/assinatura-db";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
 import { getSettings } from "@/lib/settings";
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 export default async function DocumentoAssinadoPage({ params }: { params: Promise<{ id: string }> }) {
   /* company_id vem SEMPRE do contexto autenticado: documento assinado de
      outra empresa e inexistente aqui (fecha o IDOR por id). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("contratos");
   const { id } = await params;
   const doc = await documentoAssinado(Number(id), ctx.companyId);
   if (!doc) notFound();

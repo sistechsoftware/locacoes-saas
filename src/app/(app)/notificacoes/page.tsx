@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { all, scalar } from "@/lib/db";
 import { NOTIFICATION_TYPES } from "@/lib/push-rules";
 import { Empty, PageHeader } from "@/components/ui";
@@ -12,7 +12,7 @@ export default async function NotificationsPage({searchParams}:{searchParams:Pro
      nunca casa. Um predicado extra de company_id em user_notifications QUEBRA
      a tela para toda empresa != 1: os INSERTs de chat/aniversarios/fidelidade
      ainda gravam company_id DEFAULT 1 (pendência #04, escrita). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("notificacoes");
   const user = ctx.user;
   const sp = await searchParams;
   const type = sp.tipo && sp.tipo in NOTIFICATION_TYPES ? sp.tipo : "";

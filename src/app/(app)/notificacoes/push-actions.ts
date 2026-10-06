@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit, requireUser } from "@/lib/auth";
 import { all, batch, one, run } from "@/lib/db";
 import { logAction } from "@/lib/audit";
 import { NOTIFICATION_TYPES, validOffsets } from "@/lib/push-rules";
@@ -48,7 +48,7 @@ export async function savePushRules(fd: FormData) {
   revalidatePath("/notificacoes/preferencias");
 }
 export async function updateActivity(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("notificacoes");
   const id = Number(fd.get("id"));
   const activity = await one<{source:string;source_id:number;assignee_id:number|null;status:string}>("SELECT * FROM activities WHERE id=? AND company_id=?",[id,user.company_id]);
   if (!activity) throw new Error("Atividade inexistente.");
@@ -65,7 +65,7 @@ export async function updateActivity(fd: FormData) {
   revalidatePath("/notificacoes/atividades"); revalidatePath("/operacao");
 }
 export async function completeSeparation(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("notificacoes");
   const id = Number(fd.get("id"));
   const a = await one<{assignee_id:number|null}>("SELECT assignee_id FROM activities WHERE id=? AND company_id=? AND kind='separacao' AND status='pending'",[id,user.company_id]);
   if (!a) return;

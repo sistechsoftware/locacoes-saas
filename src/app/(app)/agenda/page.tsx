@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { agendaEvents } from "@/lib/queries";
 import { addDays, dateBR, endOfMonth, startOfMonth, startOfWeek, today, weekdayBR } from "@/lib/format";
 import { Card, Empty, LinkButton, PageHeader } from "@/components/ui";
@@ -21,7 +21,7 @@ export default async function AgendaPage({
 }: {
   searchParams: Promise<{ view?: string; data?: string; tipo?: string }>;
 }) {
-  await requireUser();
+  await requireModule("agenda");
   const sp = await searchParams;
   const view = sp.view ?? "dia";
   const data = sp.data || today();

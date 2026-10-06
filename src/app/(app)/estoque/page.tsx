@@ -3,7 +3,7 @@ import AvailabilityFilter from "@/components/AvailabilityFilter";
 import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-time";
 import { stockOptions } from "@/lib/availability-settings";
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { availabilityAllWithKits } from "@/lib/stock";
 import { money, today } from "@/lib/format";
 import { Badge, Empty, LinkButton, PageHeader, Stat } from "@/components/ui";
@@ -17,7 +17,7 @@ export default async function EstoquePage({
   searchParams: Promise<AvailabilityParams & { aba?: string; q?: string }>;
 }) {
   /* company_id obrigatorio do contexto autenticado (nunca fallback de tenant). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("estoque");
   const sp = await searchParams;
   const aba = sp.aba ?? "todos";
   const query = availabilityQuery(sp);

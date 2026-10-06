@@ -5,7 +5,7 @@ import { stockOptions } from "@/lib/availability-settings";
 import { dateTimeBR } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { availabilityFor, availabilityForDays, componentsOf, holdsForProduct, kitsUsing } from "@/lib/stock";
 import { logsFor } from "@/lib/audit";
@@ -26,7 +26,7 @@ export default async function ProdutoPage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado: o produto da URL so
      resolve se pertencer a esta empresa (fecha o IDOR por id). */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("estoque");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

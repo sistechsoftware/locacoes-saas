@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-time";
 import { stockOptions } from "@/lib/availability-settings";
 import { equipmentTimeline } from "@/lib/timeline";
@@ -23,7 +23,7 @@ export default async function TimelinePage({
 }: {
   searchParams: Promise<AvailabilityParams & { modo?: string }>;
 }) {
-  await requireUser();
+  await requireModule("agenda");
   const sp = await searchParams;
   const query = availabilityQuery(sp);
   const options = await stockOptions(query);

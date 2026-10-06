@@ -4,7 +4,7 @@ import { stockVersion, writeRental, commitStockBatch, STOCK_CHANGED } from "@/li
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, currentUser, PermissionError, requireCompanyContext, requireUser } from "@/lib/auth";
+import { assertAdmin, currentUser, PermissionError, requireModuleEdit, requireUser } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { removeAttachment } from "@/lib/uploads";
@@ -74,7 +74,7 @@ const conflictMessage = conflictsMessage;
 /* ------------------------------------------------------------------ */
 
 export async function createReservation(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const version = await stockVersion(companyId);
   let h: ReturnType<typeof readHeader>;
   try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
@@ -124,7 +124,7 @@ export async function createReservation(_prev: string | null, fd: FormData): Pro
 }
 
 export async function updateReservation(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
   // Isolamento: reserva de outra empresa e "nao encontrada".
@@ -162,7 +162,7 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
 /* ------------------------------------------------------------------ */
 
 export async function changeStatus(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
@@ -213,7 +213,7 @@ export async function changeStatus(fd: FormData) {
 /* ------------------------------------------------------------------ */
 
 export async function addPayment(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const id = Number(fd.get("reservation_id"));
   const amount = parseMoney(String(fd.get("amount") ?? ""));
   if (amount <= 0) redirect(`/reservas/${id}?erro=${encodeURIComponent("Informe um valor válido.")}`);
@@ -240,7 +240,7 @@ export async function addPayment(fd: FormData) {
 }
 
 export async function deletePayment(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   if (!ehAdmin(user.role)) throw new PermissionError();
   const paymentId = Number(fd.get("payment_id"));
   const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ?`, [paymentId, companyId]);
@@ -251,7 +251,7 @@ export async function deletePayment(fd: FormData) {
 }
 
 export async function saveDeposit(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const id = Number(fd.get("reservation_id"));
   const amount = parseMoney(String(fd.get("amount") ?? ""));
   const status = String(fd.get("status") ?? "nao_recebida");
@@ -298,7 +298,7 @@ export async function saveDeposit(fd: FormData) {
 /* ------------------------------------------------------------------ */
 
 export async function deleteReservation(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
   const r = await one<any>(`SELECT number FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
@@ -379,7 +379,7 @@ export async function logWhatsApp(fd: FormData) {
  * continuam como estao.
  */
 export async function refreshComposition(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("reservas");
   const version = await stockVersion(companyId);
   const id = Number(fd.get("id"));
   const r = await one<any>(`SELECT * FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);

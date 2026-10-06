@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { requireUser, PermissionError } from "@/lib/auth";
+import { requireModuleEdit, PermissionError } from "@/lib/auth";
 import { gerarCobrancaPeriodo, trocarPlano } from "@/lib/billing";
 import { logAction } from "@/lib/audit";
 
@@ -11,7 +11,7 @@ import { logAction } from "@/lib/audit";
  * acionável em vez de explodir — a tela mostra o erro e o sistema segue.
  */
 export async function gerarCobrancaAction(): Promise<{ ok: boolean; mensagem: string; url?: string }> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("assinatura");
   if (user.role !== "owner") throw new PermissionError("Somente o proprietário pode gerar cobranças.");
 
   const r = await gerarCobrancaPeriodo(user.company_id);
@@ -35,7 +35,7 @@ export async function gerarCobrancaAction(): Promise<{ ok: boolean; mensagem: st
 }
 
 export async function trocarPlanoAction(slug: string): Promise<{ ok: boolean; mensagem: string }> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("assinatura");
   if (user.role !== "owner") throw new PermissionError("Somente o proprietário pode trocar o plano.");
   try {
     await trocarPlano(user.company_id, slug);

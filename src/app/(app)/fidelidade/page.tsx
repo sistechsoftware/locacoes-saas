@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { all } from "@/lib/db";
 import { regraAtual, mensagensPendentes, importarHistorico } from "@/lib/fidelidade-db";
@@ -17,7 +17,7 @@ export default async function FidelidadePage({
 }: {
   searchParams: Promise<{ importado?: string; recompensas?: string }>;
 }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("fidelidade");
   const user = ctx.user;
   const cid = ctx.companyId;
   const sp = await searchParams;

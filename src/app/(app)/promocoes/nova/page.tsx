@@ -1,4 +1,4 @@
-import { assertAdmin } from "@/lib/auth";
+import { assertAdmin, requireModule } from "@/lib/auth";
 import { sellableProducts } from "@/lib/stock";
 import { PageHeader } from "@/components/ui";
 import PromotionForm from "../PromotionForm";
@@ -7,6 +7,7 @@ import { createPromotion } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function NovaPromocaoPage() {
+  await requireModule("promocoes");
   await assertAdmin();
   const produtos = await sellableProducts();
   return (

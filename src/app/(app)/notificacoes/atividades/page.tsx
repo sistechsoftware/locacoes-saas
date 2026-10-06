@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { all, one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { NOTIFICATION_TYPES, type Activity } from "@/lib/push-rules";
 import { Empty, PageHeader } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { completeSeparation, updateActivity } from "../push-actions";
 
 export default async function ActivitiesPage({searchParams}:{searchParams:Promise<{reserva?:string;tipo?:string;estado?:string}>}) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("notificacoes");
   const user = ctx.user;
   const cid = ctx.companyId;
   const sp = await searchParams;

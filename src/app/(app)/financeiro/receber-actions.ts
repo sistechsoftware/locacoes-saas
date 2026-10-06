@@ -2,14 +2,14 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { gerarRecebiveis } from "@/lib/receber";
 import { money, parseMoney, today } from "@/lib/format";
 
 /** Cria as parcelas a receber de uma reserva. */
 export async function parcelarReserva(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   const reservationId = Number(fd.get("reservation_id"));
   const erro = await gerarRecebiveis(
     { tipo: "locacao", reservationId },
@@ -30,7 +30,7 @@ export async function parcelarReserva(fd: FormData) {
 
 /** Cria as parcelas a receber de um frete. */
 export async function parcelarFrete(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   const freightId = Number(fd.get("freight_id"));
   const erro = await gerarRecebiveis(
     { tipo: "frete", freightId },
@@ -57,7 +57,7 @@ export async function parcelarFrete(fd: FormData) {
  * a soma destes lancamentos.
  */
 export async function receberParcela(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("financeiro");
   const entryId = Number(fd.get("entry_id"));
   const valor = parseMoney(String(fd.get("amount") ?? ""));
   // Isolamento: parcela de outra empresa é "não encontrada".

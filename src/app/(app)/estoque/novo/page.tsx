@@ -1,5 +1,5 @@
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import ProductForm from "../ProductForm";
 import { createProduct } from "../actions";
@@ -7,7 +7,7 @@ import { createProduct } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function NovoProdutoPage() {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("estoque");
   const cid = ctx.companyId;
   const categories = await all<any>(`SELECT id, name FROM categories WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
   const simpleProducts = await all<any>(

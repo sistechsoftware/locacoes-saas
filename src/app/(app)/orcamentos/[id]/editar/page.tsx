@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { quoteItems } from "@/lib/reservations";
 import { PageHeader } from "@/components/ui";
 import QuoteForm from "../../QuoteForm";
@@ -12,7 +12,7 @@ import { CUSTOMER_PICK_COLUMNS } from "@/lib/queries";
 export const dynamic = "force-dynamic";
 
 export default async function EditarOrcamentoPage({ params }: { params: Promise<{ id: string }> }) {
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("orcamentos");
   const cid = ctx.companyId;
   const { id } = await params;
   // Isolamento: orçamento de outra empresa é inexistente para este usuário.

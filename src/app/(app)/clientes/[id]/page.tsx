@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { all } from "@/lib/db";
-import { requireCompanyContext } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { getCustomer } from "@/lib/queries";
 import { logsFor } from "@/lib/audit";
@@ -32,7 +32,7 @@ export default async function ClientePage({
 }) {
   /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant):
      o cliente da URL so resolve se pertencer a esta empresa. */
-  const ctx = await requireCompanyContext();
+  const ctx = await requireModule("clientes");
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;

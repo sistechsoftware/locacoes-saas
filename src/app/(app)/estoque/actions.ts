@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { parseMoney, today } from "@/lib/format";
 import { loadSpecs } from "@/lib/stock";
@@ -54,7 +54,7 @@ async function saveComponents(parentId: number, companyId: number, components: C
 }
 
 export async function createProduct(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("estoque");
   const p = readProduct(fd);
   if (!p.name) return "Informe o nome do produto.";
   if (!p.code) return "Informe um codigo (ex.: MESA, CAD).";
@@ -105,7 +105,7 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
 }
 
 export async function updateProduct(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("estoque");
   const id = Number(fd.get("id"));
   const p = readProduct(fd);
   // Isolamento: produto de outra empresa é "não encontrado".
@@ -210,7 +210,7 @@ export async function deleteProduct(fd: FormData) {
 /* ---------------------------- unidades individuais ---------------------------- */
 
 export async function addUnits(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("estoque");
   const productId = Number(fd.get("product_id"));
   const qty = Math.max(1, Math.min(200, Number(fd.get("qty")) || 1));
   const p = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [productId, user.company_id]);
@@ -236,7 +236,7 @@ export async function addUnits(fd: FormData) {
 }
 
 export async function setUnitStatus(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("estoque");
   const unitId = Number(fd.get("unit_id"));
   const status = String(fd.get("status"));
   const u = await one<any>(
@@ -267,7 +267,7 @@ export async function deleteUnit(fd: FormData) {
 /* -------------------------------- manutencao ---------------------------------- */
 
 export async function openMaintenance(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("estoque");
   const productId = Number(fd.get("product_id"));
   const qty = Math.max(1, Number(fd.get("qty")) || 1);
   const p = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [productId, user.company_id]);
@@ -297,7 +297,7 @@ export async function openMaintenance(fd: FormData) {
 }
 
 export async function closeMaintenance(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("estoque");
   const id = Number(fd.get("id"));
   const m = await one<any>(
     `SELECT m.*, p.name FROM maintenance m JOIN products p ON p.id = m.product_id WHERE m.id = ? AND m.company_id = ?`,
@@ -316,7 +316,7 @@ export async function closeMaintenance(fd: FormData) {
 /* -------------------------------- categorias ---------------------------------- */
 
 export async function createCategory(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("estoque");
   const name = String(fd.get("name") ?? "").trim();
   if (!name) return;
   await run(`INSERT OR IGNORE INTO categories (name, company_id) VALUES (?,?)`, [name, user.company_id]);

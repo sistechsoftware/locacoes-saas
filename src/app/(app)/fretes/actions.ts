@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { insert, nextNumber, one, run } from "@/lib/db";
-import { assertAdmin, requireCompanyContext, requireUser } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money, parseMoney } from "@/lib/format";
 import { setSettings } from "@/lib/settings";
@@ -26,7 +26,7 @@ function read(fd: FormData) {
 }
 
 export async function createFreight(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("fretes");
   const f = read(fd);
   if (!f.date) return "Informe a data do frete.";
   if (!f.contact_name && !f.customer_id) return "Informe o cliente ou o nome do contato.";
@@ -63,7 +63,7 @@ export async function createFreight(_prev: string | null, fd: FormData): Promise
 }
 
 export async function updateFreight(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("fretes");
   const id = Number(fd.get("id"));
   const f = read(fd);
   // Isolamento: frete de outra empresa é "não encontrado".
@@ -97,7 +97,7 @@ export async function updateFreight(_prev: string | null, fd: FormData): Promise
 }
 
 export async function setFreightStatus(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("fretes");
   const id = Number(fd.get("id"));
   const status = String(fd.get("status"));
   const f = await one<any>(`SELECT * FROM freights WHERE id = ? AND company_id = ?`, [id, companyId]);
@@ -109,7 +109,7 @@ export async function setFreightStatus(fd: FormData) {
 }
 
 export async function payFreight(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("fretes", "financeiro");
   const id = Number(fd.get("id"));
   const f = await one<any>(`SELECT * FROM freights WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!f) return;
@@ -136,7 +136,7 @@ export async function deleteFreight(fd: FormData) {
 
 /** Guarda o preco do litro usado na calculadora como novo padrao. */
 export async function salvarPrecoCombustivel(fd: FormData) {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("fretes");
   const cents = parseMoney(String(fd.get("preco") ?? ""));
   if (cents <= 0) return;
   const tipo = fd.get("tipo");

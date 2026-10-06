@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getDb, insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, PermissionError, requireCompanyContext, requireUser } from "@/lib/auth";
+import { assertAdmin, PermissionError, requireModuleEdit } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { validarDocumento } from "@/lib/assinatura";
@@ -27,7 +27,7 @@ function readCustomer(fd: FormData) {
 }
 
 export async function createCustomer(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("clientes");
   const c = readCustomer(fd);
   if (!c.name) return "Informe o nome do cliente.";
   if (c.birth_date && !valida(c.birth_date)) return "Data de nascimento inválida.";
@@ -45,13 +45,13 @@ export async function createCustomer(_prev: string | null, fd: FormData): Promis
 }
 
 export async function updateCustomer(_prev: string | null, fd: FormData): Promise<string | null> {
-  const user = await requireUser();
+  const { user } = await requireModuleEdit("clientes");
   const id = Number(fd.get("id"));
   const c = readCustomer(fd);
   if (!c.name) return "Informe o nome do cliente.";
   if (c.birth_date && !valida(c.birth_date)) return "Data de nascimento inválida.";
 
-  const { companyId } = await requireCompanyContext();
+  const { companyId } = await requireModuleEdit("clientes");
   await run(
     `UPDATE customers SET name=?, doc=?, phone=?, whatsapp=?, email=?, address=?, district=?, city=?, zip=?,
             birth_date=?, notes=?, updated_at = datetime('now','localtime')
@@ -65,7 +65,7 @@ export async function updateCustomer(_prev: string | null, fd: FormData): Promis
 
 /** Inativacao logica: preserva o historico de locacoes do cliente. */
 export async function toggleCustomer(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("clientes");
   if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
   const c = await one<any>(`SELECT * FROM customers WHERE id = ? AND company_id = ?`, [id, companyId]);
@@ -78,7 +78,7 @@ export async function toggleCustomer(fd: FormData) {
 
 /** Exclusao definitiva, permitida apenas quando o cliente nao tem historico. */
 export async function deleteCustomer(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("clientes");
   if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
   const usados = await scalar<number>(
@@ -108,7 +108,7 @@ export async function deleteCustomer(fd: FormData) {
  * porque um cliente acumula contratos ao longo dos anos.
  */
 export async function adicionarDocumento(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("clientes");
   const customerId = Number(fd.get("customer_id"));
   // cliente precisa ser da empresa: upload nao pode virar ponte entre tenants
   const dono = await one<any>(`SELECT id FROM customers WHERE id = ? AND company_id = ?`, [customerId, companyId]);
@@ -151,7 +151,7 @@ export async function adicionarDocumento(fd: FormData) {
 
 /** Remove um documento anexado, deixando rastro na auditoria. */
 export async function removerDocumento(fd: FormData) {
-  const { user, companyId } = await requireCompanyContext();
+  const { user, companyId } = await requireModuleEdit("clientes");
   if (!ehAdmin(user.role)) throw new PermissionError();
   const id = Number(fd.get("id"));
   const doc = await one<any>(`SELECT * FROM customer_documents WHERE id = ? AND company_id = ?`, [id, companyId]);

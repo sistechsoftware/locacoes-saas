@@ -2,7 +2,7 @@ import Link from "next/link";
 import AvailabilityFilter from "@/components/AvailabilityFilter";
 import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-time";
 import { stockOptions } from "@/lib/availability-settings";
-import { requireUser } from "@/lib/auth";
+import { requireModule } from "@/lib/auth";
 import { agendaEvents, dashboardStats, freightsOn, lateFreights, lateOperations, operationsOn, ordenarOperacoesMistas } from "@/lib/queries";
 import { listNotifications, rebuildNotifications } from "@/lib/notifications";
 import { dateBR, money, moneyShort, today } from "@/lib/format";
@@ -28,7 +28,7 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<AvailabilityParams & { erro?: string }>;
 }) {
-  const user = await requireUser();
+  const { user } = await requireModule("dashboard");
   const sp = await searchParams;
   const { erro } = sp;
   const query = availabilityQuery(sp);
