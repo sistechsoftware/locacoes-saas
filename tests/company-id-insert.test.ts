@@ -94,6 +94,38 @@ function arquivosTs(dir: string): string[] {
 }
 
 /**
+ * Lista de colunas de um INSERT, ou null quando não existe (INSERT ... SELECT
+ * sem lista explícita).
+ *
+ * O olho ANTIGO testava os 700 chars seguintes ao `INSERT INTO`, o que deixava
+ * passar `INSERT INTO push_deliveries(notification_id,subscription_id) SELECT
+ * ... s.company_id=n.company_id ...`: o company_id do JOIN não é coluna
+ * gravada. Agora só vale o que está DENTRO dos parênteses das colunas.
+ */
+export function listaDeColunas(statement: string): string | null {
+  const fim = statement.search(/[;`]/);
+  const corpo = fim > 0 ? statement.slice(0, fim) : statement;
+  const abre = corpo.indexOf("(");
+  if (abre < 0) return null;
+  let profundidade = 0;
+  for (let i = abre; i < corpo.length; i++) {
+    const c = corpo[i];
+    if (c === "(") profundidade++;
+    else if (c === ")") {
+      profundidade--;
+      if (profundidade === 0) return corpo.slice(abre + 1, i);
+    }
+  }
+  return null;
+}
+
+/** O statement declara company_id na lista de colunas gravados? */
+export function declaraCompanyId(statement: string): boolean {
+  const cols = listaDeColunas(statement);
+  return cols !== null && /\bcompany_id\b/i.test(cols);
+}
+
+/**
  * INSERTs sem company_id em tabelas que têm a coluna.
  *
  * Exceções conscientes:
@@ -112,11 +144,9 @@ function insertsPendentes(): string[] {
     for (const m of fonte.matchAll(/INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(\w+)/gi)) {
       const tabela = m[1].toLowerCase();
       if (!tabelas.has(tabela)) continue;
-      let trecho = fonte.slice(m.index, m.index + 700);
-      const fim = trecho.search(/[;`]/);
-      if (fim > 0) trecho = trecho.slice(0, fim);
+      const statement = fonte.slice(m.index, m.index + 700);
       const dinamico = /\bfields\.map\b/.test(fonte.slice(Math.max(0, m.index - 200), m.index + 300));
-      if (/company_id/i.test(trecho) || dinamico) continue;
+      if (declaraCompanyId(statement) || dinamico) continue;
       pendentes.push(`${path.relative(process.cwd(), arquivo)} -> INSERT INTO ${m[1]}`);
     }
   }
@@ -130,6 +160,31 @@ describe("PENDÊNCIA #04 — guarda estática dos INSERTs", () => {
       pendentes,
       [],
       `INSERTs gravando company_id DEFAULT 1 (corrija o statement ou registre exceção justificada):\n  ${pendentes.join("\n  ")}`,
+    );
+  });
+
+  it("a guarda captura um INSERT que só menciona company_id fora da lista de colunas", () => {
+    // O bug original do scheduler: colunas sem company_id, mas o statement
+    // "fala" company_id no JOIN seguinte. A guarda precisa barrar isso.
+    const bugReal = `INSERT OR IGNORE INTO push_deliveries(notification_id,subscription_id)
+      SELECT n.id,s.id FROM user_notifications n JOIN push_subscriptions s ON s.user_id=n.user_id AND s.company_id=n.company_id
+      WHERE n.event_id=? AND n.company_id=?`;
+    assert.equal(declaraCompanyId(bugReal), false, "guarda deixou passar INSERT sem company_id nas colunas");
+
+    // Statements sem lista de colunas também são recusados (nada é gravado
+    // explicitamente, então o DEFAULT 1 entraria).
+    assert.equal(declaraCompanyId("INSERT INTO push_deliveries SELECT 1, 2"), false);
+    assert.equal(declaraCompanyId("INSERT INTO push_deliveries VALUES (1, 2)"), false);
+
+    // O statement corrigido passa — e a lista é o que importa.
+    const corrigido = `INSERT OR IGNORE INTO push_deliveries(company_id,notification_id,subscription_id)
+      SELECT n.company_id,n.id,s.id FROM user_notifications n JOIN push_subscriptions s ON s.user_id=n.user_id`;
+    assert.equal(declaraCompanyId(corrigido), true);
+
+    // Lista de colunas com parênteses aninhados não confunde a leitura.
+    assert.equal(
+      declaraCompanyId("INSERT INTO user_notifications(user_id,type,title,(SELECT 1),company_id) VALUES (1,2,3,4,5)"),
+      true,
     );
   });
 });

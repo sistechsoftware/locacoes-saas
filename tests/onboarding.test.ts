@@ -6,7 +6,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTestDb, resetTestDb } from "./helpers/d1.ts";
-import { one, resetCompanyCache, run, scalar } from "../src/lib/db.ts";
+import { all, one, resetCompanyCache, run, scalar } from "../src/lib/db.ts";
 
 function diaBR(offset: number): string {
   return new Date(Date.now() - 3 * 3600000 + offset * 86400000).toISOString().slice(0, 10);
@@ -90,6 +90,27 @@ describe("criação de empresa + trial via checkout", () => {
     const estado = await estadoAssinatura(r.companyId);
     assert.equal(estado.status, "trial");
     assert.equal(estado.bloqueioDuro, false);
+
+    // Pendência #04: a empresa nova nasce com as 12 regras de notificação.
+    // Sem isto o cron não acha regra (push cancelled) e a tela de
+    // preferências mostra zero regras para este tenant.
+    const { REGRAS_PADRAO } = await import("../src/lib/push-rules.ts");
+    const regras = await all<{ type: string; enabled: number; offsets: string }>(
+      `SELECT type, enabled, offsets FROM notification_rules WHERE company_id = ? ORDER BY type`,
+      [r.companyId],
+    );
+    assert.equal(regras.length, REGRAS_PADRAO.length, "empresa nova ficou sem regras padrão");
+    assert.deepEqual(
+      regras.map((x) => x.type).sort(),
+      REGRAS_PADRAO.map((x) => x.type).sort(),
+      "conjunto de regras da empresa nova difere do padrão",
+    );
+    // As regras da empresa 1 continuam intactas (INSERT OR IGNORE por empresa).
+    assert.equal(
+      await scalar(`SELECT COUNT(*) FROM notification_rules WHERE company_id = 1`),
+      REGRAS_PADRAO.length,
+      "onboarding tocou nas regras da empresa 1",
+    );
   });
 
   it("recusa username já usado, plano inativo e empresa ativa com mesmo nome", async () => {

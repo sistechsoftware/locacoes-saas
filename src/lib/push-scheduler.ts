@@ -79,8 +79,12 @@ export async function runNotificationScheduler(db: D1Database, now = Math.floor(
     JOIN notification_rules r ON r.type=a.kind AND r.company_id=? JOIN json_each(r.offsets) j
     WHERE a.company_id=? AND a.status='pending' AND a.scheduled_at<>''
     AND unixepoch(replace(a.scheduled_at,' ','T') || '-03:00')-j.value*60 BETWEEN ? AND ?`, [companyId,now,companyId,companyId,now-300,now]);
+  // Escopo de empresa: o cron itera as empresas em ordem de id, entao a
+  // empresa 1 rodaria PRIMEIRO e consumiria (processed=1) os eventos das
+  // demais — a atividade alheia viraria notificacao daqui e o dono real
+  // nunca receberia push. O DONO do evento e a atividade (a.company_id).
   const events = await rows<EventRow>(db, `SELECT a.*,e.id AS event_id,e.type AS event_type,e.revision AS event_revision,e.offset_minutes,e.created_at
-    FROM notification_events e JOIN activities a ON a.id=e.activity_id WHERE e.processed=0 ORDER BY e.id LIMIT 5`);
+    FROM notification_events e JOIN activities a ON a.id=e.activity_id WHERE e.processed=0 AND a.company_id=? ORDER BY e.id LIMIT 5`, [companyId]);
   let created = 0;
   for (const e of events) {
     if (e.revision !== e.event_revision || (e.status !== "pending" && e.event_type !== "cancelamento") || now-e.created_at > 86400) {
@@ -123,8 +127,8 @@ export async function runNotificationScheduler(db: D1Database, now = Math.floor(
             SELECT 1 FROM user_operational_roles ur JOIN json_each(?) mapping ON mapping.key=ur.role
             JOIN json_each(mapping.value) kinds WHERE ur.user_id=u.id AND kinds.value=a.kind
           ))))`).bind(e.event_id,type,title,body,e.link,now,type,e.id,e.revision,companyId,JSON.stringify(ROLE_KINDS)),
-      db.prepare(`INSERT OR IGNORE INTO push_deliveries(notification_id,subscription_id)
-        SELECT n.id,s.id FROM user_notifications n JOIN push_subscriptions s ON s.user_id=n.user_id AND s.company_id=n.company_id
+      db.prepare(`INSERT OR IGNORE INTO push_deliveries(company_id,notification_id,subscription_id)
+        SELECT n.company_id,n.id,s.id FROM user_notifications n JOIN push_subscriptions s ON s.user_id=n.user_id AND s.company_id=n.company_id
         WHERE n.event_id=? AND n.company_id=? AND s.enabled=1 AND (s.expiration_time IS NULL OR s.expiration_time>?)`).bind(e.event_id,companyId,now*1000),
       db.prepare("UPDATE notification_events SET processed=1 WHERE id=?").bind(e.event_id),
     ]);
