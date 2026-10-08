@@ -5,6 +5,30 @@ export const NOTIFICATION_TYPES = {
   chat: "Mensagens do chat",
 };
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
+
+/**
+ * As 12 regras padrao, uma por tipo de notificacao — a fonte TS das linhas
+ * que a migration 0034 semeia para CADA empresa (0006 = 10 tipos, 0010 =
+ * aniversario sem lembrete, 0014 = chat com aviso imediato).
+ *
+ * Usada pelo onboarding para nascer com as regras da empresa nova; o teste de
+ * paridade (tests/push-multi-tenant.test.ts) garante que esta lista, os tipos
+ * da tela (NOTIFICATION_TYPES) e o backfill da 0034 andam sempre juntas.
+ */
+export const REGRAS_PADRAO: { type: NotificationType; enabled: 0 | 1; offsets: string; message: string }[] = [
+  { type: "entrega", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "retirada", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "montagem", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "desmontagem", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "separacao", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "reserva", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "frete", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "financeiro", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "alteracao", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "cancelamento", enabled: 1, offsets: "[60,0]", message: "" },
+  { type: "aniversario", enabled: 1, offsets: "[]", message: "" },
+  { type: "chat", enabled: 1, offsets: "[0]", message: "" },
+];
 export const OFFSETS = [1440, 720, 120, 60, 30, 15, 0];
 export const ROLE_KINDS: Record<string, string[]> = {
   entregador: ["entrega", "frete"], retirador: ["retirada"], montador: ["montagem", "desmontagem"],

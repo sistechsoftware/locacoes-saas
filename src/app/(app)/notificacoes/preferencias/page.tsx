@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireModule, listUsers } from "@/lib/auth";
+import { ehAdmin } from "@/lib/roles";
 import { all, one } from "@/lib/db";
 import { NOTIFICATION_TYPES, OFFSETS } from "@/lib/push-rules";
 import { PageHeader, Section } from "@/components/ui";
@@ -17,8 +18,12 @@ export default async function PreferencesPage() {
     "SELECT ur.user_id, ur.role FROM user_operational_roles ur JOIN users u ON u.id = ur.user_id WHERE u.company_id=?",
     [user.company_id],
   );
-  const rules = user.role==="admin" ? await all<{type:string;enabled:number;offsets:string;message:string}>("SELECT * FROM notification_rules WHERE company_id=?",[user.company_id]) : [];
-  const users = user.role==="admin" ? await listUsers() : [];
+  // owner + admin: toda empresa nova nasce com um OWNER (onboarding) e a
+  // action savePushRules usa assertAdmin(), que ja aceita owner — a tela nao
+  // pode esconder as regras de quem pode salva-las (roles.ts: ehAdmin).
+  const gerencia = ehAdmin(user.role);
+  const rules = gerencia ? await all<{type:string;enabled:number;offsets:string;message:string}>("SELECT * FROM notification_rules WHERE company_id=?",[user.company_id]) : [];
+  const users = gerencia ? await listUsers() : [];
   const enabled = await one<{value:string}>("SELECT value FROM company_settings WHERE company_id=? AND key='push_enabled'",[user.company_id]);
   const lastRun = await one<{value:string}>("SELECT value FROM scheduler_state WHERE key='last_run'");
   return <div className="space-y-4">
@@ -34,7 +39,7 @@ export default async function PreferencesPage() {
         <SubmitButton>Salvar Preferências</SubmitButton>
       </form>
     </Section>
-    {user.role==="admin" && <>
+    {gerencia && <>
       <Section title="Funções Operacionais dos Usuários">
         <p className="text-sm text-stone-600 mb-3">Funções independentes das permissões de acesso. Um usuário pode ter várias funções.</p>
         {users.map(u=><form key={u.id} action={saveRoles} className="border rounded-xl p-3 mb-3 space-y-2"><input type="hidden" name="user_id" value={u.id}/><h3 className="font-bold">{u.name} · {u.role}{!u.active&&" (inativo)"}</h3><div className="flex flex-wrap gap-3">{roles.map(r=><label key={r.key} className="text-sm flex items-center gap-1"><input type="checkbox" name="roles" value={r.key} defaultChecked={assignments.some(a=>a.user_id===u.id&&a.role===r.key)}/>{r.label}</label>)}</div><SubmitButton variant="secundario">Salvar Funções</SubmitButton></form>)}

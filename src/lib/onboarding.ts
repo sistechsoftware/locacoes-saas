@@ -1,4 +1,5 @@
 import { insert, one, run, scalar } from "./db";
+import { REGRAS_PADRAO } from "./push-rules";
 import type { ResultadoSetup } from "./primeiro-acesso";
 
 /**
@@ -138,6 +139,16 @@ export async function criarEmpresaComTrial(entrada: {
     `INSERT INTO company_settings (company_id, key, value) VALUES (?, 'company_name', ?),
        (?, 'doc_prefix_reservations', 'LOC')`,
     [companyId, dados.empresa, companyId],
+  );
+
+  // Regras de notificacao da empresa nova: a 0027 deixou a tabela com uma
+  // linha por tipo SO para a empresa 1 (PK antiga era 'type'); sem estas 12
+  // linhas o cron nao acha regra (rule_enabled NULL -> push cancelled) e a
+  // tela de preferencias mostra zero regras. INSERT OR IGNORE = idempotente.
+  await run(
+    `INSERT OR IGNORE INTO notification_rules (company_id, type, enabled, offsets, message)
+     VALUES ${REGRAS_PADRAO.map(() => "(?,?,?,?,?)").join(",")}`,
+    REGRAS_PADRAO.flatMap((r) => [companyId, r.type, r.enabled, r.offsets, r.message]),
   );
 
   // Trial na hora: mesma semântica do gancho automático de billing, mas com
