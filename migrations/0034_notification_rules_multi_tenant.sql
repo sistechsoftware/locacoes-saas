@@ -75,23 +75,32 @@ CREATE INDEX IF NOT EXISTS idx_notifrules_company
 --   0014 -> 'chat'          enabled=1, offsets='[0]'  (aviso imediato)
 -- INSERT OR IGNORE: linha ja existente (inclusive as da empresa 1, que podem
 -- ter offsets/mensagem personalizados) permanece intacta.
+--
+-- POR QUE VALUES E NAO UNION ALL: o D1 remoto limita SQLITE_LIMIT_COMPOUND_SELECT
+-- a 5 termos (medido em 06/10/2026 em limas-saas-staging-db: 5 termos passam,
+-- 6 ja falham). O UNION ALL de 12 tipos morria com "too many terms in compound
+-- SELECT: SQLITE_ERROR [code: 7500]" e derrubava a migration inteira (rollback
+-- verificado: nenhuma linha aplicada, schema antigo intacto). A CTE com VALUES
+-- entrega a mesma lista sem compound SELECT e roda igual no SQLite local dos
+-- testes (limite 500).
+WITH regras (type, enabled, offsets, message) AS (
+  VALUES ('entrega',      1, '[60,0]', '')
+       , ('retirada',     1, '[60,0]', '')
+       , ('montagem',     1, '[60,0]', '')
+       , ('desmontagem',  1, '[60,0]', '')
+       , ('separacao',    1, '[60,0]', '')
+       , ('reserva',      1, '[60,0]', '')
+       , ('frete',        1, '[60,0]', '')
+       , ('financeiro',   1, '[60,0]', '')
+       , ('alteracao',    1, '[60,0]', '')
+       , ('cancelamento', 1, '[60,0]', '')
+       , ('aniversario',  1, '[]',     '')
+       , ('chat',         1, '[0]',    '')
+)
 INSERT OR IGNORE INTO notification_rules (company_id, type, enabled, offsets, message)
-SELECT c.id, v.type, v.enabled, v.offsets, v.message
+SELECT c.id, r.type, r.enabled, r.offsets, r.message
 FROM companies c
-CROSS JOIN (
-  SELECT 'entrega'     AS type, 1 AS enabled, '[60,0]' AS offsets, '' AS message
-  UNION ALL SELECT 'retirada',    1, '[60,0]', ''
-  UNION ALL SELECT 'montagem',    1, '[60,0]', ''
-  UNION ALL SELECT 'desmontagem', 1, '[60,0]', ''
-  UNION ALL SELECT 'separacao',   1, '[60,0]', ''
-  UNION ALL SELECT 'reserva',     1, '[60,0]', ''
-  UNION ALL SELECT 'frete',       1, '[60,0]', ''
-  UNION ALL SELECT 'financeiro',  1, '[60,0]', ''
-  UNION ALL SELECT 'alteracao',   1, '[60,0]', ''
-  UNION ALL SELECT 'cancelamento',1, '[60,0]', ''
-  UNION ALL SELECT 'aniversario', 1, '[]',     ''
-  UNION ALL SELECT 'chat',        1, '[0]',    ''
-) v;
+CROSS JOIN regras r;
 
 -- ----------------------------------------------------------------------------
 -- 4) BACKFILL: notification_events alinhado pela atividade dona
