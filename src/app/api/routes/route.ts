@@ -8,6 +8,7 @@ import { one, run } from "@/lib/db";
 
 export async function POST(request: Request) {
   const user = await apiUser(request, true);
+  if (user instanceof Response) return user;
   if (!user) return Response.json({ error: "Sessão expirada ou origem inválida." }, { status: 401 });
   try {
     if (!await rateLimit(`maps:${user.id}`, 30)) throw new RouteError("Muitas consultas. Aguarde um minuto.", 429);

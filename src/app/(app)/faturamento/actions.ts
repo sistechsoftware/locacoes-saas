@@ -11,7 +11,11 @@ import { logAction } from "@/lib/audit";
  * acionável em vez de explodir — a tela mostra o erro e o sistema segue.
  */
 export async function gerarCobrancaAction(): Promise<{ ok: boolean; mensagem: string; url?: string }> {
-  const { user } = await requireModuleEdit("assinatura");
+  // Pendência #05: a ÚNICA action que não pode ser barrada pelo gate — ela é
+  // o botão "gerar cobrança PIX" da tela /assinatura-bloqueada, o caminho de
+  // recuperação da própria conta bloqueada. Bloqueá-la trancaria a porta por
+  // dentro. A exceção é listada em teste estático (bloqueio: "ignorar").
+  const { user } = await requireModuleEdit("assinatura", { bloqueio: "ignorar" });
   if (user.role !== "owner") throw new PermissionError("Somente o proprietário pode gerar cobranças.");
 
   const r = await gerarCobrancaPeriodo(user.company_id);

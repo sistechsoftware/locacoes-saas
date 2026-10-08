@@ -1,4 +1,4 @@
-import { currentUser } from "@/lib/auth";
+import { apiUser } from "@/lib/api-security";
 import { canView, ehAdmin, type Module } from "@/lib/roles";
 import { getFile } from "@/lib/uploads";
 import { one } from "@/lib/db";
@@ -32,8 +32,11 @@ function resposta(file: { mime: string; data: Uint8Array }, cache: string) {
  * O que é genuinamente público (logo da empresa) tem rota própria:
  * /api/publico/arquivo/[id].
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await currentUser();
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  // Pendência #05: passa pelo apiUser, que é o ponto único de autenticação
+  // das rotas /api internas e já aplica o gate de assinatura.
+  const user = await apiUser(request);
+  if (user instanceof Response) return user;
   if (!user) return new Response("Não autenticado.", { status: 401 });
 
   const { id } = await params;

@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth";
-import { estadoAssinatura } from "@/lib/billing";
+import { estadoAssinaturaSeguro } from "@/lib/assinatura-gate";
 import { redirect } from "next/navigation";
 import PushRegistration from "@/components/PushRegistration";
 import { scalar } from "@/lib/db";
@@ -12,15 +12,19 @@ import { BottomNav, FloatingAction, Sidebar, TopBar } from "@/components/Shell";
 export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireUser();
+  // Este layout É quem trata o bloqueio (redireciona para a tela explicativa),
+  // por isso é o único ponto que pede o gate "ignorar" — ver teste estático.
+  const user = await requireUser({ bloqueio: "ignorar" });
   /*
    * Gate comercial (Etapa 3): assinatura expirada/suspensa/cancelada bloqueia
-   * TODA a area autenticada. Falha ao consultar (ex.: banco indisponivel) NAO
-   * bloqueia — o gate e fail-open por design, para nunca derrubar a operacao
-   * por um erro transitorio da camada comercial.
+   * TODA a area autenticada. Pendência #05: a leitura não é mais fail-open —
+   * estadoAssinaturaSeguro devolve o último estado conhecido quando a consulta
+   * falha e `null` (desconhecido) quando não há evidência recente; sem
+   * confirmação de que a conta está boa, o gate não abre (as escritas são
+   * barradas pelo mesmo helper no backend).
    */
-  const estado = await estadoAssinatura(user.company_id).catch(() => null);
-  const bloqueado = estado?.bloqueioDuro === true;
+  const estado = await estadoAssinaturaSeguro(user.company_id);
+  const bloqueado = estado === null || estado.bloqueioDuro === true;
   if (bloqueado && user.platform_admin === false) {
     return <AssinaturaBloqueada />;
   }

@@ -9,7 +9,8 @@ import { ListRow, SearchForm } from "@/components/List";
 export const dynamic = "force-dynamic";
 
 export default async function BuscaPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  await requireUser();
+  // Página: assinatura bloqueada redireciona para a tela explicativa.
+  await requireUser({ bloqueio: "redirecionar" });
   const { q = "" } = await searchParams;
   const termo = q.trim();
   if (!termo) redirect("/dashboard");

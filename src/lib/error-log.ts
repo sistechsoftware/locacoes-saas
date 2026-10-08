@@ -20,7 +20,9 @@ import { all, currentCompanyId, insert, run, scalar, runWithDb } from "./db";
 async function usuarioCorrente(): Promise<{ id: number | null; name: string }> {
   try {
     const { requireUser } = await import("./auth");
-    const u = await requireUser();
+    // Pendência #05: /api/log-erro fica de fora do gate de assinatura — o
+    // diário de erros precisa registrar o problema mesmo da conta bloqueada.
+    const u = await requireUser({ bloqueio: "ignorar" });
     return { id: u.id, name: u.name };
   } catch {
     return { id: null, name: "" };

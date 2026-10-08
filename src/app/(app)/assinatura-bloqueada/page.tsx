@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth";
-import { estadoAssinatura } from "@/lib/billing";
+import { estadoAssinaturaSeguro } from "@/lib/assinatura-gate";
 import GerarCobrancaButton from "../faturamento/GerarCobrancaButton";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +16,10 @@ function dataBR(iso: string | null) {
  * cobrança PIX daqui; os demais papéis veem a orientação de falar com ele.
  */
 export default async function AssinaturaBloqueadaPage() {
-  const user = await requireUser();
-  const estado = await estadoAssinatura(user.company_id);
+  // Esta tela É o bloqueio: é o segundo (e último) ponto autorizado a ignorar
+  // o gate — sem isso o usuário ficaria preso num erro em vez de vê-la.
+  const user = await requireUser({ bloqueio: "ignorar" });
+  const estado = await estadoAssinaturaSeguro(user.company_id);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-nuvem-200 to-nuvem-100 p-5">
@@ -28,13 +30,18 @@ export default async function AssinaturaBloqueadaPage() {
           </div>
           <h1 className="text-xl font-black text-tinta-900">Acesso temporariamente bloqueado</h1>
           <p className="mt-2 text-sm text-stone-600">
-            {estado.status === "trial" && (
+            {!estado && (
+              <>
+                Não foi possível confirmar a assinatura agora. <b>Tente novamente em instantes.</b>
+              </>
+            )}
+            {estado?.status === "trial" && (
               <>O período de avaliação terminou em <b>{dataBR(estado.trial_ends_at)}</b>.</>
             )}
-            {estado.status === "suspended" && <>A assinatura da empresa está suspensa por inadimplência.</>}
-            {estado.status === "canceled" && <>A assinatura da empresa foi cancelada.</>}
+            {estado?.status === "suspended" && <>A assinatura da empresa está suspensa por inadimplência.</>}
+            {estado?.status === "canceled" && <>A assinatura da empresa foi cancelada.</>}
           </p>
-          {estado.plano && (
+          {estado?.plano && (
             <p className="mt-3 text-sm text-stone-500">
               Plano <b>{estado.plano.name}</b> ·{" "}
               {(estado.plano.price_cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/mês

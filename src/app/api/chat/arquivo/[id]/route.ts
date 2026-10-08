@@ -13,6 +13,7 @@ import { getFileById } from "@/lib/uploads";
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await apiUser(request);
+  if (user instanceof Response) return user;
   if (!user) return new Response("Sessão expirada.", { status: 401 });
   const { id } = await params;
   if (!/^[0-9a-f]{32}$/.test(id)) return new Response("Not found", { status: 404 });
