@@ -118,11 +118,11 @@ export default async function FinanceiroPage({
       <Card>
         <form className="pilha-filtros">
           <input type="hidden" name="aba" value={aba} />
-          <label className="min-w-0 flex-1 basis-40">
+          <label className="min-w-0 flex-1 basis-full sm:basis-40">
             <span className="rotulo">De</span>
             <input type="date" name="de" defaultValue={de} className="campo data-hora" />
           </label>
-          <label className="min-w-0 flex-1 basis-40">
+          <label className="min-w-0 flex-1 basis-full sm:basis-40">
             <span className="rotulo">Até</span>
             <input type="date" name="ate" defaultValue={ate} className="campo data-hora" />
           </label>
