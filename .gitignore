@@ -26,6 +26,9 @@ public/uploads/*
 *.log
 .DS_Store
 
+# Backups do D1 (podem conter dados de clientes — NUNCA commitar)
+backups/
+
 # Secrets locais do novo projeto SaaS (VAPID proprias; NUNCA commitar)
 .dev.vars.saas
 .dev.vars.*

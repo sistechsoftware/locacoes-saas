@@ -1,0 +1,62 @@
+# Backup diário do D1 — produção e staging (pendência #09).
+#
+# Roda todo dia 03:00 UTC e também sob demanda (workflow_dispatch).
+# Usa scripts/db-backup.mjs, que exporta, assina (SHA-256), envia para o
+# bucket R2 de backups e poda os arquivos locais além da retenção de 30 dias.
+#
+# Secrets necessários no repositório (ver RUNBOOK-BACKUP-D1.md §Setup):
+#   CLOUDFLARE_API_TOKEN     token com permissão "D1:Read" e "Workers R2:Read+Write"
+#   CLOUDFLARE_ACCOUNT_ID    id da conta Cloudflare
+#
+# Sem esses secrets o job falha de propósito (o backup é obrigatório e a
+# falha precisa aparecer, não ficar silenciosa).
+
+name: Backup diário do D1
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC = 00:00 (meia-noite) horário de Brasília
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-d1
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Backup de produção
+        run: npm run db:backup:production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Backup de staging
+        run: npm run db:backup:staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Publicar manifesto como artefato (auditoria dos 30 dias)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifesto-backup-d1
+          path: backups/manifesto.log
+          if-no-files-found: ignore
+          retention-days: 30
