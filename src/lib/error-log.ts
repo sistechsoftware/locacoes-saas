@@ -1,5 +1,5 @@
 import "server-only";
-import { all, currentCompanyId, insert, run, scalar, runWithDb } from "./db";
+import { all, companyContextAtual, insert, run, scalar, runWithDb } from "./db";
 
 /**
  * Diario de erros do servidor (tabela error_logs, migration 0026).
@@ -9,6 +9,12 @@ import { all, currentCompanyId, insert, run, scalar, runWithDb } from "./db";
  * opera a aplicacao nunca descobre o que quebrou. Este modulo grava cada erro
  * com contexto minimo (rota, metodo, usuario) em uma unica linha, e o cron
  * diario poda o que passou de 30 dias.
+ *
+ * PENDÊNCIA #07 (escopo de empresa): cada linha nasce com o company_id DONO
+ * do erro — o da sessão/usuario afetado em request, o do contexto runWithCompany
+ * no cron — e com NULL quando o erro e GLOBAL (sem empresa). A tela /erros
+ * filtra por company_id da sessão; NULL so casaria com a visao sem filtro do
+ * platform_admin, entao erro global nunca vaza para um cliente.
  *
  * REGRA DE OURO: registrar erro NUNCA pode quebrar o fluxo original. Toda
  * funcao aqui engole a propria falha (console.error de emergencia) e devolve
@@ -29,6 +35,23 @@ async function usuarioCorrente(): Promise<{ id: number | null; name: string }> {
   }
 }
 
+/**
+ * Empresa da sessão atual (request), ou null fora de request/sem sessão.
+ *
+ * Usa companyContext (e nao requireUser) porque ele devolve null em vez de
+ * redirecionar: resolucao de escopo nunca pode mexer no fluxo original.
+ * Import dinâmico para nao puxar auth no carregamento do modulo (cron).
+ */
+async function empresaDaSessao(): Promise<number | null> {
+  try {
+    const { companyContext } = await import("./auth");
+    const ctx = await companyContext();
+    return ctx?.companyId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Uma linha de erro pronta para o banco. */
 export type ErroLog = {
   source: "onRequestError" | "api/log-erro" | "cron";
@@ -40,6 +63,15 @@ export type ErroLog = {
   userId?: number | null;
   userName?: string | null;
   context?: Record<string, unknown>;
+  /**
+   * Escopo da linha (pendência #07):
+   *
+   *  * número       → empresa dona (ex.: falha de cron por empresa);
+   *  * `null`       → erro GLOBAL de propósito, sem empresa;
+   *  * omitido      → resolve sozinho: usuário afetado → sessão → contexto de
+   *                   cron (runWithCompany) → NULL global.
+   */
+  companyId?: number | null;
 };
 
 const MAX = 4000;
@@ -62,24 +94,46 @@ function paraJson(valor: unknown): string | null {
   }
 }
 
+/**
+ * Empresa dona da linha (pendência #07). Nunca lança: qualquer falha aqui
+ * vira NULL (global) em vez de perder o registro do erro original.
+ *
+ * Ordem: escopo explícito → usuário afetado → sessão da request → contexto de
+ * cron (runWithCompany) → NULL. O fallback antigo era `currentCompanyId()`
+ * (empresa padrao = 1), que jogava TODOS os erros sem empresa na empresa 1 —
+ * ela enxergava os das outras (vazamento) e as demais nao viam nada proprio.
+ */
+async function resolverCompanyId(erro: ErroLog): Promise<number | null> {
+  // 1) Chamador ja sabe: cron por empresa passa o id; null = global declarado.
+  if (erro.companyId !== undefined) return erro.companyId;
+
+  // 2) Empresa do usuário afetado (onRequestError/registrarErroComUsuario).
+  if (erro.userId) {
+    try {
+      const cid = await scalar<number>(`SELECT company_id FROM users WHERE id = ?`, [erro.userId]);
+      if (cid && cid > 0) return cid;
+      // usuário não existe mais: cai nas etapas seguintes (sem DEFAULT 1)
+    } catch {
+      // banco fora do ar não pode derrubar o registro — segue a busca
+    }
+  }
+
+  // 3) Request com sessão: a empresa vem do cookie (auth.companyContext).
+  const sessao = await empresaDaSessao();
+  if (sessao) return sessao;
+
+  // 4) Cron: a empresa corrente fixada por runWithCompany (db, import estatico).
+  const fixada = companyContextAtual();
+  if (fixada !== undefined) return fixada;
+
+  // 5) Global de verdade (cron de plataforma, erro sem sessão): company_id NULL.
+  return null;
+}
+
 /** Grava o erro e resolve mesmo se o INSERT falhar. Devolve o id, ou null. */
 export async function registrarErro(erro: ErroLog): Promise<number | null> {
   try {
-    /* Pendência #04: a empresa do erro = empresa do usuário afetado; sem
-       sessão (cron/onRequestError) vale a empresa corrente do contexto.
-       Qualquer falha aqui e engolida — o diário nunca derruba o fluxo.
-       Pendência #08 (decisão #06): error_logs segue a MESMA regra do
-       audit_logs, mas com UMA coluna só (company_id) — a tabela nasceu
-       depois do multi-tenant (0026/0027) e nunca teve a cisão company_id_ref.
-       A migration 0033 backfilla as linhas legadas pelo usuário dono. */
-    let companyId = 1;
-    try {
-      companyId = erro.userId
-        ? (await scalar<number>(`SELECT company_id FROM users WHERE id = ?`, [erro.userId])) ?? 1
-        : await currentCompanyId();
-    } catch {
-      // segue com 1 (DEFAULT) em vez de perder o registro
-    }
+    const companyId = await resolverCompanyId(erro);
     return await insert(
       `INSERT INTO error_logs (created_at, source, kind, route, method, message, digest, user_id, user_name, context, company_id)
        VALUES (unixepoch(),?,?,?,?,?,?,?,?,?,?)`,

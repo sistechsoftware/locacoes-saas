@@ -48,6 +48,10 @@ export async function onRequestError(
       digest: error instanceof Error && "digest" in error ? String((error as any).digest) : null,
       userId: usuario?.id ?? null,
       userName: usuario?.name ?? null,
+      // Pendência #07: sem sessão o erro é de página anônima → global (NULL);
+      // com sessão, a empresa vem do userId (usuário afetado). O null explícito
+      // evita herdar o contexto de cron fixado no mesmo isolate.
+      companyId: usuario ? undefined : null,
       context: {
         url: request.path,
         routerKind: context.routerKind,
