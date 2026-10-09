@@ -25,6 +25,8 @@ import { createAccount, createSupplier } from "../compras/actions";
 import { money } from "@/lib/format";
 import UserForm from "./UserForm";
 import PasswordForm from "./PasswordForm";
+import CompletarCadastroForm from "./CompletarCadastroForm";
+import { one } from "@/lib/db";
 import { saveStockSettings } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +77,12 @@ export default async function ConfiguracoesPage({
         )
       : [];
   const users = admin ? await listUsers() : [];
+  // Identidade da PRÓPRIA sessão: alimenta o card de complemento cadastral
+  // (contas antigas sem tipo/documento/e-mail — migração 0037 não supõe nada).
+  const minhaIdentidade = await one<{ email: string | null; person_type: string | null; document: string | null }>(
+    `SELECT email, person_type, document FROM users WHERE id = ? AND company_id = ?`,
+    [user.id, cid],
+  );
   const finalidades = admin ? await todasFinalidades() : [];
   // assinatura da empresa: so o admin (proprietario) ve e gerencia esta aba
   const assinaturaEmpresa = admin ? await getCompanySignature() : null;
@@ -596,6 +604,12 @@ export default async function ConfiguracoesPage({
           </p>
           <AvatarForm url={user.avatar_url} name={user.name} />
           <PasswordForm />
+          {(!minhaIdentidade?.person_type || !minhaIdentidade?.document || !minhaIdentidade?.email) && (
+            <CompletarCadastroForm
+              semDocumento={!minhaIdentidade?.person_type || !minhaIdentidade?.document}
+              semEmail={!minhaIdentidade?.email}
+            />
+          )}
         </Section>
       )}
     </div>

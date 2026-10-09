@@ -27,6 +27,8 @@ export async function setupAction(_prev: string | null, formData: FormData): Pro
     username: String(formData.get("username") ?? ""),
     senha: String(formData.get("senha") ?? ""),
     email: String(formData.get("email") ?? ""),
+    tipo_pessoa: String(formData.get("tipo_pessoa") ?? ""),
+    documento: String(formData.get("documento") ?? ""),
   });
   if (!resultado.ok) return resultado.erro;
 

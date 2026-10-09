@@ -8,15 +8,19 @@ export default function LoginForm() {
   const [error, action] = useActionState(loginAction, null);
   return (
     <form action={action} className="space-y-4">
-      <Field label="Usuário">
+      <Field
+        label="CPF/CNPJ ou e-mail"
+        hint="Conta antiga? Também funciona o seu usuário de login."
+      >
         <input
-          name="username"
+          name="identifier"
           className="campo"
           autoCapitalize="none"
           autoCorrect="off"
           autoComplete="username"
           required
-          placeholder="admin"
+          maxLength={160}
+          placeholder="000.000.000-00 ou voce@empresa.com"
         />
       </Field>
       <Field label="Senha">

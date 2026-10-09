@@ -1,6 +1,8 @@
 import "server-only";
 import { hashPassword } from "./password";
 import { one, scalar } from "./db";
+import { documentoDoTipo, emailValido, normalizarEmail, tipoPessoaValido } from "./identidade";
+import { documentoJaUsado, emailJaUsado } from "./contas";
 
 /**
  * Fluxo real de primeiro acesso (Etapa 13 do deploy).
@@ -48,6 +50,10 @@ export async function criarPrimeiroOwner(entrada: {
   senha: string;
   /** Obrigatório: canal dos avisos (trial, cobrança) e da recuperação de senha. */
   email?: string;
+  /** Obrigatório: 'pf' | 'pj' — selecionado no formulário de cadastro. */
+  tipo_pessoa?: string;
+  /** Obrigatório: CPF (PF) ou CNPJ (PJ), validado pelos dígitos verificadores. */
+  documento?: string;
 }): Promise<ResultadoSetup> {
   const estado = await estadoInstalacao();
 
@@ -55,7 +61,7 @@ export async function criarPrimeiroOwner(entrada: {
   const nomeUsuario = String(entrada.nome ?? "").trim().slice(0, 80);
   const username = String(entrada.username ?? "").trim().toLowerCase().slice(0, 40);
   const senha = String(entrada.senha ?? "");
-  const email = String(entrada.email ?? "").trim().toLowerCase().slice(0, 120);
+  const email = normalizarEmail(entrada.email);
 
   if (!nomeEmpresa) return { ok: false, erro: "Informe o nome da empresa." };
   if (!nomeUsuario) return { ok: false, erro: "Informe o seu nome." };
@@ -63,7 +69,15 @@ export async function criarPrimeiroOwner(entrada: {
     return { ok: false, erro: "Usuário inválido: use 3+ caracteres (letras, números, ponto, hífen ou _)." };
   if (senha.length < 8) return { ok: false, erro: "A senha precisa ter pelo menos 8 caracteres." };
   if (!email) return { ok: false, erro: "Informe o e-mail — é o canal dos avisos e da recuperação de senha." };
-  if (!EMAIL_RX.test(email)) return { ok: false, erro: "E-mail inválido." };
+  if (!emailValido(email)) return { ok: false, erro: "E-mail inválido." };
+
+  // Tipo de pessoa + documento: validados no servidor, não só na tela.
+  const tipoPessoa = tipoPessoaValido(entrada.tipo_pessoa);
+  if (!tipoPessoa)
+    return { ok: false, erro: "Selecione o tipo de pessoa: Pessoa Física (PF) ou Pessoa Jurídica (PJ)." };
+  const doc = documentoDoTipo(tipoPessoa, entrada.documento);
+  if (!doc.ok) return { ok: false, erro: doc.erro };
+
   if (!estado.instalacaoVazia)
     return { ok: false, erro: "Esta instalação já possui um acesso configurado. Entre com o seu usuário." };
 
@@ -73,14 +87,18 @@ export async function criarPrimeiroOwner(entrada: {
     [username],
   );
   if (existente) return { ok: false, erro: "Este nome de usuário já está em uso." };
+  if (await documentoJaUsado(doc.documento))
+    return { ok: false, erro: "Este CPF/CNPJ já está cadastrado em outra conta." };
+  if (await emailJaUsado(email))
+    return { ok: false, erro: "Este e-mail já está cadastrado em outra conta." };
 
   const { run, insert } = await import("./db");
   // O primeiro acesso de uma instalacao nova e o operador da PLATAFORMA
   // (platform_admin, migration 0029): acessa o painel /saas alem do sistema.
   const userId = await insert(
-    `INSERT INTO users (name, username, email, password_hash, role, active, company_id, platform_admin)
-     VALUES (?,?,?,?,'owner',1,1,1)`,
-    [nomeUsuario, username, email, hashPassword(senha)],
+    `INSERT INTO users (name, username, email, password_hash, role, active, company_id, platform_admin, person_type, document)
+     VALUES (?,?,?,?,'owner',1,1,1,?,?)`,
+    [nomeUsuario, username, email, hashPassword(senha), tipoPessoa, doc.documento],
   );
   await run(
     `INSERT INTO company_settings (company_id, key, value) VALUES (1,'company_name',?)
@@ -89,5 +107,9 @@ export async function criarPrimeiroOwner(entrada: {
   );
   // E-mail da empresa = canal comercial (avisos de cobrança/trial via owner).
   await run(`UPDATE companies SET email = ? WHERE id = 1`, [email]);
+  // PJ: o CNPJ do responsável também é o documento da empresa (companies.document
+  // é o que a cobrança Asaas lê). PF: documento da pessoa fica só em users.
+  if (tipoPessoa === "pj")
+    await run(`UPDATE companies SET document = ? WHERE id = 1`, [doc.documento]);
   return { ok: true, userId, email, nome: nomeUsuario, empresa: nomeEmpresa };
 }

@@ -39,7 +39,7 @@ describe("pedirRedefinicao", () => {
       fetchImpl: (async () => new Response(JSON.stringify({ id: "e1" }), { status: 200 })) as any,
     });
 
-    const r = await pedirRedefinicao({ username: "joao" });
+    const r = await pedirRedefinicao({ identificador: "joao" });
     assert.ok(r.ok);
     const linha = await tokenDoBanco();
     assert.ok(linha.token_hash.length === 64, "SHA-256 hex no banco");
@@ -54,7 +54,7 @@ describe("pedirRedefinicao", () => {
 
   it("resposta idêntica para usuário inexistente (sem dicionário de contas)", async () => {
     const { pedirRedefinicao } = await import("../src/lib/recuperacao.ts");
-    const r = await pedirRedefinicao({ username: "nao-existe" });
+    const r = await pedirRedefinicao({ identificador: "nao-existe" });
     assert.ok(r.ok, "mesmo resultado de sucesso");
     const n = await one<any>(`SELECT COUNT(*) AS n FROM password_resets`);
     assert.equal(n.n, 0, "nada gravado para usuário fantasma");
@@ -67,8 +67,8 @@ describe("pedirRedefinicao", () => {
       from: "f@x.com",
       fetchImpl: (async () => new Response("{}", { status: 200 })) as any,
     });
-    await pedirRedefinicao({ username: "joao" });
-    await pedirRedefinicao({ username: "JOAO" }); // case-insensitive
+    await pedirRedefinicao({ identificador: "joao" });
+    await pedirRedefinicao({ identificador: "JOAO" }); // case-insensitive
     const linhas = await one<any>(`SELECT COUNT(*) AS n FROM password_resets`);
     assert.equal(linhas.n, 1, "token antigo invalidado");
   });
@@ -138,6 +138,77 @@ describe("aplicarRedefinicao", () => {
     assert.ok(!r4.ok);
     const r5 = await rec.aplicarRedefinicao({ token: "outro2", senha: "curta" });
     assert.ok(!r5.ok);
+  });
+});
+
+describe("pedirRedefinicao por identificador (CPF/CNPJ/e-mail)", () => {
+  const cfgEmail = {
+    apiKey: "k",
+    from: "f@x.com",
+    fetchImpl: (async () => new Response("{}", { status: 200 })) as any,
+  };
+
+  beforeEach(async () => {
+    // Segundo usuário: dono PJ com CNPJ + conta legada sem e-mail.
+    await run(
+      `INSERT INTO users (id, name, username, password_hash, role, active, company_id, email, person_type, document)
+       VALUES (2, 'Empresa Zero', 'juridica', 'hash', 'owner', 1, 1, 'contato@zero.com', 'pj', '11222333000181')`,
+    );
+    await run(
+      `INSERT INTO users (id, name, username, password_hash, role, active, company_id, email, person_type, document)
+       VALUES (3, 'Sem Email', 'legado', 'hash', 'operacional', 1, 1, NULL, 'pf', '11144477735')`,
+    );
+    __definirEmailTeste(cfgEmail);
+  });
+
+  it("localiza por CPF, CNPJ e e-mail — e envia para o e-mail CADASTRADO", async () => {
+    const { pedirRedefinicao } = await import("../src/lib/recuperacao.ts");
+
+    // CPF do usuário 1 (persona física, e-mail joao@x.com).
+    await run(`UPDATE users SET person_type = 'pf', document = '52998224725' WHERE id = 1`);
+    await pedirRedefinicao({ identificador: "529.982.247-25" });
+    assert.equal(__emailsEnviados.at(-1)?.to, "joao@x.com", "CPF achou a conta e enviou ao e-mail dela");
+
+    // CNPJ da conta 2.
+    await pedirRedefinicao({ identificador: "11.222.333/0001-81" });
+    assert.equal(__emailsEnviados.at(-1)?.to, "contato@zero.com");
+
+    // E-mail direto (PF ou PJ).
+    await pedirRedefinicao({ identificador: "JOAO@X.COM" });
+    assert.equal(__emailsEnviados.at(-1)?.to, "joao@x.com");
+
+    // Um token ativo por conta: CPF e e-mail do usuário 1 compartilham o
+    // mesmo pedido (o último substitui o anterior) — 2 contas = 2 linhas.
+    const n = await one<any>(`SELECT COUNT(*) AS n FROM password_resets`);
+    assert.equal(n.n, 2);
+  });
+
+  it("documento inválido/desconhecido e conta sem e-mail: resposta ok e NADA enviado", async () => {
+    const { pedirRedefinicao } = await import("../src/lib/recuperacao.ts");
+    const antes = __emailsEnviados.length;
+
+    const r1 = await pedirRedefinicao({ identificador: "111.111.111-11" }); // CPF inválido
+    const r2 = await pedirRedefinicao({ identificador: "99999999999999" }); // CNPJ desconhecido
+    const r3 = await pedirRedefinicao({ identificador: "nao@existe.com" });
+    const r4 = await pedirRedefinicao({ identificador: "" });
+    assert.ok(r1.ok && r2.ok && r3.ok && r4.ok, "resposta sempre idêntica");
+    assert.equal(__emailsEnviados.length, antes, "nenhum e-mail disparado");
+    const n = await one<any>(`SELECT COUNT(*) AS n FROM password_resets`);
+    assert.equal(n.n, 0, "nenhum token gravado");
+
+    // Conta existe e é ATIVA, mas não tem e-mail: não há canal seguro — nada a enviar.
+    const r5 = await pedirRedefinicao({ identificador: "111.444.777-35" });
+    assert.ok(r5.ok);
+    assert.equal(__emailsEnviados.length, antes, "conta sem e-mail não recebe link");
+  });
+
+  it("conta INATIVA não recebe link", async () => {
+    const { pedirRedefinicao } = await import("../src/lib/recuperacao.ts");
+    const antes = __emailsEnviados.length;
+    await run(`UPDATE users SET active = 0 WHERE id = 2`);
+    const r = await pedirRedefinicao({ identificador: "11.222.333/0001-81" });
+    assert.ok(r.ok);
+    assert.equal(__emailsEnviados.length, antes);
   });
 });
 
