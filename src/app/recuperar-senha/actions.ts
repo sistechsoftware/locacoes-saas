@@ -20,8 +20,17 @@ export async function pedirRedefinicaoAction(_prev: boolean, formData: FormData)
   const ip = await ipDaRequisicao();
   // 3 pedidos por 15 min por IP: rota pública que dispara e-mail.
   const permitido = await rateLimit(`recuperar:${ip}`, 3, 900).catch(() => true);
-  if (!permitido) return true; // resposta idêntica: não vira oráculo de rate limit
+  // Mesmo limite por IDENTIFICADOR: um atacante distribuído não martela a
+  // mesma conta. Resposta idêntica nos dois casos (não vira oráculo).
+  const identificador = String(formData.get("identificador") ?? formData.get("username") ?? "")
+    .trim()
+    .slice(0, 160)
+    .toLowerCase();
+  const porIdentificador = identificador
+    ? await rateLimit(`recuperar:id:${identificador}`, 3, 900).catch(() => true)
+    : true;
+  if (!permitido || !porIdentificador) return true; // resposta idêntica: não vira oráculo de rate limit
 
-  await pedirRedefinicao({ username: String(formData.get("username") ?? "") });
+  await pedirRedefinicao({ identificador });
   return true;
 }

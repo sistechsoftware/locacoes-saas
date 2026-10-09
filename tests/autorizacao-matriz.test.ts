@@ -460,6 +460,9 @@ const MANTER_REQUIRE_USER = new Set([
   "changeOwnPassword",
   "saveMyAvatar",
   "removeMyAvatar",
+  // Complemento cadastral do próprio usuário (contas antigas sem CPF/CNPJ):
+  // autoatendimento documentado — valida e grava só o que falta nele mesmo.
+  "completarCadastroAction",
   "markRead",
   "markAllRead",
   "markPersonalRead",

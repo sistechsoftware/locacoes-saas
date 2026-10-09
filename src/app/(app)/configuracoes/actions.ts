@@ -24,6 +24,8 @@ import { logAction } from "@/lib/audit";
 import { saveUpload, UploadError, removeFileByUrl } from "@/lib/uploads";
 import { parseMoney } from "@/lib/format";
 import { salvarAssinaturaEmpresa, removerAssinaturaEmpresa } from "@/lib/assinatura-empresa";
+import { documentoDoTipo, emailValido, normalizarEmail, tipoPessoaValido } from "@/lib/identidade";
+import { documentoJaUsado, emailJaUsado } from "@/lib/contas";
 
 export async function saveCompanySettings(fd: FormData): Promise<void> {
   const user = await assertAdmin();
@@ -162,6 +164,8 @@ export async function createUser(_prev: string | null, fd: FormData): Promise<st
       phone: String(fd.get("phone") ?? ""),
       password: String(fd.get("password") ?? ""),
       role: String(fd.get("role") ?? "operador"),
+      tipo_pessoa: String(fd.get("tipo_pessoa") ?? ""),
+      documento: String(fd.get("documento") ?? ""),
     },
     (acao, entidade, id, resumo) => logAction(user, acao, entidade, id, resumo),
   );
@@ -250,6 +254,61 @@ export async function changeOwnPassword(_prev: string | null, fd: FormData): Pro
   if (!row || !verifyPassword(current, row.password_hash)) return "Senha atual incorreta.";
   await run(`UPDATE users SET password_hash = ? WHERE id = ?`, [hashPassword(next), user.id]);
   await logAction(user, "editar", "usuario", user.id, `${user.name} alterou a propria senha`);
+  return null;
+}
+
+/**
+ * Complemento cadastral do PRÓPRIO usuário — estratégia de transição para
+ * contas antigas criadas antes da migração 0037 (sem tipo de pessoa, documento
+ * ou e-mail). Não bloqueia o acesso: o card aparece em Minha conta enquanto
+ * faltar dado, e o fluxo preenche apenas o que está VAZIO — uma vez gravado,
+ * tipo e documento ficam imutáveis por aqui (mudança de identificação não é
+ * permitida por FormData manipulado). Validação e unicidade são as MESMAS do
+ * cadastro novo, no servidor.
+ */
+export async function completarCadastroAction(_prev: string | null, fd: FormData): Promise<string | null> {
+  const sessao = await requireUser();
+  const atual = await one<{ email: string | null; person_type: string | null; document: string | null }>(
+    `SELECT email, person_type, document FROM users WHERE id = ?`,
+    [sessao.id],
+  );
+  if (!atual) return "Usuário não encontrado.";
+
+  const emailVazio = !atual.email;
+  const docVazio = !atual.person_type || !atual.document;
+  if (!emailVazio && !docVazio)
+    return "Cadastro já completo — tipo de pessoa e documento não podem ser alterados aqui.";
+
+  let tipo: "pf" | "pj" | null = null;
+  let documento: string | null = null;
+  if (docVazio) {
+    tipo = tipoPessoaValido(fd.get("tipo_pessoa"));
+    if (!tipo) return "Selecione o tipo de pessoa: Pessoa Física (PF) ou Pessoa Jurídica (PJ).";
+    const doc = documentoDoTipo(tipo, fd.get("documento"));
+    if (!doc.ok) return doc.erro;
+    if (await documentoJaUsado(doc.documento, sessao.id))
+      return "Este CPF/CNPJ já está cadastrado em outra conta.";
+    documento = doc.documento;
+  }
+
+  let emailNovo: string | null = null;
+  if (emailVazio) {
+    emailNovo = normalizarEmail(fd.get("email"));
+    if (!emailValido(emailNovo)) return "Informe um e-mail válido — é o canal da recuperação de senha.";
+    if (await emailJaUsado(emailNovo, sessao.id)) return "Este e-mail já está cadastrado em outra conta.";
+  }
+
+  // COALESCE: só preenche o que está vazio — o que já existe nunca é sobrescrito.
+  await run(
+    `UPDATE users SET person_type = COALESCE(person_type, ?),
+                      document    = COALESCE(document, ?),
+                      email       = COALESCE(NULLIF(email, ''), ?)
+      WHERE id = ?`,
+    [tipo, documento, emailNovo, sessao.id],
+  );
+  // Sem PII no log: nem CPF/CNPJ completo nem e-mail na trilha de auditoria.
+  await logAction(sessao, "editar", "usuario", sessao.id, `${sessao.name} complementou o cadastro (tipo de pessoa e documento)`);
+  revalidatePath("/configuracoes");
   return null;
 }
 

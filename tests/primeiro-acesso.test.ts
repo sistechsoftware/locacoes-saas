@@ -14,12 +14,37 @@ beforeEach(async () => {
 });
 
 describe("criarPrimeiroOwner (setup com e-mail)", () => {
-  const base = { empresa: "Minha Locadora", nome: "Uericlis", username: "ericlis", senha: "senha-forte-1" };
+  const base = {
+    empresa: "Minha Locadora",
+    nome: "Uericlis",
+    username: "ericlis",
+    senha: "senha-forte-1",
+    email: "dono@locadora.com",
+    tipo_pessoa: "pf",
+    documento: "12345678909", // CPF válido (dígitos verificadores conferidos)
+  };
 
   it("exige e-mail válido (canal dos avisos e da recuperação de senha)", async () => {
     const { criarPrimeiroOwner } = await import("../src/lib/primeiro-acesso.ts");
     assert.match((await criarPrimeiroOwner({ ...base, email: "" }) as any).erro, /e-mail/i);
     assert.match((await criarPrimeiroOwner({ ...base, email: "sem-arroba" }) as any).erro, /E-mail inv/i);
+  });
+
+  it("exige tipo de pessoa e CPF/CNPJ válido (validação no servidor)", async () => {
+    const { criarPrimeiroOwner } = await import("../src/lib/primeiro-acesso.ts");
+    assert.match((await criarPrimeiroOwner({ ...base, tipo_pessoa: "" }) as any).erro, /tipo de pessoa/i);
+    assert.match((await criarPrimeiroOwner({ ...base, documento: "" }) as any).erro, /CPF com 11/);
+    assert.match((await criarPrimeiroOwner({ ...base, documento: "11111111111" }) as any).erro, /CPF inválido/i);
+    assert.match(
+      (await criarPrimeiroOwner({ ...base, tipo_pessoa: "pj", documento: "11144477735" }) as any).erro,
+      /CNPJ com 14/,
+      "PJ não aceita CPF",
+    );
+    assert.match(
+      (await criarPrimeiroOwner({ ...base, tipo_pessoa: "pj", documento: "11222333000182" }) as any).erro,
+      /CNPJ inválido/i,
+      "dígito verificador do CNPJ é conferido",
+    );
   });
 
   it("cria owner platform_admin com e-mail em users e companies", async () => {
@@ -36,9 +61,12 @@ describe("criarPrimeiroOwner (setup com e-mail)", () => {
     assert.equal(user.platform_admin, 1, "primeiro acesso é operador da plataforma");
     assert.equal(user.role, "owner");
     assert.equal(user.email, "dono@locadora.com");
+    assert.equal(user.person_type, "pf", "tipo de pessoa persistido");
+    assert.equal(user.document, "12345678909", "documento normalizado persistido");
 
-    const empresa = await one<any>(`SELECT email FROM companies WHERE id = 1`);
+    const empresa = await one<any>(`SELECT email, document FROM companies WHERE id = 1`);
     assert.equal(empresa.email, "dono@locadora.com", "companies.email é o canal comercial");
+    assert.equal(empresa.document, null, "PF: CPF da pessoa não vira documento da empresa");
 
     const nome = await scalar<string | null>(
       `SELECT value FROM company_settings WHERE company_id = 1 AND key = 'company_name'`,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { criarEmpresaAction } from "./actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Field } from "@/components/ui";
+import PessoaDocumentoFields from "@/components/PessoaDocumento";
 
 export default function AssinarForm({ planoInicial }: { planoInicial: string }) {
   const [error, action] = useActionState(criarEmpresaAction, null);
@@ -17,7 +18,8 @@ export default function AssinarForm({ planoInicial }: { planoInicial: string }) 
       <Field label="Seu nome">
         <input name="nome" className="campo" required maxLength={80} placeholder="Nome e sobrenome" />
       </Field>
-      <Field label="E-mail" hint="Para avisos da conta: fim do teste, cobranças e recuperação de senha.">
+      <PessoaDocumentoFields key={String(error)} />
+      <Field label="E-mail *" hint="Para avisos da conta: fim do teste, cobranças e recuperação de senha.">
         <input
           name="email"
           type="email"

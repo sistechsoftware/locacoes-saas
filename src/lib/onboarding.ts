@@ -1,5 +1,7 @@
 import { insert, one, run, scalar } from "./db";
 import { REGRAS_PADRAO } from "./push-rules";
+import { documentoDoTipo, tipoPessoaValido, type TipoPessoa } from "./identidade";
+import { documentoJaUsado, emailJaUsado } from "./contas";
 import type { ResultadoSetup } from "./primeiro-acesso";
 
 /**
@@ -59,7 +61,18 @@ export function validarCadastro(entrada: {
   senha?: unknown;
   plano?: unknown;
   email?: unknown;
-}): { empresa: string; nome: string; username: string; senha: string; plano: string; email: string } | { erro: string } {
+  tipo_pessoa?: unknown;
+  documento?: unknown;
+}): {
+  empresa: string;
+  nome: string;
+  username: string;
+  senha: string;
+  plano: string;
+  email: string;
+  tipoPessoa: TipoPessoa;
+  documento: string;
+} | { erro: string } {
   const empresa = texto(entrada.empresa, 120);
   const nome = texto(entrada.nome, 80);
   const username = texto(entrada.username, 40).toLowerCase();
@@ -75,7 +88,15 @@ export function validarCadastro(entrada: {
   if (!plano) return { erro: "Escolha um plano." };
   if (!EMAIL_RX.test(email)) return { erro: "Informe um e-mail válido — é para lá que vão os avisos da conta." };
 
-  return { empresa, nome, username, senha, plano, email };
+  // Tipo de pessoa + documento: obrigatórios e validados no SERVIDOR
+  // (a máscara da tela é só assistência — o dígito verificador é conferido aqui).
+  const tipoPessoa = tipoPessoaValido(entrada.tipo_pessoa);
+  if (!tipoPessoa)
+    return { erro: "Selecione o tipo de pessoa: Pessoa Física (PF) ou Pessoa Jurídica (PJ)." };
+  const doc = documentoDoTipo(tipoPessoa, entrada.documento);
+  if (!doc.ok) return { erro: doc.erro };
+
+  return { empresa, nome, username, senha, plano, email, tipoPessoa, documento: doc.documento };
 }
 
 /**
@@ -96,6 +117,8 @@ export async function criarEmpresaComTrial(entrada: {
   senha?: unknown;
   plano?: unknown;
   email?: unknown;
+  tipo_pessoa?: unknown;
+  documento?: unknown;
 }): Promise<ResultadoOnboarding> {
   const dados = validarCadastro(entrada);
   if ("erro" in dados) return { ok: false, erro: dados.erro };
@@ -120,6 +143,14 @@ export async function criarEmpresaComTrial(entrada: {
       erro: "Já existe uma empresa ativa com este nome. Escolha outro nome ou fale com o suporte.",
     };
 
+  // Identidade única em TODAS as contas (o login é global): recusa antes de
+  // gravar, com mensagem clara — a corrida remanescente é barrada pelo índice
+  // único da migração 0037.
+  if (await documentoJaUsado(dados.documento))
+    return { ok: false, erro: "Este CPF/CNPJ já está cadastrado em outra conta." };
+  if (await emailJaUsado(dados.email))
+    return { ok: false, erro: "Este e-mail já está cadastrado em outra conta." };
+
   // Gravação: empresa (com e-mail de contato) -> usuário (owner, com e-mail,
   // sem platform_admin) -> settings -> trial.
   const companyId = await insert(`INSERT INTO companies (name, active, email) VALUES (?, 1, ?)`, [
@@ -127,11 +158,22 @@ export async function criarEmpresaComTrial(entrada: {
     dados.email,
   ]);
 
+  // PJ: o CNPJ do responsável é TAMBÉM o documento da empresa (relação legítima
+  // usuário-empresa, mesma informação na entidade apropriada — a cobrança
+  // Asaas lê companies.document). PF: o CPF é da pessoa, a empresa fica sem
+  // documento até o admin preencher em Configurações (nada é suposto).
+  if (dados.tipoPessoa === "pj") {
+    await run(`UPDATE companies SET document = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [
+      dados.documento,
+      companyId,
+    ]);
+  }
+
   const { hashPassword } = await import("./password");
   const userId = await insert(
-    `INSERT INTO users (name, username, password_hash, role, active, company_id, platform_admin, email)
-     VALUES (?,?,?,'owner',1,?,0,?)`,
-    [dados.nome, dados.username, hashPassword(dados.senha), companyId, dados.email],
+    `INSERT INTO users (name, username, password_hash, role, active, company_id, platform_admin, email, person_type, document)
+     VALUES (?,?,?,'owner',1,?,0,?,?,?)`,
+    [dados.nome, dados.username, hashPassword(dados.senha), companyId, dados.email, dados.tipoPessoa, dados.documento],
   );
 
   // Numeração de documentos 'LOC' (regra da 0028 para empresas ≠ 1) + nome.

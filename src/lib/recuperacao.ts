@@ -1,9 +1,14 @@
 /**
  * Recuperação de senha (Etapa 5).
  *
- * Fluxo: usuário pede redefinição -> grava token opaco (SHA-256 no banco,
- * 1 hora) -> e-mail com link -> usuário define a senha nova (token consumido,
- * sessões anteriores encerradas).
+ * Fluxo: usuário pede redefinição informando CPF, CNPJ ou e-mail cadastrado ->
+ * a conta é localizada pelo IDENTIFICADOR (localizarConta) -> grava token opaco
+ * (SHA-256 no banco, 1 hora) -> e-mail com link -> usuário define a senha nova
+ * (token consumido, sessões anteriores encerradas).
+ *
+ * O documento só LOCALIZA a conta: a redefinição acontece exclusivamente pelo
+ * canal de verificação já cadastrado (e-mail confirmado da conta). Nunca se
+ * redefini só porque alguém sabe o CPF/CNPJ, e nenhuma senha vai por e-mail.
  *
  * Sem next/* no topo: a lógica vive aqui, testável com FakeD1; o rate limit
  * fica na server action. Sem e-mail configurado o sistema segue funcionando —
@@ -16,6 +21,7 @@ import crypto from "node:crypto";
 import { one, run } from "./db";
 import { hashPassword } from "./password";
 import { enviarEmail } from "./email";
+import { localizarConta } from "./contas";
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hora
 
@@ -42,18 +48,19 @@ async function baseUrl(): Promise<string> {
 }
 
 /**
- * Cria o pedido de redefinição (se o usuário existir) e envia o e-mail.
- * Nunca revela se o usuário existe: devolve ok:true em todos os caminhos.
+ * Cria o pedido de redefinição (se o identificador apontar para uma conta
+ * ATIVA com e-mail cadastrado) e envia o e-mail. Nunca revela se a conta
+ * existe: devolve ok:true em todos os caminhos — inclusive para CPF/CNPJ
+ * inválido, desconhecido ou ambíguo.
  */
-export async function pedirRedefinicao(entrada: { username: string }): Promise<{ ok: true }> {
-  const username = String(entrada.username ?? "").trim().toLowerCase();
-  if (!username) return { ok: true };
+export async function pedirRedefinicao(entrada: { identificador: string }): Promise<{ ok: true }> {
+  const identificador = String(entrada.identificador ?? "").trim().slice(0, 160);
+  if (!identificador) return { ok: true };
 
-  const user = await one<{ id: number; name: string; email: string | null }>(
-    `SELECT id, name, email FROM users WHERE lower(username) = ? AND active = 1`,
-    [username],
-  );
-  if (!user) return { ok: true };
+  const user = await localizarConta(identificador);
+  // Sem conta, inativa ou sem e-mail: nada a enviar (resposta igual a de um
+  // pedido válido — sem oráculo de contas).
+  if (!user || !user.active || !user.email) return { ok: true };
 
   // Um pedido ativo por usuário: os anteriores morrem aqui.
   await run(`DELETE FROM password_resets WHERE user_id = ?`, [user.id]);

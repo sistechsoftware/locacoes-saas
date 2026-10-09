@@ -3,6 +3,7 @@ import { useActionState } from "react";
 import { setupAction } from "./actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Field } from "@/components/ui";
+import PessoaDocumentoFields from "@/components/PessoaDocumento";
 
 export default function SetupForm() {
   const [error, action] = useActionState(setupAction, null);
@@ -14,7 +15,8 @@ export default function SetupForm() {
       <Field label="Seu nome">
         <input name="nome" className="campo" required maxLength={80} placeholder="Nome e sobrenome" />
       </Field>
-      <Field label="E-mail">
+      <PessoaDocumentoFields key={String(error)} />
+      <Field label="E-mail *">
         <input
           name="email"
           type="email"

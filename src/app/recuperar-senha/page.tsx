@@ -16,7 +16,9 @@ export default function RecuperarSenhaPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icones/icone-512.png" alt="" className="mx-auto mb-3 h-12 w-12" />
           <h1 className="text-2xl font-black tracking-tight text-tinta-900">Recuperar senha</h1>
-          <p className="text-sm text-stone-500">Informe seu usuário para receber o link de redefinição.</p>
+          <p className="text-sm text-stone-500">
+            Informe seu CPF, CNPJ ou e-mail cadastrado para receber o link de redefinição.
+          </p>
         </div>
 
         <div className="cartao p-5 shadow-sm">

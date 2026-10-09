@@ -38,13 +38,39 @@ import { getPurchase } from "../src/lib/compras.ts";
 import { logAction } from "../src/lib/audit.ts";
 
 let seq = 0;
+let seqDoc = 0;
 
 beforeEach(() => {
   resetTestDb();
   resetCompanyCache();
   createTestDb();
   seq = 0;
+  seqDoc = 0;
 });
+
+/* ----------------------- identidade do cadastro ----------------------- */
+
+/** CPF válido (dígitos verificadores conferidos) derivado de um número de série. */
+function cpfDeSerie(n: number): string {
+  const base = String(100000000 + n); // 9 dígitos
+  const dv = (b: string, pesos: number[]) => {
+    const soma = b.split("").reduce((acc, d, i) => acc + Number(d) * pesos[i], 0);
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+  const d1 = dv(base, [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const d2 = dv(base + d1, [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return base + d1 + d2;
+}
+
+/**
+ * Identidade obrigatória do cadastro (migração 0037): tipo de pessoa, CPF
+ * válido e e-mail únicos por chamada — espalhado nos criarUsuario que devem
+ * ter sucesso, para falharem só pelo motivo que o teste examina.
+ */
+function identidade(username: string) {
+  return { email: `${username}@teste.com`, tipo_pessoa: "pf", documento: cpfDeSerie(++seqDoc) };
+}
 
 /* ----------------------------- fixtures ----------------------------- */
 
@@ -193,7 +219,13 @@ describe("TESTES 6 e 7 — operador e admin de empresa NÃO acessam o painel Saa
       assert.equal(r.ok, false, `papel "${papelMalicioso}" deveria ser recusado`);
     }
     // "admin" é aceito, mas gera apenas admin de EMPRESA, sem platform_admin
-    const r = await criarUsuario(adm, { name: "Sec", username: `sec${++seq}`, password: "senha123", role: "admin" });
+    const r = await criarUsuario(adm, {
+      name: "Sec",
+      username: `sec${++seq}`,
+      password: "senha123",
+      role: "admin",
+      ...identidade(`sec${seq}`),
+    });
     assert.equal(r.ok, true);
     const row = await one<{ role: string; platform_admin: number }>(`SELECT role, platform_admin FROM users WHERE id = ?`, [
       (r as { ok: true; id: number }).id,
@@ -249,7 +281,7 @@ describe("TESTES 10–12 — limite de usuários validado no BACKEND", () => {
     await definirPlano(1, 3);
     const adm = await owner(1); // 1 ativo
     assert.equal((await podeCriarUsuario(1)).ok, true);
-    const r = await criarUsuario(adm, { name: "Op 2", username: `op2${seq}`, password: "senha123", role: "operacional" });
+    const r = await criarUsuario(adm, { name: "Op 2", username: `op2${seq}`, password: "senha123", role: "operacional", ...identidade(`op2${seq}`) });
     assert.equal(r.ok, true);
     assert.equal(await usuariosAtivos(1), 2);
   });
@@ -259,12 +291,12 @@ describe("TESTES 10–12 — limite de usuários validado no BACKEND", () => {
     await definirPlano(2, 5);
     const adm = await owner(2); // 1 ativo
     for (let i = 0; i < 4; i++) {
-      const r = await criarUsuario(adm, { name: `Op ${i}`, username: `op${i}_${++seq}`, password: "senha123", role: "operacional" });
+      const r = await criarUsuario(adm, { name: `Op ${i}`, username: `op${i}_${++seq}`, password: "senha123", role: "operacional", ...identidade(`op${i}_${seq}`) });
       assert.equal(r.ok, true);
     }
     assert.equal(await usuariosAtivos(2), 5); // cheio
     // a tentativa do sexto é recusada NO BACKEND (não existe botão para furar)
-    const r6 = await criarUsuario(adm, { name: "Op 6", username: `op6_${seq}`, password: "senha123", role: "operacional" });
+    const r6 = await criarUsuario(adm, { name: "Op 6", username: `op6_${seq}`, password: "senha123", role: "operacional", ...identidade(`op6_${seq}`) });
     assert.equal(r6.ok, false);
     assert.match((r6 as { ok: false; erro: string }).erro, /Limite do plano atingido \(5/);
     assert.equal(await usuariosAtivos(2), 5);
@@ -274,14 +306,14 @@ describe("TESTES 10–12 — limite de usuários validado no BACKEND", () => {
     await criarEmpresas();
     await definirPlano(1, 2);
     const adm = await owner(1); // 1 ativo
-    const op = await criarUsuario(adm, { name: "Op", username: `op${++seq}`, password: "senha123", role: "operacional" });
+    const op = await criarUsuario(adm, { name: "Op", username: `op${++seq}`, password: "senha123", role: "operacional", ...identidade(`op${seq}`) });
     assert.equal((op as { ok: true }).ok, true);
     assert.equal(await usuariosAtivos(1), 2); // cheio
     // inativar libera a vaga
     const opId = (op as { ok: true; id: number }).id;
     await alternarStatusUsuario(adm, opId);
     assert.equal(await usuariosAtivos(1), 1);
-    const r = await criarUsuario(adm, { name: "Novo", username: `novo${++seq}`, password: "senha123", role: "operacional" });
+    const r = await criarUsuario(adm, { name: "Novo", username: `novo${++seq}`, password: "senha123", role: "operacional", ...identidade(`novo${seq}`) });
     assert.equal(r.ok, true, "vaga liberada pela inativação");
     // excluir libera de novo (usuário sem vínculos)
     await excluirUsuario(adm, opId);
@@ -351,7 +383,7 @@ describe("TESTES 8 e 9 — alterar próprio role e companyId no payload", () => 
     const admA = await owner(1);
     // tentativa de "criar na empresa 2": a função nem recebe companyId externo,
     // e o INSERT usa ator.company_id — a linha nasce na empresa do ator
-    const r = await criarUsuario(admA, { name: "Furo", username: `furo${++seq}`, password: "senha123", role: "admin" });
+    const r = await criarUsuario(admA, { name: "Furo", username: `furo${++seq}`, password: "senha123", role: "admin", ...identidade(`furo${seq}`) });
     assert.equal(r.ok, true);
     const row = await one<{ company_id: number }>(`SELECT company_id FROM users WHERE id = ?`, [
       (r as { ok: true; id: number }).id,
@@ -489,7 +521,7 @@ describe("Logs de auditoria das ações críticas", () => {
     const logs = (acao: string, entidade: string, id: number | null, resumo: string) =>
       logAction({ id: adm.id, name: adm.name, username: "x", role: adm.role, company_id: 1, avatar_url: null, platform_admin: false }, acao, entidade, id, resumo);
 
-    const r = await criarUsuario(adm, { name: "Log", username: `log${++seq}`, password: "senha123", role: "operacional" }, logs);
+    const r = await criarUsuario(adm, { name: "Log", username: `log${++seq}`, password: "senha123", role: "operacional", ...identidade(`log${seq}`) }, logs);
     assert.equal(r.ok, true);
     const id = (r as { ok: true; id: number }).id;
     await atualizarUsuario(adm, id, { name: "Log 2", username: `log${seq}`, role: "admin" }, logs);
@@ -555,7 +587,7 @@ describe("Whitelist de papéis e normalização", () => {
     const r1 = await criarUsuario(adm, { name: "A", username: `a${++seq}`, password: "123", role: "operacional" });
     assert.equal(r1.ok, false);
     assert.match((r1 as { ok: false; erro: string }).erro, /6 caracteres/);
-    const r2 = await criarUsuario(adm, { name: "B", username: adm.username, password: "senha123", role: "operacional" });
+    const r2 = await criarUsuario(adm, { name: "B", username: adm.username, password: "senha123", role: "operacional", ...identidade(`dup${seq}`) });
     assert.equal(r2.ok, false);
     assert.match((r2 as { ok: false; erro: string }).erro, /já existe/i);
   });

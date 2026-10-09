@@ -40,6 +40,8 @@ export async function criarEmpresaAction(_prev: string | null, formData: FormDat
     senha: String(formData.get("senha") ?? ""),
     plano: String(formData.get("plano") ?? ""),
     email: String(formData.get("email") ?? ""),
+    tipo_pessoa: String(formData.get("tipo_pessoa") ?? ""),
+    documento: String(formData.get("documento") ?? ""),
   });
   if (!resultado.ok) return resultado.erro;
 
