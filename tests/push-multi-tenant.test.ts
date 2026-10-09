@@ -46,8 +46,11 @@ const cont = async (sql: string, p: any[] = []) => (await scalar<number>(sql, p)
  */
 async function backfillDaMigration() {
   const arquivo = fs.readFileSync(path.resolve("migrations/0034_notification_rules_multi_tenant.sql"), "utf8");
-  const i = arquivo.indexOf("INSERT OR IGNORE INTO notification_rules");
-  const f = arquivo.indexOf(";", i);
+  const iInsert = arquivo.indexOf("INSERT OR IGNORE INTO notification_rules");
+  // Desde o commit b8807c6 o statement começa no CTE `WITH regras ...`:
+  // o recorte precisa incluí-lo, senão o INSERT roda sem a tabela regras.
+  const i = arquivo.lastIndexOf("WITH", iInsert);
+  const f = arquivo.indexOf(";", iInsert);
   assert.ok(i >= 0 && f > i, "statement de backfill não encontrado na migration 0034");
   await run(arquivo.slice(i, f + 1));
 }
