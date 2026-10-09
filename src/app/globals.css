@@ -38,6 +38,31 @@
     color: #6B7280;
   }
 
+  /*
+   * Inputs de data/hora/mes no WebKit (iOS: Safari e PWA instalada).
+   *
+   * O picker interno do WebKit define a largura MINIMA do campo a partir da
+   * propria UI (botoes, calendario, segmentos) e ignora width/max-width — a
+   * caixa entao vaza do rotulo e para fora do cartao, mesmo com min-width:0
+   * e max-width:100% declarados. `appearance: none` retira essa chrome nativa
+   * e devolve o tamanho ao CSS; o seletor nativo continua abrindo ao tocar,
+   * muda apenas o desenho interno do campo.
+   *
+   * Regra espelhada em TODOS os tipos temporais para o comportamento nao
+   * divergir entre Agenda, Financeiro, Estoque e Disponibilidade.
+   */
+  input.campo[type="date"],
+  input.campo[type="datetime-local"],
+  input.campo[type="time"],
+  input.campo[type="month"],
+  input.campo[type="week"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   label.rotulo,
   span.rotulo,
   .rotulo {
