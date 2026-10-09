@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import RouteEstimate from "@/components/RouteEstimate";
-import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import ItemsEditor, { type ItemRow, type Product, type StockInfo } from "@/components/ItemsEditor";
 import ConflictList from "@/components/ConflictList";
 import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { money, parseMoney } from "@/lib/format";
+import { sugerirJanelaEvento } from "@/lib/availability-time";
 import { QUOTE_STATUS } from "@/lib/domain";
 import { unicosPorId, type OpcaoSelecionavel } from "@/lib/search-select-utils";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -40,8 +41,15 @@ export default function QuoteForm({
   const [items, setItems] = useState<ItemRow[]>(initialItems);
   const [customerId, setCustomerId] = useState(String(quote?.customer_id ?? defaultCustomerId ?? ""));
   const [eventDate, setEventDate] = useState(quote?.event_date ?? "");
+  const [eventTime, setEventTime] = useState(quote?.event_time ?? "");
   const [deliveryAt, setDeliveryAt] = useState(quote?.delivery_at ?? "");
   const [pickupAt, setPickupAt] = useState(quote?.pickup_at ?? "");
+  // Campos digitados manualmente deixam de ser preenchidos pela automação.
+  const deliveryManual = useRef(false);
+  const pickupManual = useRef(false);
+  // Evento que veio carregado na tela: na edição, abrir a tela não altera nada;
+  // a sugestão só age quando o evento mudar (ou o campo estiver vazio).
+  const eventoInicial = useRef({ data: quote?.event_date ?? "", hora: quote?.event_time ?? "" });
   const [considerPreparation, setConsiderPreparation] = useState(quote?.stock_consider_preparation !== 0);
   const [address, setAddress] = useState(quote?.address ?? "");
   const [district, setDistrict] = useState(quote?.district ?? "");
@@ -74,12 +82,27 @@ export default function QuoteForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
+  // sugere janela de entrega/retirada a partir do evento (data = evento,
+  // retirada D+1, horário do evento quando definido), sem sobrescrever
+  // edições manuais nem dados já salvos
   useEffect(() => {
-    if (!eventDate) return;
-    if (!deliveryAt) setDeliveryAt(`${eventDate}T08:00`);
-    if (!pickupAt) setPickupAt(`${eventDate}T18:00`);
+    const eventoMudou =
+      eventDate !== eventoInicial.current.data || eventTime !== eventoInicial.current.hora;
+    const janela = sugerirJanelaEvento({
+      eventDate,
+      eventTime,
+      deliveryAtual: deliveryAt,
+      pickupAtual: pickupAt,
+      deliveryManual: deliveryManual.current,
+      pickupManual: pickupManual.current,
+      eventoMudou,
+      fallbackEntrega: "08:00",
+      fallbackRetirada: "18:00",
+    });
+    if (janela.deliveryAt !== deliveryAt) setDeliveryAt(janela.deliveryAt);
+    if (janela.pickupAt !== pickupAt) setPickupAt(janela.pickupAt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventDate]);
+  }, [eventDate, eventTime]);
 
   const stockInfo: StockInfo = useMemo(
     () =>
@@ -150,18 +173,24 @@ export default function QuoteForm({
               />
             </Field>
             <Field label="Horário">
-              <input name="event_time" type="time" defaultValue={quote?.event_time ?? ""} className="campo" />
+              <input name="event_time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="campo" />
             </Field>
             <Field label="Entrega prevista">
               <input
                 name="delivery_at"
                 type="datetime-local"
-                required value={deliveryAt} onChange={(e) => setDeliveryAt(e.target.value)}
+                required value={deliveryAt} onChange={(e) => {
+                  deliveryManual.current = true;
+                  setDeliveryAt(e.target.value);
+                }}
                 className="campo"
               />
             </Field>
             <Field label="Retirada prevista">
-              <input required name="pickup_at" type="datetime-local" value={pickupAt} onChange={(e) => setPickupAt(e.target.value)} className="campo" />
+              <input required name="pickup_at" type="datetime-local" value={pickupAt} onChange={(e) => {
+              pickupManual.current = true;
+              setPickupAt(e.target.value);
+            }} className="campo" />
             </Field>
           </Grid>
           <Field label="Endereço">

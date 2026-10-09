@@ -290,6 +290,29 @@ export async function nextNumber(
 }
 
 /**
+ * Proximo codigo de produto livre (PROD-001, PROD-002, ...).
+ *
+ * Mesmo formato PREFIXO-000 do nextNumber dos documentos e coerente com o
+ * padrao de unidades (PROD-001-001). O maior codigo ja usado e lido no
+ * GLOBAL (o UNIQUE de products.code, migration 0001, vale para toda a base,
+ * nao so para a empresa), entao duas empresas nunca disputam o mesmo numero
+ * em serie. Criacoes simultaneas que ainda assim colidirem sao resolvidas
+ * pelo retry do createProduct — o banco e quem garante a unicidade final.
+ */
+export async function nextProductCode(): Promise<string> {
+  const row = await one<{ n: string | null }>(
+    `SELECT code AS n FROM products WHERE code LIKE 'PROD-%' ORDER BY LENGTH(code) DESC, code DESC LIMIT 1`,
+  );
+  const ultimo = row?.n ? parseInt(row.n.split("-").pop() ?? "0", 10) || 0 : 0;
+  return `PROD-${String(ultimo + 1).padStart(3, "0")}`;
+}
+
+/** Violacao de UNIQUE (D1/SQLite) — usada para retry de codigo gerado. */
+export function isUniqueViolation(e: unknown): boolean {
+  return /unique/i.test(String((e as Error)?.message ?? e));
+}
+
+/**
  * Gera uma SEQUENCIA de numeros de documentos (parcelamento N parcelas).
  *
  * Uma unica consulta substitui N: antes, cada parcela buscava "o ultimo

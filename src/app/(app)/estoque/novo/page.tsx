@@ -1,4 +1,4 @@
-import { all } from "@/lib/db";
+import { all, nextProductCode } from "@/lib/db";
 import { requireModule } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import ProductForm from "../ProductForm";
@@ -15,11 +15,14 @@ export default async function NovoProdutoPage() {
       WHERE company_id = ? AND active = 1 AND kind <> 'kit' ORDER BY name`,
     [cid],
   );
+  // exibe no campo o próximo código que o servidor geraria (mantido em branco
+  // no submit: a geração com retry continua acontecendo no createProduct)
+  const proximoCodigo = await nextProductCode();
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <PageHeader title="Novo Produto" subtitle="Produto simples ou kit composto" />
       <Card>
-        <ProductForm action={createProduct} categories={categories} simpleProducts={simpleProducts} />
+        <ProductForm action={createProduct} categories={categories} simpleProducts={simpleProducts} proximoCodigo={proximoCodigo} />
       </Card>
     </div>
   );

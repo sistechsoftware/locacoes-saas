@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { all, insert, one, run, scalar } from "@/lib/db";
+import { all, insert, isUniqueViolation, nextProductCode, one, run, scalar } from "@/lib/db";
 import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { parseMoney, today } from "@/lib/format";
@@ -57,9 +57,11 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
   const { user } = await requireModuleEdit("estoque");
   const p = readProduct(fd);
   if (!p.name) return "Informe o nome do produto.";
-  if (!p.code) return "Informe um codigo (ex.: MESA, CAD).";
-  // codigo é unico POR EMPRESA: produto da empresa 2 não pode colidir com o da 1
+  // codigo informado é unico POR EMPRESA (e o UNIQUE global de products.code
+  // vale para toda a base). Em branco, o sistema gera o proximo PROD-000
+  // livre — o usuario nunca precisa digitar o codigo na criacao.
   if (
+    p.code &&
     (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ? AND company_id = ?`, [p.code, user.company_id])) > 0
   )
     return "Já existe um produto com este código.";
@@ -72,23 +74,38 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
 
   // company_id vem SEMPRE da sessão: sem ele o INSERT cairia na empresa 1
   // (DEFAULT da migration 0027) e o produto nasceria do tenant errado.
-  const id = await insert(
-    `INSERT INTO products (code, name, category_id, kind, total_qty, min_qty, rent_price_cents, replace_cents, description, photo, company_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      p.code,
-      p.name,
-      p.category_id,
-      p.kind,
-      p.total_qty,
-      p.min_qty,
-      p.rent_price_cents,
-      p.replace_cents,
-      p.description,
-      p.photo,
-      user.company_id,
-    ],
-  );
+  // Codigo gerado tem retry: o UNIQUE de products.code e GLOBAL, entao duas
+  // criacoes simultaneas (mesma ou outra empresa) podem disputar o mesmo
+  // PROD-XXX — a perdedora falha no banco e tenta o proximo, sem duplicar.
+  let id = 0;
+  for (let tentativa = 0; tentativa < 5 && !id; tentativa++) {
+    const code = p.code || (await nextProductCode());
+    try {
+      id = await insert(
+        `INSERT INTO products (code, name, category_id, kind, total_qty, min_qty, rent_price_cents, replace_cents, description, photo, company_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          code,
+          p.name,
+          p.category_id,
+          p.kind,
+          p.total_qty,
+          p.min_qty,
+          p.rent_price_cents,
+          p.replace_cents,
+          p.description,
+          p.photo,
+          user.company_id,
+        ],
+      );
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      // código digitado já existe em OUTRA empresa: mesma msg da checagem por empresa
+      if (p.code) return "Já existe um produto com este código.";
+      // código gerado colidiu na corrida: o próximo livre é lido de novo
+    }
+  }
+  if (!id) return "Não foi possível gerar um código único para o produto. Tente novamente.";
   if (p.kind === "kit") await saveComponents(id, user.company_id, components);
 
   await logAction(
@@ -112,8 +129,10 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
   const current = await one<any>(`SELECT * FROM products WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!current) return "Produto não encontrado.";
   if (!p.name) return "Informe o nome do produto.";
+  // Em branco, o codigo existente é preservado: produto antigo nunca muda de codigo.
+  const code = p.code || current.code;
   if (
-    (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ? AND id <> ? AND company_id = ?`, [p.code, id, user.company_id])) > 0
+    (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ? AND id <> ? AND company_id = ?`, [code, id, user.company_id])) > 0
   )
     return "Já existe outro produto com este código.";
 
@@ -143,7 +162,7 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
     `UPDATE products SET code=?, name=?, category_id=?, kind=?, total_qty=?, min_qty=?, rent_price_cents=?, replace_cents=?,
             description=?, photo=? WHERE id = ? AND company_id = ?`,
     [
-      p.code,
+      code,
       p.name,
       p.category_id,
       p.kind,

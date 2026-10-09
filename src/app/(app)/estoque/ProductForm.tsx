@@ -25,6 +25,7 @@ export default function ProductForm({
   simpleProducts,
   components: initialComponents = [],
   submitLabel = "Salvar Produto",
+  proximoCodigo,
 }: {
   action: Action;
   product?: any;
@@ -32,6 +33,8 @@ export default function ProductForm({
   simpleProducts: SimpleProduct[];
   components?: ComponentRow[];
   submitLabel?: string;
+  /** proximo PROD-XXX livre, exibido no campo em vez de texto generico */
+  proximoCodigo?: string;
 }) {
   const [error, formAction] = useActionState(action, null);
   const v = product ?? {};
@@ -82,8 +85,8 @@ export default function ProductForm({
       </Field>
 
       <Grid>
-        <Field label="Código *" hint="Prefixo das unidades (MESA-001, CAD-001).">
-          <input name="code" defaultValue={v.code ?? ""} className="campo uppercase" required />
+        <Field label="Código" hint="Em branco, o sistema gera automaticamente o código exibido. Prefixo das unidades (PROD-001-001).">
+          <input name="code" defaultValue={v.code ?? ""} placeholder={proximoCodigo ?? ""} className="campo uppercase" />
         </Field>
         <Field label="Nome *">
           <input name="name" defaultValue={v.name ?? ""} className="campo" required />
