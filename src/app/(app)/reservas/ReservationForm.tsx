@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import RouteEstimate from "@/components/RouteEstimate";
-import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import ItemsEditor, { type ItemRow, type Product, type StockInfo } from "@/components/ItemsEditor";
 import ConflictList from "@/components/ConflictList";
 import { Field, Grid, Alerta } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { money, parseMoney } from "@/lib/format";
+import { sugerirJanelaEvento } from "@/lib/availability-time";
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, RESERVATION_STATUS } from "@/lib/domain";
 import { unicosPorId, type OpcaoSelecionavel } from "@/lib/search-select-utils";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -48,8 +49,15 @@ export default function ReservationForm({
   const [items, setItems] = useState<ItemRow[]>(initialItems);
   const [customerId, setCustomerId] = useState(String(reservation?.customer_id ?? defaultCustomerId ?? ""));
   const [eventDate, setEventDate] = useState(reservation?.event_date ?? "");
+  const [eventTime, setEventTime] = useState(reservation?.event_time ?? "");
   const [deliveryAt, setDeliveryAt] = useState(reservation?.delivery_at ?? "");
   const [pickupAt, setPickupAt] = useState(reservation?.pickup_at ?? "");
+  // Campos digitados manualmente deixam de ser preenchidos pela automação.
+  const deliveryManual = useRef(false);
+  const pickupManual = useRef(false);
+  // Evento que veio carregado na tela: na edição, abrir a tela não altera nada;
+  // a sugestão só age quando o evento mudar (ou o campo estiver vazio).
+  const eventoInicial = useRef({ data: reservation?.event_date ?? "", hora: reservation?.event_time ?? "" });
   const [address, setAddress] = useState(reservation?.address ?? "");
   const [district, setDistrict] = useState(reservation?.district ?? "");
   const [city, setCity] = useState(reservation?.city ?? "");
@@ -95,13 +103,27 @@ export default function ReservationForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
-  // sugere janela de entrega/retirada a partir da data do evento
+  // sugere janela de entrega/retirada a partir do evento (data = evento,
+  // retirada D+1, horário do evento quando definido), sem sobrescrever
+  // edições manuais nem dados já salvos
   useEffect(() => {
-    if (!eventDate) return;
-    if (!deliveryAt) setDeliveryAt(`${eventDate}T08:00`);
-    if (!pickupAt) setPickupAt(`${nextDay(eventDate)}T10:00`);
+    const eventoMudou =
+      eventDate !== eventoInicial.current.data || eventTime !== eventoInicial.current.hora;
+    const janela = sugerirJanelaEvento({
+      eventDate,
+      eventTime,
+      deliveryAtual: deliveryAt,
+      pickupAtual: pickupAt,
+      deliveryManual: deliveryManual.current,
+      pickupManual: pickupManual.current,
+      eventoMudou,
+      fallbackEntrega: "08:00",
+      fallbackRetirada: "10:00",
+    });
+    if (janela.deliveryAt !== deliveryAt) setDeliveryAt(janela.deliveryAt);
+    if (janela.pickupAt !== pickupAt) setPickupAt(janela.pickupAt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventDate]);
+  }, [eventDate, eventTime]);
 
   const stockInfo: StockInfo = useMemo(
     () =>
@@ -180,7 +202,7 @@ export default function ReservationForm({
               />
             </Field>
             <Field label="Horário do evento">
-              <input name="event_time" type="time" defaultValue={reservation?.event_time ?? ""} className="campo" />
+              <input name="event_time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="campo" />
             </Field>
           </Grid>
 
@@ -208,7 +230,10 @@ export default function ReservationForm({
               required
               type="datetime-local"
               value={deliveryAt}
-              onChange={(e) => setDeliveryAt(e.target.value)}
+              onChange={(e) => {
+                deliveryManual.current = true;
+                setDeliveryAt(e.target.value);
+              }}
               className="campo"
             />
           </Field>
@@ -218,7 +243,10 @@ export default function ReservationForm({
               required
               type="datetime-local"
               value={pickupAt}
-              onChange={(e) => setPickupAt(e.target.value)}
+              onChange={(e) => {
+                pickupManual.current = true;
+                setPickupAt(e.target.value);
+              }}
               className="campo"
             />
           </Field>
@@ -490,9 +518,3 @@ function Linha({ label, value }: { label: string; value: string }) {
 }
 
 const cents = (v: number | undefined) => ((v ?? 0) / 100).toFixed(2);
-
-function nextDay(dateISO: string) {
-  const d = new Date(dateISO + "T12:00");
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
-}

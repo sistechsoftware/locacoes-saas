@@ -10,7 +10,7 @@ import { logAction } from "@/lib/audit";
 import { recalcQuote, recalcReservation, syncOperations } from "@/lib/reservations";
 import { checkConflicts, conflictsMessage, rebuildReservationComponents, stamp } from "@/lib/stock";
 import { tenantCompanyId } from "@/lib/tenant";
-import { parseMoney } from "@/lib/format";
+import { addDays, parseMoney } from "@/lib/format";
 
 type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
 
@@ -32,15 +32,18 @@ function readItems(fd: FormData): ItemInput[] {
 
 function readHeader(fd: FormData) {
   const event_date = String(fd.get("event_date") ?? "").slice(0, 10);
+  const event_time = String(fd.get("event_time") ?? "");
   return {
     customer_id: Number(fd.get("customer_id")),
     event_date,
-    event_time: String(fd.get("event_time") ?? ""),
+    event_time,
     address: String(fd.get("address") ?? "").trim(),
     district: String(fd.get("district") ?? "").trim(),
     city: String(fd.get("city") ?? "").trim(),
-    delivery_at: stamp(String(fd.get("delivery_at") ?? "") || event_date, "08:00"),
-    pickup_at: stamp(String(fd.get("pickup_at") ?? "") || event_date, "18:00"),
+    // Sem entrega/retirada no form, a janela deriva do evento: entrega na data
+    // do evento, retirada D+1; horário do evento vale para os dois quando existe.
+    delivery_at: stamp(String(fd.get("delivery_at") ?? "") || event_date, event_time || "08:00"),
+    pickup_at: stamp(String(fd.get("pickup_at") ?? "") || addDays(event_date, 1), event_time || "18:00"),
     valid_until: String(fd.get("valid_until") ?? ""),
     freight_cents: parseMoney(String(fd.get("freight") ?? "")),
     assembly_cents: parseMoney(String(fd.get("assembly") ?? "")),

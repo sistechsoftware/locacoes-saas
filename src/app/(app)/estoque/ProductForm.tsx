@@ -82,8 +82,8 @@ export default function ProductForm({
       </Field>
 
       <Grid>
-        <Field label="Código *" hint="Prefixo das unidades (MESA-001, CAD-001).">
-          <input name="code" defaultValue={v.code ?? ""} className="campo uppercase" required />
+        <Field label="Código" hint="Em branco, o sistema gera um automaticamente (ex.: PROD-001). Prefixo das unidades (PROD-001-001).">
+          <input name="code" defaultValue={v.code ?? ""} placeholder="Gerado automaticamente" className="campo uppercase" />
         </Field>
         <Field label="Nome *">
           <input name="name" defaultValue={v.name ?? ""} className="campo" required />

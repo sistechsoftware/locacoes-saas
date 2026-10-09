@@ -1,4 +1,4 @@
-import { dateTimeBR, nowLocal, toISODateTime } from "./format";
+import { addDays, dateTimeBR, nowLocal, toISODateTime } from "./format";
 
 /** All business timestamps are minute-precision wall clocks in America/Sao_Paulo. */
 export function normalizeStamp(value: string | null | undefined, fallbackTime = "00:00"): string {
@@ -37,6 +37,45 @@ export function timeWindow(from: string, to: string, allowPoint = false) {
 
 export function windowError(from: string, to: string): string | null {
   try { timeWindow(from, to); return null; } catch (e) { return (e as Error).message; }
+}
+
+/**
+ * Preenchimento automatico da janela entrega/retirada a partir do evento.
+ *
+ * Regra do sistema: entrega na MESMA data do evento e retirada DIA SEGUINTE;
+ * quando o evento tem horario, ele vale para os dois (entrega e retirada no
+ * horario do evento). Sem horario no evento, valem os fallbacks do formulario.
+ *
+ * A sugestao nunca sobrescreve uma edicao manual (`deliveryManual`/`pickupManual`)
+ * e, na edicao de um registro ja salvo, so age quando o evento mudou ou o campo
+ * esta vazio — abrir a tela de edicao nao pode alterar datas gravadas.
+ */
+export function sugerirJanelaEvento(params: {
+  eventDate: string;
+  eventTime: string;
+  deliveryAtual: string;
+  pickupAtual: string;
+  /** Usuario digitou neste campo: a automacao nao volta a escrever nele. */
+  deliveryManual?: boolean;
+  pickupManual?: boolean;
+  /** Evento diferente do que veio carregado na tela (criacao ou edicao). */
+  eventoMudou: boolean;
+  /** Hora da entrega quando o evento nao tem horario. */
+  fallbackEntrega: string;
+  /** Hora da retirada quando o evento nao tem horario. */
+  fallbackRetirada: string;
+}): { deliveryAt: string; pickupAt: string } {
+  const {
+    eventDate, eventTime, deliveryAtual, pickupAtual,
+    deliveryManual, pickupManual, eventoMudou, fallbackEntrega, fallbackRetirada,
+  } = params;
+  if (!eventDate) return { deliveryAt: deliveryAtual, pickupAt: pickupAtual };
+  const entrega = `${eventDate}T${eventTime || fallbackEntrega}`;
+  const retirada = `${addDays(eventDate, 1)}T${eventTime || fallbackRetirada}`;
+  return {
+    deliveryAt: !deliveryManual && (eventoMudou || !deliveryAtual) ? entrega : deliveryAtual,
+    pickupAt: !pickupManual && (eventoMudou || !pickupAtual) ? retirada : pickupAtual,
+  };
 }
 
 export function preparationValue(value: unknown): number {

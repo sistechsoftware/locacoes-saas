@@ -21,7 +21,7 @@ import {
 import { aoConcluirLocacao, devolverRecompensaDaReserva, reverterReserva } from "@/lib/fidelidade-db";
 import { criarAdiantamento } from "@/lib/receber";
 import { HOLDING_STATUSES } from "@/lib/domain";
-import { money, parseMoney, today } from "@/lib/format";
+import { money, parseMoney, addDays, today } from "@/lib/format";
 
 export type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
 
@@ -43,15 +43,18 @@ function readItems(fd: FormData): ItemInput[] {
 
 function readHeader(fd: FormData) {
   const event_date = String(fd.get("event_date") ?? "").slice(0, 10);
+  const event_time = String(fd.get("event_time") ?? "");
   return {
     customer_id: Number(fd.get("customer_id")),
     event_date,
-    event_time: String(fd.get("event_time") ?? ""),
+    event_time,
     address: String(fd.get("address") ?? "").trim(),
     district: String(fd.get("district") ?? "").trim(),
     city: String(fd.get("city") ?? "").trim(),
-    delivery_at: stamp(String(fd.get("delivery_at") ?? "") || event_date, "08:00"),
-    pickup_at: stamp(String(fd.get("pickup_at") ?? "") || event_date, "18:00"),
+    // Sem entrega/retirada no form, a janela deriva do evento: entrega na data
+    // do evento, retirada D+1; horário do evento vale para os dois quando existe.
+    delivery_at: stamp(String(fd.get("delivery_at") ?? "") || event_date, event_time || "08:00"),
+    pickup_at: stamp(String(fd.get("pickup_at") ?? "") || addDays(event_date, 1), event_time || "18:00"),
     needs_delivery: fd.get("needs_delivery") ? 1 : 0,
     needs_pickup: fd.get("needs_pickup") ? 1 : 0,
     needs_assembly: fd.get("needs_assembly") ? 1 : 0,
