@@ -10,6 +10,15 @@
   /* Campos de formulario padronizados */
   .campo {
     width: 100%;
+    /* O input nativo de data/hora (date/datetime-local) tem largura minima
+       propria no Chrome mobile, maior que o espaco que o rotulo lhe da.
+       Sem min-width:0 a caixa ignora width:100% e vaza para cima do campo
+       vizinho e para fora do cartao. Com ela o campo encolhe ate a largura
+       disponivel (a pagina inteira, ja que no celular os filtros empilham).
+       max-width:100% fecha a ultima fresta quando o PROPRIO rotulo e um item
+       de grid/flex ainda sem min-width:0. */
+    min-width: 0;
+    max-width: 100%;
     border-radius: 0.875rem;
     border: 1px solid var(--color-nuvem-300);
     background: #fff;

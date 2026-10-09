@@ -11,8 +11,12 @@ export default function AvailabilityFilter({ query, minutes, hidden = {}, fixed 
       <input type="hidden" name="consulta" value="1" />
       {Object.entries(hidden).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
       {!fixed && <>
-        <label className="sm:col-span-1"><span className="rotulo">Data e horário da consulta</span><input required type="datetime-local" name="inicio" defaultValue={query.from} className="campo data-hora" /></label>
-        <label className="sm:col-span-1"><span className="rotulo">Até (opcional: consultar um intervalo)</span><input type="datetime-local" name="fim" defaultValue={query.to === query.from ? "" : query.to} min={query.from} className="campo data-hora" /></label>
+        {/* min-w-0: item de grid nasce com min-width:auto e so encolhe ate a
+            largura minima do proprio conteudo — do datetime-local nativo, que
+            no celular e mais largo que a coluna. Sem isso o rotulo estica alem
+            da track e o campo sai do cartao (Calendario e Estoque). */}
+        <label className="min-w-0 sm:col-span-1"><span className="rotulo">Data e horário da consulta</span><input required type="datetime-local" name="inicio" defaultValue={query.from} className="campo data-hora" /></label>
+        <label className="min-w-0 sm:col-span-1"><span className="rotulo">Até (opcional: consultar um intervalo)</span><input type="datetime-local" name="fim" defaultValue={query.to === query.from ? "" : query.to} min={query.from} className="campo data-hora" /></label>
       </>}
       <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" name="preparo" value="1" defaultChecked={query.considerPreparation} />Considerar tempo de deslocamento e higienização</label>
       <div className="sm:col-span-2"><button className="w-full rounded-xl bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white sm:w-auto">Consultar</button></div>

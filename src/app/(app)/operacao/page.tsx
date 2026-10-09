@@ -76,11 +76,11 @@ export default async function OperacaoPage({
             em cima — antes, "Data" e "Proximos dias" colidiam no celular */}
         <form className="pilha-filtros">
           <input type="hidden" name="aba" value={aba} />
-          <label className="min-w-0 flex-1 basis-40">
+          <label className="min-w-0 flex-1 basis-full sm:basis-40">
             <span className="rotulo">Data</span>
             <input type="date" name="data" defaultValue={data} className="campo data-hora" />
           </label>
-          <label className="min-w-0 flex-1 basis-40">
+          <label className="min-w-0 flex-1 basis-full sm:basis-40">
             <span className="rotulo">Próximos dias</span>
             <select name="dias" defaultValue={String(dias)} className="campo">
               <option value="0">Somente este dia</option>
