@@ -8,10 +8,7 @@ export default function LoginForm() {
   const [error, action] = useActionState(loginAction, null);
   return (
     <form action={action} className="space-y-4">
-      <Field
-        label="CPF/CNPJ ou e-mail"
-        hint="Conta antiga? Também funciona o seu usuário de login."
-      >
+      <Field label="CPF, CNPJ ou e-mail">
         <input
           name="identifier"
           className="campo"
@@ -20,7 +17,7 @@ export default function LoginForm() {
           autoComplete="username"
           required
           maxLength={160}
-          placeholder="000.000.000-00 ou voce@empresa.com"
+          placeholder="Informe seu CPF, CNPJ ou e-mail"
         />
       </Field>
       <Field label="Senha">

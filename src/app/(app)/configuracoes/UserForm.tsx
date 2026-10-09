@@ -2,7 +2,6 @@
 import { useActionState } from "react";
 import { Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
-import PessoaDocumentoFields from "@/components/PessoaDocumento";
 import { createUser } from "./actions";
 
 export default function UserForm() {
@@ -31,7 +30,6 @@ export default function UserForm() {
         <Field label="E-mail *" hint="Canal da recuperação de senha e dos avisos.">
           <input name="email" type="email" className="campo" required maxLength={120} autoComplete="off" />
         </Field>
-        <PessoaDocumentoFields key={String(error)} />
       </Grid>
       {error && <p className="text-sm font-medium text-red-700">{error}</p>}
       <SubmitButton className="w-full sm:w-auto">Criar Usuário</SubmitButton>

@@ -164,8 +164,8 @@ export async function createUser(_prev: string | null, fd: FormData): Promise<st
       phone: String(fd.get("phone") ?? ""),
       password: String(fd.get("password") ?? ""),
       role: String(fd.get("role") ?? "operador"),
-      tipo_pessoa: String(fd.get("tipo_pessoa") ?? ""),
-      documento: String(fd.get("documento") ?? ""),
+      // Usuário interno: SEM tipo de pessoa/documento — PF/PJ é exigência do
+      // CONTRATANTE (onboarding/checkout), não da equipe da empresa.
     },
     (acao, entidade, id, resumo) => logAction(user, acao, entidade, id, resumo),
   );
@@ -275,7 +275,11 @@ export async function completarCadastroAction(_prev: string | null, fd: FormData
   if (!atual) return "Usuário não encontrado.";
 
   const emailVazio = !atual.email;
-  const docVazio = !atual.person_type || !atual.document;
+  // PF/PJ no complemento só faz sentido para o CONTRATANTE (owner): para
+  // usuário interno a classificação não é parte do modelo funcional e não
+  // deve ser imposta aqui (o e-mail continua sendo complementado).
+  const ehContratante = sessao.role === "owner";
+  const docVazio = ehContratante && (!atual.person_type || !atual.document);
   if (!emailVazio && !docVazio)
     return "Cadastro já completo — tipo de pessoa e documento não podem ser alterados aqui.";
 

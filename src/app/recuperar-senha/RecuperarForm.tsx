@@ -16,7 +16,7 @@ export default function RecuperarForm() {
       ) : (
         <form action={action} className="space-y-4">
           <Field
-            label="CPF/CNPJ ou e-mail cadastrado"
+            label="CPF, CNPJ ou e-mail cadastrado"
             hint="O documento serve apenas para localizar sua conta — o link chega no e-mail cadastrado."
           >
             <input
@@ -27,7 +27,7 @@ export default function RecuperarForm() {
               autoComplete="username"
               required
               maxLength={160}
-              placeholder="000.000.000-00, 00.000.000/0000-00 ou e-mail"
+              placeholder="Informe seu CPF, CNPJ ou e-mail"
             />
           </Field>
           <SubmitButton className="w-full py-3 text-base">Enviar link de redefinição</SubmitButton>
