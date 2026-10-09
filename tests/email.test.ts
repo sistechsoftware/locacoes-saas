@@ -6,12 +6,23 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTestDb, resetTestDb } from "./helpers/d1.ts";
 import { resetCompanyCache } from "../src/lib/db.ts";
-import { __definirEmailTeste, __emailsEnviados, enviarEmail } from "../src/lib/email.ts";
+import {
+  __definirEmailTeste,
+  __definirEnvEmailTeste,
+  __emailsEnviados,
+  __esquecerAvisosEmail,
+  emailEstado,
+  enviarEmail,
+  montarConfigEmail,
+} from "../src/lib/email.ts";
+import { ultimosErros } from "../src/lib/error-log.ts";
 
 beforeEach(() => {
   createTestDb();
   resetCompanyCache();
   __definirEmailTeste(null);
+  __definirEnvEmailTeste(null);
+  __esquecerAvisosEmail();
 });
 
 describe("envio via Resend (fetch injetável)", () => {
@@ -56,6 +67,72 @@ describe("envio via Resend (fetch injetável)", () => {
       fetchImpl: (async () => new Response("err", { status: 500 })) as any,
     });
     assert.equal(await enviarEmail({ to: "a@b.c", subject: "s", html: "h" }), false);
+  });
+});
+
+describe("config do remetente (pendência #08 — sem fallback resend.dev)", () => {
+  it("sem RESEND_API_KEY → sem_api_key (não envia, não quebra)", () => {
+    assert.deepEqual(montarConfigEmail({}), { config: null, motivo: "sem_api_key" });
+  });
+
+  it("chave sem remetente → sem_remetente (o fallback onboarding@resend.dev saiu)", () => {
+    const r = montarConfigEmail({ RESEND_API_KEY: "re_abc123" });
+    assert.equal(r.motivo, "sem_remetente");
+    assert.equal(r.config, null);
+    // prova de que não há remetente implícito em lugar nenhum
+    assert.equal(JSON.stringify(r).includes("resend.dev"), false);
+  });
+
+  it("remetente no domínio de teste resend.dev → remetente_dev (bloqueado)", () => {
+    const r = montarConfigEmail({
+      RESEND_API_KEY: "re_abc123",
+      RESEND_FROM: "Locô <onboarding@resend.dev>",
+    });
+    assert.equal(r.motivo, "remetente_dev");
+    assert.equal(r.config, null);
+  });
+
+  it("par completo → config com o remetente exato, sem normalizar valor", () => {
+    const r = montarConfigEmail({
+      RESEND_API_KEY: "re_abc123",
+      RESEND_FROM: "Locô <no-reply@loco.com.br>",
+    });
+    assert.equal(r.motivo, null);
+    assert.deepEqual(r.config, { apiKey: "re_abc123", from: "Locô <no-reply@loco.com.br>" });
+  });
+});
+
+describe("config incompleta fica visível em /erros (fail-open, fail-loud)", () => {
+  it("envio sem RESEND_FROM devolve false e grava UMA linha no diário", async () => {
+    __definirEnvEmailTeste({ RESEND_API_KEY: "re_abc123" });
+    const ok = await enviarEmail({ to: "a@b.c", subject: "s", html: "<p>x</p>" });
+    assert.equal(ok, false);
+    const erros = await ultimosErros("server");
+    assert.equal(erros.length, 1);
+    assert.match(erros[0].message, /RESEND_FROM ausente/);
+    assert.equal(JSON.parse(erros[0].context).motivo, "sem_remetente");
+
+    // dedup: nova tentativa não transforma /erros em spam
+    assert.equal(await enviarEmail({ to: "a@b.c", subject: "s", html: "<p>x</p>" }), false);
+    assert.equal((await ultimosErros("server")).length, 1);
+  });
+
+  it("sem contexto Cloudflare (cron) também registra — nunca falha em silêncio", async () => {
+    assert.equal(await enviarEmail({ to: "a@b.c", subject: "s", html: "<p>x</p>" }), false);
+    const erros = await ultimosErros("server");
+    assert.equal(erros.length, 1);
+    assert.match(erros[0].message, /contexto Cloudflare indisponível/);
+  });
+
+  it("emailEstado expõe o motivo para a tela /saas/configuracoes", async () => {
+    __definirEnvEmailTeste({ RESEND_API_KEY: "re_abc123", RESEND_FROM: "x@resend.dev" });
+    assert.equal(await emailEstado(), "remetente_dev");
+    __definirEnvEmailTeste({ RESEND_API_KEY: "re_abc123", RESEND_FROM: "no-reply@loco.com.br" });
+    assert.equal(await emailEstado(), "ok");
+    __definirEnvEmailTeste({ RESEND_API_KEY: "re_abc123" });
+    assert.equal(await emailEstado(), "sem_remetente");
+    __definirEnvEmailTeste(null);
+    assert.equal(await emailEstado(), "sem_contexto");
   });
 });
 

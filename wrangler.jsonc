@@ -10,9 +10,14 @@
   //      npm run deploy:production   -> wrangler deploy --env production
   //    O bloco padrão (top-level) serve só ao desenvolvimento local e nunca é
   //    deployado.
-  //  * Secrets por ambiente (nunca commitados):
-  //      VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY  -> gerados para ESTE projeto
-  //      ASAAS_API_KEY, ASAAS_ENVIRONMENT, ASAAS_WEBHOOK_TOKEN -> futuros
+  //  * Secrets por ambiente (nunca commitados) — TODOS declarados em
+  //    secrets.required abaixo (pendência #08: sem declaração o deploy passava
+  //    e o sistema operava sem cobrança/e-mail em silêncio):
+  //      VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY       -> gerados para ESTE projeto
+  //      ASAAS_API_KEY, ASAAS_ENVIRONMENT,
+  //      ASAAS_WEBHOOK_TOKEN                       -> cobrança Asaas
+  //      RESEND_API_KEY, RESEND_FROM               -> e-mail transacional
+  //    Pré-deploy: npm run check:secrets -- staging|production (scripts/verificar-secrets.mjs)
   // =============================================================================
   "name": "limas-saas",
   "main": "custom-worker.ts",
@@ -27,7 +32,17 @@
   "triggers": { "crons": ["* * * * *"] },
   // o guarda do Next nao se aplica ao Worker e impedia o cron de rodar
   "alias": { "server-only": "./src/lib/server-only-worker.ts" },
-  "secrets": { "required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"] },
+  "secrets": {
+    "required": [
+      "VAPID_PUBLIC_KEY",
+      "VAPID_PRIVATE_KEY",
+      "ASAAS_API_KEY",
+      "ASAAS_ENVIRONMENT",
+      "ASAAS_WEBHOOK_TOKEN",
+      "RESEND_API_KEY",
+      "RESEND_FROM"
+    ]
+  },
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },
   "assets": {
     "directory": ".open-next/assets",
@@ -59,7 +74,17 @@
         "PUBLIC_URL": "https://limas-saas-staging.limas-locacoes.workers.dev"
       },
       "triggers": { "crons": ["* * * * *"] },
-      "secrets": { "required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"] },
+      "secrets": {
+        "required": [
+          "VAPID_PUBLIC_KEY",
+          "VAPID_PRIVATE_KEY",
+          "ASAAS_API_KEY",
+          "ASAAS_ENVIRONMENT",
+          "ASAAS_WEBHOOK_TOKEN",
+          "RESEND_API_KEY",
+          "RESEND_FROM"
+        ]
+      },
       "observability": { "enabled": true, "head_sampling_rate": 0.1 },
       "assets": {
         "directory": ".open-next/assets",
@@ -92,7 +117,19 @@
         "PUBLIC_URL": "https://limas-saas.limas-locacoes.workers.dev"
       },
       "triggers": { "crons": ["* * * * *"] },
-      "secrets": { "required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"] },
+      "secrets": {
+        // Produção: ASAAS_ENVIRONMENT precisa valer "production" (valor do
+        // secret, invisível ao `secret list` — conferir no pré-deploy/local).
+        "required": [
+          "VAPID_PUBLIC_KEY",
+          "VAPID_PRIVATE_KEY",
+          "ASAAS_API_KEY",
+          "ASAAS_ENVIRONMENT",
+          "ASAAS_WEBHOOK_TOKEN",
+          "RESEND_API_KEY",
+          "RESEND_FROM"
+        ]
+      },
       "observability": { "enabled": true, "head_sampling_rate": 0.1 },
       "assets": {
         "directory": ".open-next/assets",
