@@ -10,6 +10,15 @@
  * Regras:
  *  * FAIL-OPEN: falha de envio NUNCA derruba a operação (cadastro, cron,
  *    redefinição de senha já aplicada). O e-mail é consequência, não etapa.
+ *  * FAIL-OPEN não é FAIL-SILENT: quando a config está incompleta (secret
+ *    ausente, remetente ausente ou no domínio de teste resend.dev) o envio é
+ *    pulado E a causa fica registrada no diário de erros (/erros), uma linha
+ *    por motivo por isolate — operação nunca quebra, mas ninguém descobre a
+ *    falha só olhando a tela.
+ *  * SEM FALLBACK DE REMETENTE: o antigo "Locô <onboarding@resend.dev>" saiu
+ *    (pendência #08) — resend.dev só entrega para o próprio dono da conta
+ *    Resend, então o cliente nunca recebia; agora RESEND_FROM obrigatório e
+ *    domínio verificado na conta do cliente.
  *  * Sem RESEND_API_KEY configurado, tudo funciona e apenas NÃO envia —
  *    mesmo contrato do Asaas (billing segue sem integração).
  *  * Sem next/*: o cron do Worker importa billing.ts, que importa este
@@ -42,23 +51,69 @@ export function __definirEmailTeste(cfg: EmailConfig | null) {
 /** Enviados registrados pela config de teste (o teste inspeciona em memória). */
 export const __emailsEnviados: EmailMensagem[] = [];
 
-async function lerConfig(): Promise<EmailConfig | null> {
-  if (emailTeste) return emailTeste;
+let envEmailTeste: { RESEND_API_KEY?: string | null; RESEND_FROM?: string | null } | null = null;
+const avisosEnviados = new Set<MotivoEmail>();
+
+const MENSGENS: Record<MotivoEmail, string> = {
+  sem_contexto:
+    "E-mail não enviado: contexto Cloudflare indisponível (getCloudflareContext) — secrets RESEND_* ilegíveis fora de request (cron roda sem contexto). Fail-open: envio pulado.",
+  sem_api_key:
+    "E-mail não enviado: secret RESEND_API_KEY ausente no Worker — e-mail transacional desativado. Fail-open: a operação segue sem e-mail.",
+  sem_remetente:
+    "E-mail não enviado: secret RESEND_FROM ausente — remetente padrão (onboarding@resend.dev) foi removido. Configure um domínio verificado no Resend.",
+  remetente_dev:
+    "E-mail não enviado: RESEND_FROM usa o domínio de teste resend.dev (entrega só para o dono da conta) — configure um domínio próprio verificado no Resend.",
+};
+
+/** Por que o envio foi pulado — cada motivo vira uma linha visível em /erros. */
+export type MotivoEmail = "sem_contexto" | "sem_api_key" | "sem_remetente" | "remetente_dev";
+
+export type ConfigEmail = { config: EmailConfig | null; motivo: MotivoEmail | null };
+
+/**
+ * Valida o par RESEND_* puro (sem rede, sem contexto Cloudflare) — testável.
+ * Ordem importa: sem chave não há como remeter; com chave e sem remetente (ou
+ * com o domínio de teste resend.dev) o Resend recusaria/engolia o envio.
+ */
+export function montarConfigEmail(env: { RESEND_API_KEY?: string | null; RESEND_FROM?: string | null }): ConfigEmail {
+  if (!env.RESEND_API_KEY) return { config: null, motivo: "sem_api_key" };
+  const from = (env.RESEND_FROM ?? "").trim();
+  if (!from) return { config: null, motivo: "sem_remetente" };
+  if (/@resend\.dev\b/i.test(from)) return { config: null, motivo: "remetente_dev" };
+  return { config: { apiKey: env.RESEND_API_KEY, from }, motivo: null };
+}
+
+/** Gancho de teste: substitui o env do Worker na leitura de config. */
+export function __definirEnvEmailTeste(env: { RESEND_API_KEY?: string | null; RESEND_FROM?: string | null } | null) {
+  envEmailTeste = env;
+}
+
+/** Gancho de teste: limpa o dedup de avisos (uma linha por motivo/isolate). */
+export function __esquecerAvisosEmail() {
+  avisosEnviados.clear();
+}
+
+async function lerConfig(): Promise<ConfigEmail> {
+  if (emailTeste) return { config: emailTeste, motivo: null };
+  if (envEmailTeste) return montarConfigEmail(envEmailTeste);
   try {
     const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    const env = getCloudflareContext().env;
-    if (!env.RESEND_API_KEY) return null;
-    return {
-      apiKey: env.RESEND_API_KEY,
-      from: env.RESEND_FROM || "Locô <onboarding@resend.dev>",
-    };
+    return montarConfigEmail(getCloudflareContext().env);
   } catch {
-    return null; // fora de request (teste/cron sem contexto): sem envio
+    // fora de request (cron do Worker roda sem runWithCloudflareRequestContext):
+    // não existe contexto para ler os secrets — motivo explícito, não silêncio.
+    return { config: null, motivo: "sem_contexto" };
   }
 }
 
 export async function emailConfigurado(): Promise<boolean> {
-  return (await lerConfig()) !== null;
+  return (await lerConfig()).config !== null;
+}
+
+/** Estado para a tela /saas/configuracoes: "ok" ou o motivo de não enviar. */
+export async function emailEstado(): Promise<"ok" | MotivoEmail> {
+  const { config, motivo } = await lerConfig();
+  return config ? "ok" : motivo ?? "sem_contexto";
 }
 
 /**
@@ -77,12 +132,38 @@ export async function publicUrlDaPlataforma(): Promise<string> {
 }
 
 /**
+ * Torna a falta de config VISÍVEL sem quebrar o fluxo (fail-open): console.error
+ * para o tail + uma linha no diário de erros por motivo por isolate, para /erros
+ * não virar spam quando o cron tenta vários envios.
+ */
+async function avisarConfigAusente(motivo: MotivoEmail, msg: EmailMensagem): Promise<void> {
+  const texto = MENSGENS[motivo];
+  console.error(`[email] ${texto} — para: ${msg.to} — assunto: "${msg.subject}"`);
+  if (avisosEnviados.has(motivo)) return;
+  avisosEnviados.add(motivo);
+  try {
+    const { registrarErro } = await import("./error-log");
+    await registrarErro({
+      source: "api/log-erro",
+      kind: "server",
+      message: texto,
+      context: { motivo, to: msg.to, subject: msg.subject },
+    });
+  } catch {
+    // diagnóstico nunca compete com o fluxo original
+  }
+}
+
+/**
  * Envia um e-mail. Nunca lança: devolve true/false para o chamador decidir
  * se registra algo — a operação que motivou o envio segue em qualquer caso.
  */
 export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
-  const cfg = await lerConfig();
-  if (!cfg) return false;
+  const { config: cfg, motivo } = await lerConfig();
+  if (!cfg) {
+    await avisarConfigAusente(motivo ?? "sem_contexto", msg);
+    return false;
+  }
   if (emailTeste) __emailsEnviados.push(msg);
 
   try {
