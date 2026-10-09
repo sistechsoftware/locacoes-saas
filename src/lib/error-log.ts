@@ -67,7 +67,11 @@ export async function registrarErro(erro: ErroLog): Promise<number | null> {
   try {
     /* Pendência #04: a empresa do erro = empresa do usuário afetado; sem
        sessão (cron/onRequestError) vale a empresa corrente do contexto.
-       Qualquer falha aqui e engolida — o diário nunca derruba o fluxo. */
+       Qualquer falha aqui e engolida — o diário nunca derruba o fluxo.
+       Pendência #08 (decisão #06): error_logs segue a MESMA regra do
+       audit_logs, mas com UMA coluna só (company_id) — a tabela nasceu
+       depois do multi-tenant (0026/0027) e nunca teve a cisão company_id_ref.
+       A migration 0033 backfilla as linhas legadas pelo usuário dono. */
     let companyId = 1;
     try {
       companyId = erro.userId

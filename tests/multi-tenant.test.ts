@@ -28,6 +28,7 @@ import { nextNumber } from "../src/lib/db.ts";
 import { listNotifications, unreadCount } from "../src/lib/notifications.ts";
 import { contactableUsers, ensureConversation } from "../src/lib/chat.ts";
 import { canView, canEdit, ehAdmin, modulesFor } from "../src/lib/roles.ts";
+import { logAction, recentLogs, logsFor } from "../src/lib/audit.ts";
 
 let seqProduto = 0;
 let seqCliente = 0;
@@ -111,15 +112,60 @@ describe("fundação multi-tenant", () => {
     const c1 = await cliente(1, "Cliente A");
     const p1 = await produto(1, "Mesa A", 10);
     await reserva(1, c1, p1);
+    // audit_logs FOU DESTE LOOP de propósito (pendência #06): a coluna company_id
+    // é NOT NULL DEFAULT 1 (migration 0027), então contar NULL nunca falha — o
+    // registro errado nasce com 1, não com NULL. O Isolamento dela é exercitado
+    // pelo teste "auditoria" abaixo, que grava pela empresa 2 e afirma que a
+    // empresa 1 não vê (e que company_id gravado ≠ DEFAULT 1).
     const tabelas = [
       "users", "customers", "products", "product_units", "reservations", "reservation_items",
       "reservation_item_components", "payments", "deposits", "expenses", "financial_entries",
-      "files", "notifications", "audit_logs", "activities", "chat_conversations", "chat_messages",
+      "files", "notifications", "activities", "chat_conversations", "chat_messages",
     ];
     for (const t of tabelas) {
       const n = await scalar<number>(`SELECT COUNT(*) FROM ${t} WHERE company_id IS NULL`);
       assert.equal(n, 0, `${t} tem linhas sem company_id`);
     }
+  });
+
+  it("auditoria: log da empresa 2 não vaza no histórico da empresa 1 e company_id não nasce DEFAULT 1", async () => {
+    await criarEmpresas();
+    const u1 = await usuario(1, "owner");
+    const u2 = await usuario(2, "owner");
+    const atorA = { id: u1, name: "Dono A", username: "donoa", role: "owner", company_id: 1, avatar_url: null, platform_admin: false };
+    const atorB = { id: u2, name: "Dono ZB", username: "donozb", role: "owner", company_id: 2, avatar_url: null, platform_admin: false };
+    await logAction(atorA as any, "editar", "cliente", 100, "A editou o cliente A");
+    await logAction(atorB as any, "editar", "cliente", 200, "ZB editou o cliente ZB");
+
+    // ESCRITA: a coluna legada company_id nasce do ator — nunca do DEFAULT 1.
+    // Este é o asserts que falha se a gravação correta voltar a ser removida.
+    const daZB = await one<any>(`SELECT company_id, company_id_ref FROM audit_logs WHERE summary = ?`, [
+      "ZB editou o cliente ZB",
+    ]);
+    assert.ok(daZB, "log da empresa 2 não gravado");
+    assert.equal(daZB.company_id, 2, "company_id legado voltou a nascer com DEFAULT 1");
+    assert.equal(daZB.company_id_ref, 2, "escopo de leitura company_id_ref divergente do ator");
+
+    // LEITURA: recentLogs/logsFor nunca cruzam tenants (company_id_ref = escopo)
+    const deA = await recentLogs(100, 0, 1);
+    assert.ok(deA.some((l: any) => l.summary === "A editou o cliente A"), "empresa 1 não vê o próprio log");
+    assert.ok(
+      !deA.some((l: any) => l.summary === "ZB editou o cliente ZB"),
+      "histórico da empresa 1 vazou log da empresa 2",
+    );
+    const deB = await recentLogs(100, 0, 2);
+    assert.ok(deB.some((l: any) => l.summary === "ZB editou o cliente ZB"), "empresa 2 não vê o próprio log");
+
+    const forA = await logsFor("cliente", 200, 1);
+    assert.deepEqual(forA, [], "logsFor da empresa 1 devolveu log da empresa 2");
+    const forB = await logsFor("cliente", 200, 2);
+    assert.equal(forB.length, 1, "empresa 2 não vê o próprio log por entidade");
+
+    // A tela /historico usa a MESMA condição (company_id_ref = sessão) —
+    // reforço do filtro canônico, não só da função.
+    const { all } = await import("../src/lib/db.ts");
+    const daTela = await all(`SELECT summary FROM audit_logs WHERE company_id_ref = ?`, [1]);
+    assert.ok(daTela.every((l: any) => !l.summary.includes("ZB")), "filtro da tela vazou log da empresa 2");
   });
 
   it("leitura: cliente de A não aparece para B (getCustomer e busca global)", async () => {
