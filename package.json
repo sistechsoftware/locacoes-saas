@@ -16,7 +16,11 @@
     "test": "tsx --conditions=react-server --test tests/**/*.test.ts",
     "db:migrate:local": "wrangler d1 migrations apply limas-saas-db --local",
     "db:migrate:staging": "wrangler d1 migrations apply limas-saas-staging-db --remote --env staging",
-    "db:migrate": "wrangler d1 migrations apply limas-saas-db --remote --env production"
+    "db:migrate": "node scripts/db-migrate.mjs production",
+    "db:backup:production": "node scripts/db-backup.mjs production",
+    "db:backup:staging": "node scripts/db-backup.mjs staging",
+    "db:restore:production": "node scripts/db-restore.mjs production",
+    "db:restore:staging": "node scripts/db-restore.mjs staging"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "^2.0.0",
