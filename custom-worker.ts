@@ -22,6 +22,10 @@ export default {
         kind: "server",
         message: mensagemDeErro(new Error(r.erro)),
         route,
+        // Pendência #07: este loop roda DEPOIS de paraCadaEmpresa (o contexto
+        // runWithCompany já foi restaurado), então a empresa vem explícita do
+        // resultado — sem isto a falha de toda empresa cairia na empresa 1.
+        companyId: r.companyId,
         context: { rotina, companyId: r.companyId, empresa: r.name },
       });
     };
@@ -51,6 +55,10 @@ export default {
               source: "cron", kind: "server",
               message: mensagemDeErro(e),
               route: "cron/notificacoes",
+              // Pendência #07: falha do loop inteiro, sem empresa atribuível →
+              // global (NULL). companyId explícito para não herdar o contexto
+              // de outra rotina — os cron rodam concorrentes no mesmo isolate.
+              companyId: null,
               context: { rotina: "runNotificationScheduler" },
             }),
           );
@@ -74,6 +82,7 @@ export default {
               source: "cron", kind: "server",
               message: mensagemDeErro(e),
               route: "cron/fidelidade",
+              companyId: null, // global: falha do loop, sem empresa atribuível
               context: { rotina: "runFidelityDaily" },
             }),
           );
@@ -96,6 +105,7 @@ export default {
               source: "cron", kind: "server",
               message: mensagemDeErro(e),
               route: "cron/aniversarios",
+              companyId: null, // global: falha do loop, sem empresa atribuível
               context: { rotina: "runBirthdayDaily" },
             }),
           );
@@ -128,6 +138,7 @@ export default {
               source: "cron", kind: "server",
               message: mensagemDeErro(e),
               route: "cron/billing",
+              companyId: null, // rotina de plataforma: erro global por natureza
               context: { rotina: "rotinaDiariaBilling" },
             }),
           );
