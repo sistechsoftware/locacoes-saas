@@ -14,6 +14,10 @@ interface __BaseEnv_CloudflareEnv {
 	ASAAS_API_KEY: string;
 	ASAAS_ENVIRONMENT: string;
 	ASAAS_WEBHOOK_TOKEN: string;
+	/* Chave de cifra dos segredos cadastrados pelo painel /saas (platform_settings).
+	   Nao e obrigatoria para o sistema operar: sem ela o painel apenas RECUSA
+	   gravar segredo novo (ver src/lib/platform-settings.ts). */
+	PAINEL_CHAVE: string;
 	/* E-mail transacional (Etapa 5): Resend. PUBLIC_URL e var do wrangler.jsonc;
 	   os outros dois sao secrets via --secrets-file. */
 	RESEND_API_KEY: string;

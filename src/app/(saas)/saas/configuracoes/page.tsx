@@ -1,7 +1,9 @@
 import { requirePlatformAdmin } from "@/lib/auth";
 import { asaasEnvironment } from "@/lib/asaas";
+import { credenciaisAsaas } from "@/lib/platform-settings";
 import { emailEstado, type MotivoEmail } from "@/lib/email";
 import { Card } from "@/components/ui";
+import FormAsaas, { type EstadoIntegracao } from "./FormAsaas";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +11,16 @@ export const dynamic = "force-dynamic";
  * Estado das integrações da plataforma. Os segredos nunca são exibidos —
  * apenas se estão configurados e em qual ambiente (sandbox/produção).
  */
+
+/** URL pública da plataforma — base para montar a URL do webhook no formulário. */
+async function publicUrlPlataforma(): Promise<string> {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    return getCloudflareContext().env.PUBLIC_URL ?? "";
+  } catch {
+    return "";
+  }
+}
 
 const ESTADO_EMAIL: Record<"ok" | MotivoEmail, { cor: string; texto: string }> = {
   ok: { cor: "text-green-700", texto: "configurado — envios ativos" },
@@ -31,7 +43,16 @@ export default async function SaasConfiguracoesPage() {
   // Guard redundante ao layout (ver nota em saas/page.tsx).
   await requirePlatformAdmin();
   const asaas = await asaasEnvironment();
+  const cred = await credenciaisAsaas();
   const email = ESTADO_EMAIL[await emailEstado()];
+
+  const estado: EstadoIntegracao = {
+    ambiente: cred.environment,
+    temApiKey: !!cred.apiKey,
+    temToken: !!cred.webhookToken,
+    origem: cred.origem,
+    publicUrl: await publicUrlPlataforma(),
+  };
 
   return (
     <div className="space-y-5">
@@ -54,9 +75,12 @@ export default async function SaasConfiguracoesPage() {
             )}
           </p>
           <p className="text-xs text-stone-500">
-            Chave e ambiente vêm dos secrets do Worker (ASAAS_API_KEY / ASAAS_ENVIRONMENT). Webhook:{" "}
-            <code className="rounded bg-stone-100 px-1">/api/webhooks/asaas?token=…</code> (ASAAS_WEBHOOK_TOKEN).
+            Chave e ambiente vêm do secret do Worker (ASAAS_API_KEY / ASAAS_ENVIRONMENT) ou, na falta, do cadastro
+            abaixo — o Worker tem prioridade. Webhook:{" "}
+            <code className="rounded bg-stone-100 px-1">/api/webhooks/asaas?token=…</code> (ASAAS_WEBHOOK_TOKEN ou
+            token cadastrado aqui).
           </p>
+          <FormAsaas estado={estado} />
         </div>
       </Card>
 
