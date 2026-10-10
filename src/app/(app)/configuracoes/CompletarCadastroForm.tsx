@@ -25,8 +25,9 @@ export default function CompletarCadastroForm({
     <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3">
       <p className="mb-2 text-sm font-bold text-amber-900">Complete seu cadastro</p>
       <p className="mb-3 text-xs leading-relaxed text-amber-800">
-        Sua conta foi criada antes da exigência de CPF/CNPJ. Preencha abaixo para terminar de identificar a conta e
-        habilitar o login por CPF/CNPJ — o acesso continua liberado enquanto isso.
+        {semDocumento
+          ? "Sua conta foi criada antes da exigência de CPF/CNPJ. Preencha abaixo para terminar de identificar a conta e habilitar o login por CPF/CNPJ — o acesso continua liberado enquanto isso."
+          : "Seu cadastro ainda não tem e-mail. Informe abaixo — é por ele que chegam os avisos da conta e o link de recuperação de senha."}
       </p>
       <form action={action} className="space-y-3">
         {semDocumento && (

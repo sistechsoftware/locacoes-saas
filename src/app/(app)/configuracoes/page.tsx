@@ -604,9 +604,12 @@ export default async function ConfiguracoesPage({
           </p>
           <AvatarForm url={user.avatar_url} name={user.name} />
           <PasswordForm />
-          {(!minhaIdentidade?.person_type || !minhaIdentidade?.document || !minhaIdentidade?.email) && (
+          {((user.role === "owner" && (!minhaIdentidade?.person_type || !minhaIdentidade?.document)) ||
+            !minhaIdentidade?.email) && (
             <CompletarCadastroForm
-              semDocumento={!minhaIdentidade?.person_type || !minhaIdentidade?.document}
+              semDocumento={
+                user.role === "owner" && (!minhaIdentidade?.person_type || !minhaIdentidade?.document)
+              }
               semEmail={!minhaIdentidade?.email}
             />
           )}

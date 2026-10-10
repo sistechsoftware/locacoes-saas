@@ -96,9 +96,9 @@ export async function criarUsuario(
     phone?: string;
     password: string;
     role: string;
-    /** 'pf' | 'pj' — obrigatório no cadastro (validado no servidor). */
+    /** 'pf' | 'pj' — OPCIONAL aqui: PF/PJ é exigência do CONTRATANTE (onboarding/checkout), não do usuário interno. Se vier, é validado no servidor. */
     tipo_pessoa?: string;
-    /** CPF (11) ou CNPJ (14) conforme o tipo, dígitos verificadores conferidos. */
+    /** CPF (11) ou CNPJ (14) conforme o tipo — só validado quando informado. */
     documento?: string;
   },
   log?: (acao: string, entidade: string, id: number | null, resumo: string) => Promise<void>,
@@ -118,12 +118,25 @@ export async function criarUsuario(
     return { ok: false, erro: "Função inválida para usuários da empresa." };
   }
 
-  // Identidade obrigatória no cadastro: tipo de pessoa + documento + e-mail.
-  // A interface pode ser ignorada — estas checagens são a barreira real.
-  const tipo = tipoPessoaValido(dados.tipo_pessoa);
-  if (!tipo) return { ok: false, erro: "Selecione o tipo de pessoa: Pessoa Física (PF) ou Pessoa Jurídica (PJ)." };
-  const doc = documentoDoTipo(tipo, dados.documento);
-  if (!doc.ok) return { ok: false, erro: doc.erro };
+  // Usuário INTERNO: tipo de pessoa/documento são OPCIONAIS — a exigência de
+  // PF/PJ pertence ao cadastro do CONTRATANTE (onboarding/checkout), não à
+  // equipe da empresa. Mas se os campos vierem (payload manipulado), passam
+  // pela MESMA validação: nada de dado inválido gravado por atalho.
+  const temIdentidade =
+    String(dados.tipo_pessoa ?? "").trim() !== "" || String(dados.documento ?? "").trim() !== "";
+  let tipo: "pf" | "pj" | null = null;
+  let documento: string | null = null;
+  if (temIdentidade) {
+    tipo = tipoPessoaValido(dados.tipo_pessoa);
+    if (!tipo) return { ok: false, erro: "Selecione o tipo de pessoa: Pessoa Física (PF) ou Pessoa Jurídica (PJ)." };
+    const doc = documentoDoTipo(tipo, dados.documento);
+    if (!doc.ok) return { ok: false, erro: doc.erro };
+    documento = doc.documento;
+    if (await documentoJaUsado(documento))
+      return { ok: false, erro: "Este CPF/CNPJ já está cadastrado em outra conta." };
+  }
+  // O e-mail continua OBRIGATÓRIO: é identificador de login e canal da
+  // recuperação de senha de todos os perfis.
   const email = normalizarEmail(dados.email);
   if (!email) return { ok: false, erro: "Informe o e-mail do usuário — é o canal da recuperação de senha." };
   if (!emailValido(email)) return { ok: false, erro: "E-mail inválido — confira o endereço digitado." };
@@ -133,8 +146,6 @@ export async function criarUsuario(
   ) {
     return { ok: false, erro: "Usuário já existe." };
   }
-  if (await documentoJaUsado(doc.documento))
-    return { ok: false, erro: "Este CPF/CNPJ já está cadastrado em outra conta." };
   if (await emailJaUsado(email))
     return { ok: false, erro: "Este e-mail já está cadastrado em outra conta." };
 
@@ -145,7 +156,7 @@ export async function criarUsuario(
   const id = await insert(
     `INSERT INTO users (name, username, email, phone, password_hash, role, company_id, person_type, document)
      VALUES (?,?,?,?,?,?,?,?,?)`,
-    [name, username, email, String(dados.phone ?? "").trim(), hashPassword(password), papel, ator.company_id, tipo, doc.documento],
+    [name, username, email, String(dados.phone ?? "").trim(), hashPassword(password), papel, ator.company_id, tipo, documento],
   );
   if (log) await log("criar", "usuario", id, `${ator.name} criou o usuario ${name} (${papel})`);
   return { ok: true, id };

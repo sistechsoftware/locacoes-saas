@@ -232,6 +232,8 @@ describe("migração 0037: não destrutiva e compatível com o legado", () => {
 
 /* ------------- backend é a barreira (interface ignorada) ------------- */
 
+let seqInt = 0;
+
 describe("criarUsuario: validação no backend mesmo sem interface", async () => {
   const { criarUsuario, atualizarUsuario } = await import("../src/lib/usuarios.ts");
 
@@ -300,6 +302,34 @@ describe("criarUsuario: validação no backend mesmo sem interface", async () =>
       documento: "11144477735",
     });
     assert.ok(!emailDup.ok && /e-mail já está cadastrado/i.test((emailDup as any).erro));
+  });
+
+  it("usuário INTERNO nasce sem PF/PJ (documento é exigência só do contratante)", async () => {
+    const adm = await admin();
+    const r = await criarUsuario(adm, {
+      name: "Operadora",
+      username: `int${++seqInt}`,
+      password: "senha123",
+      role: "operacional",
+      email: `int${seqInt}@x.com`,
+      // sem tipo_pessoa e sem documento — o formulário interno não envia
+    });
+    assert.ok(r.ok, JSON.stringify(r));
+    const row = await one<any>(`SELECT person_type, document FROM users WHERE id = ?`, [(r as any).id]);
+    assert.equal(row.person_type, null, "tipo de pessoa não é suposto para usuário interno");
+    assert.equal(row.document, null, "documento não é suposto para usuário interno");
+  });
+
+  it("documento sem tipo (payload manipulado) continua recusado", async () => {
+    const adm = await admin();
+    const r = await criarUsuario(adm, {
+      ...completo,
+      username: `payload${++seqInt}`,
+      email: `payload${seqInt}@x.com`,
+      tipo_pessoa: "",
+      documento: "52998224725",
+    });
+    assert.ok(!r.ok && /tipo de pessoa/i.test((r as { erro: string }).erro));
   });
 
   it("PJ: criação aceita CNPJ e persiste o tipo", async () => {
