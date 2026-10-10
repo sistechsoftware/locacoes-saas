@@ -420,14 +420,13 @@ export async function gerarCobrancaPeriodo(
   }
 }
 
-/** Lê a API key dos secrets do Worker (nunca do request). */
+/**
+ * Lê a API key resolvida (secret do Worker > cadastro do painel /saas).
+ * Nunca vem do request — só destas duas fontes de servidor.
+ */
 async function lerApiKey(): Promise<string | null> {
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    return getCloudflareContext().env.ASAAS_API_KEY ?? null;
-  } catch {
-    return null;
-  }
+  const { credenciaisAsaas } = await import("./platform-settings");
+  return (await credenciaisAsaas()).apiKey;
 }
 
 /* ------------------------------------------------------------------ */

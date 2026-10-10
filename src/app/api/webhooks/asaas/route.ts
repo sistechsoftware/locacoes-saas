@@ -8,12 +8,13 @@ export const dynamic = "force-dynamic";
  *
  * Segurança em três camadas:
  *  1. token compartilhado na URL (?token=) — comparado em tempo constante com
- *     o secret ASAAS_WEBHOOK_TOKEN do Worker;
+ *     o token resolvido (secret ASAAS_WEBHOOK_TOKEN do Worker, ou o que o
+ *     painel /saas cadastrou — ver src/lib/platform-settings.ts);
  *  2. corpo limitado (o Asaas manda JSON pequeno; aborta acima de 256 KB);
  *  3. idempotência: SHA-256 do corpo como UNIQUE em webhook_events — o Asaas
  *     reenvia eventos e cada um é processado no máximo uma vez.
  *
- * Sem ASAAS_WEBHOOK_TOKEN configurado o endpoint recusa tudo (fail-closed):
+ * Sem token configurado em nenhuma das fontes o endpoint recusa tudo (fail-closed):
  * é melhor perder um evento do que aceitar forjados.
  */
 
@@ -30,10 +31,13 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
   const recebido = url.searchParams.get("token") ?? request.headers.get("asaas-token") ?? "";
 
+  // Token esperado: secret do Worker > cadastro no painel /saas. Sem nada nos
+  // dois lugares o endpoint recusa tudo (fail-closed) — melhor perder um evento
+  // do que aceitar forjados.
   let esperado: string | null = null;
   try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    esperado = getCloudflareContext().env.ASAAS_WEBHOOK_TOKEN ?? null;
+    const { credenciaisAsaas } = await import("@/lib/platform-settings");
+    esperado = (await credenciaisAsaas()).webhookToken;
   } catch {
     esperado = null;
   }

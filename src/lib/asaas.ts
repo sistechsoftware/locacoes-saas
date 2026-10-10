@@ -49,16 +49,17 @@ export const ASAAS_PRODUCAO = "https://api.asaas.com";
 
 type AsaasBody = { errors?: { code: string; description: string }[] } & Record<string, any>;
 
-/** Ambiente configurado nos secrets do Worker (nunca no cliente). */
+/**
+ * Ambiente configurado — secret do Worker ou, na falta, o valor cadastrado
+ * pelo painel /saas (src/lib/platform-settings.ts). Sem API key em nenhuma das
+ * duas fontes o sistema fica "nao_configurado" (cobrança desabilitada, o
+ * resto segue funcionando).
+ */
 export async function asaasEnvironment(): Promise<"sandbox" | "producao" | "nao_configurado"> {
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    const env = getCloudflareContext().env;
-    if (!env.ASAAS_API_KEY) return "nao_configurado";
-    return env.ASAAS_ENVIRONMENT === "production" ? "producao" : "sandbox";
-  } catch {
-    return "nao_configurado";
-  }
+  const { credenciaisAsaas } = await import("./platform-settings");
+  const cred = await credenciaisAsaas();
+  if (!cred.apiKey) return "nao_configurado";
+  return cred.environment === "production" ? "producao" : "sandbox";
 }
 
 export function asaasClient(cfg: AsaasConfig) {
@@ -153,6 +154,25 @@ export function asaasClient(cfg: AsaasConfig) {
     /** Busca a cobrança por id (conciliação de status). */
     async getPayment(id: string): Promise<AsaasPayment> {
       return await request<AsaasPayment>("GET", `/v3/payments/${id}`);
+    },
+
+    /**
+     * Sonda de credencial: bate em /v3/payments com limit=1 (leitura barata,
+     * presente em sandbox e produção). Serve para o painel CONFIRMAR que a
+     * chave cadastrada funciona de verdade — 200 = chave válida no ambiente;
+     * 401 = chave recusada pelo Asaas; erro de rede = inalcançável.
+     */
+    async testarCredencial(): Promise<{ ok: boolean; status: number; mensagem: string }> {
+      try {
+        const r = await request<{ data?: unknown[] }>("GET", "/v3/payments?limit=1");
+        return { ok: true, status: 200, mensagem: `Credencial aceita — ${Array.isArray(r.data) ? r.data.length : 0} cobrança(s) visíveis nesta conta.` };
+      } catch (e) {
+        if (e instanceof AsaasError) {
+          const detalhe = e.errors?.[0]?.description ? ` — ${e.errors[0].description}` : "";
+          return { ok: false, status: e.status, mensagem: `Asaas recusou a credencial (HTTP ${e.status})${detalhe}` };
+        }
+        return { ok: false, status: 0, mensagem: e instanceof Error ? e.message : "Falha desconhecida ao falar com o Asaas." };
+      }
     },
   };
 }
