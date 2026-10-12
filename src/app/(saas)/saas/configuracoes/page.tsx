@@ -62,7 +62,7 @@ export default async function SaasConfiguracoesPage() {
       </div>
 
       <Card>
-        <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">Asaas (cobrança PIX)</h2>
+        <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">Asaas (cobranças: Pix, cartão, boleto)</h2>
         <div className="mt-3 space-y-1 text-sm">
           <p>
             <span className="font-semibold text-tinta-900">Estado:</span>{" "}

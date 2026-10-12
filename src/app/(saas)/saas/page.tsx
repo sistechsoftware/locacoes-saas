@@ -135,7 +135,7 @@ export default async function SaasDashboard() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           ["Recebido no mês", money(fin.recebido)],
-          ["PIX pendentes", `${money(fin.pixPendentes)} (${fin.pixPendentesQtd})`],
+          ["Cobranças pendentes", `${money(fin.pixPendentes)} (${fin.pixPendentesQtd})`],
           ["Inadimplentes", `${money(fin.inadimplencia)} (${fin.inadimplentesQtd} emp.)`],
         ].map(([rotulo, valor]) => (
           <Card key={rotulo} className="text-center">

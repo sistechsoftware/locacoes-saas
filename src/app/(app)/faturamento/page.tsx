@@ -3,6 +3,7 @@ import { estadoAssinatura, listarPlanos, STATUS_ROTULO, assinaturaDaEmpresa } fr
 import { all } from "@/lib/db";
 import { PageHeader, Card, Badge, Empty } from "@/components/ui";
 import GerarCobrancaButton from "./GerarCobrancaButton";
+import DadosPagamentoButton from "./DadosPagamentoButton";
 import TrocarPlanoButtons from "./TrocarPlanoButtons";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export default async function FaturamentoPage() {
   const planos = await listarPlanos();
   const sub = await assinaturaDaEmpresa(user.company_id);
   const cobrancas = await all<any>(
-    `SELECT amount_cents, status, due_date, paid_at, invoice_url, billing_type
+    `SELECT id, amount_cents, status, due_date, paid_at, invoice_url, billing_type
        FROM subscription_payments WHERE company_id = ? ORDER BY id DESC LIMIT 12`,
     [user.company_id],
   );
@@ -116,7 +117,18 @@ export default async function FaturamentoPage() {
                   <span className="text-stone-500"> · venc. {dataBR(c.due_date)}</span>
                   {c.paid_at && <span className="text-stone-500"> · pago {dataBR(c.paid_at)}</span>}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-stone-500">
+                    {c.billing_type === "PIX"
+                      ? "Pix"
+                      : c.billing_type === "BOLETO"
+                        ? "Boleto"
+                        : c.billing_type === "CREDIT_CARD"
+                          ? "Cartão"
+                          : c.billing_type === "UNDEFINED"
+                            ? "fatura"
+                            : c.billing_type ?? "—"}
+                  </span>
                   <Badge tone={c.status === "received" || c.status === "confirmed" ? "verde" : c.status === "pending" ? "ambar" : c.status === "overdue" ? "vermelho" : "cinza"}>
                     {c.status}
                   </Badge>
@@ -124,6 +136,9 @@ export default async function FaturamentoPage() {
                     <a href={c.invoice_url} target="_blank" rel="noreferrer" className="text-marca-600 underline">
                       fatura
                     </a>
+                  )}
+                  {c.id && user.role === "owner" && (
+                    <DadosPagamentoButton pagamentoId={c.id} status={c.status} />
                   )}
                 </div>
               </div>

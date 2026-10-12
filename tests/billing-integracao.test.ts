@@ -75,6 +75,56 @@ describe("webhook asaas (route handler)", () => {
     assert.equal(estados.n, 1);
   });
 
+  it("com token do painel: processa, marca tratado e deduplica reenvio", async () => {
+    const mod = await import("../src/app/api/webhooks/asaas/route.ts");
+    const ps = await import("../src/lib/platform-settings.ts");
+    const CHAVE = "chave-de-teste-do-painel-32bytes!!";
+    const TOKEN = "tok_test_webhook_local";
+    ps.__definirChavePainelTeste(CHAVE);
+    try {
+      // Mesma fonte de credencial do runtime: segredo cifrado no painel /saas.
+      await ps.gravarConfig("asaas_webhook_token", TOKEN);
+
+      await assinaturaAtiva(1);
+      await run(
+        `INSERT INTO subscription_payments (company_id, subscription_id, asaas_payment_id, amount_cents, status, due_date)
+         VALUES (1, (SELECT id FROM subscriptions WHERE company_id = 1), 'pay_42', 7990, 'pending', '2026-09-15')`,
+      );
+
+      const corpo = JSON.stringify({ event: "PAYMENT_RECEIVED", payment: { id: "pay_42", billingType: "PIX" } });
+      const req = (token: string) =>
+        new Request(`https://x.test/api/webhooks/asaas?token=${token}`, {
+          method: "POST",
+          body: corpo,
+          headers: { "content-type": "application/json" },
+        });
+
+      // Token errado → 401 e a cobrança permanece intacta.
+      const negado = await mod.POST(req("errado"));
+      assert.equal(negado.status, 401);
+      const antes = await one<any>(`SELECT status FROM subscription_payments WHERE asaas_payment_id = 'pay_42'`);
+      assert.equal(antes.status, "pending");
+
+      // Token certo → evento processado, pagamento confirmado e assinatura ativa.
+      const ok = await mod.POST(req(TOKEN));
+      assert.equal(ok.status, 200);
+      assert.deepEqual(await ok.json(), { ok: true });
+      const p = await one<any>(`SELECT status, paid_at FROM subscription_payments WHERE asaas_payment_id = 'pay_42'`);
+      assert.equal(p.status, "received");
+      assert.ok(p.paid_at);
+      const evento = await one<any>(`SELECT handled FROM webhook_events WHERE event = 'PAYMENT_RECEIVED'`);
+      assert.equal(evento.handled, 1);
+
+      // Reenvio idêntico (Asaas retransmite) → dedupe por hash, sem efeito novo.
+      const reenvio = await mod.POST(req(TOKEN));
+      assert.deepEqual(await reenvio.json(), { ok: true, duplicado: true });
+      const n = await one<any>(`SELECT COUNT(*) AS n FROM webhook_events`);
+      assert.equal(n.n, 1);
+    } finally {
+      ps.__definirChavePainelTeste(null);
+    }
+  });
+
   it("payment de outra empresa nao afeta a assinatura da primeira (isolamento)", async () => {
     const { processarEventoPayment } = await import("../src/lib/billing.ts");
     await assinaturaAtiva(1);

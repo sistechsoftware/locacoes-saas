@@ -1,6 +1,7 @@
 /**
  * Camada comercial do SaaS (Etapa 3): planos, assinatura, trial, cobrança
- * PIX via Asaas (sandbox/produção por secrets) e inadimplência.
+ * via Asaas — Pix, cartão e boleto (sandbox/produção por secrets) e
+ * inadimplência.
  *
  * Regras de projeto:
  *  * Toda função recebe/exige o company_id explicitamente — esta camada é da
@@ -13,7 +14,16 @@
  */
 
 import { all, insert, one, run, scalar } from "./db";
-import { AsaasError, asaasClient, asaasEnvironment, ASAAS_SANDBOX, ASAAS_PRODUCAO } from "./asaas";
+import {
+  AsaasError,
+  asaasClient,
+  asaasEnvironment,
+  ehMeioCobranca,
+  ASAAS_SANDBOX,
+  ASAAS_PRODUCAO,
+  type AsaasPayment,
+  type MeioCobranca,
+} from "./asaas";
 import {
   emailCobrancaGerada,
   emailPagamentoConfirmado,
@@ -261,7 +271,7 @@ export async function estadoAssinatura(companyId: number): Promise<EstadoAssinat
 }
 
 /* ------------------------------------------------------------------ */
-/* Cobrança PIX via Asaas                                               */
+/* Cobrança via Asaas (Pix, cartão e boleto)                           */
 /* ------------------------------------------------------------------ */
 
 const LIMITE_TOLERANCIA_DIAS = 7;
@@ -311,22 +321,96 @@ function proximoVencimento(base?: string): string {
   return diaISO(30, base);
 }
 
+/** Datas (YYYY-MM-DD) do período coberto pela próxima cobrança. */
+function periodoDaCobranca(sub: Subscription): { vencimento: string; periodStart: string; periodEnd: string } {
+  const periodStart = sub.current_period_end ?? diaISO(0);
+  return {
+    vencimento: proximoVencimento(sub.current_period_end ?? undefined),
+    periodStart,
+    periodEnd: diaISO(30, periodStart),
+  };
+}
+
 /**
- * Gera a cobrança PIX do próximo período.
+ * Grava o espelho local da cobrança criada no Asaas (idempotente pelo
+ * asaas_payment_id UNIQUE — uma falha depois do INSERT não regrava).
+ */
+async function registrarCobrancaLocal(
+  companyId: number,
+  subscriptionId: number,
+  payment: AsaasPayment,
+  amountCents: number,
+  dueDate: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<void> {
+  await insert(
+    `INSERT INTO subscription_payments
+       (company_id, subscription_id, asaas_payment_id, amount_cents, billing_type, status, due_date, period_start, period_end, invoice_url)
+     VALUES (?,?,?,?,?,'pending',?,?,?,?)`,
+    [
+      companyId,
+      subscriptionId,
+      payment.id,
+      amountCents,
+      payment.billingType || "PIX",
+      dueDate,
+      periodStart,
+      periodEnd,
+      payment.invoiceUrl ?? null,
+    ],
+  );
+}
+
+/**
+ * Gera a cobrança do próximo período.
  *
- * Fluxo: garante assinatura -> garante cliente no Asaas (empresa 1 usa os
- * dados cadastrados; demais, o nome da empresa) -> cria o payment PIX ->
- * registra em subscription_payments com o período coberto.
+ * Fluxo: garante assinatura -> garante cliente no Asaas (externalReference
+ * `company:<id>`) -> cria o payment com o meio pedido -> registra em
+ * subscription_payments com o período coberto.
+ *
+ * Meio de pagamento (`opts.meio`, padrão UNDEFINED):
+ *  * UNDEFINED — a fatura do Asaas deixa o pagador escolher entre os meios
+ *    habilitados na conta (Pix, cartão, boleto). É o padrão, inclusive para
+ *    a rotina diária, para que TODAS as cobranças ofereçam os meios da conta;
+ *    se o Asaas recusar o UNDEFINED (HTTP 400), cai para PIX — o
+ *    comportamento atual — em vez de deixar a cobrança de renovar de fora;
+ *  * PIX | CREDIT_CARD | BOLETO — forma fixada na criação, a pedido do
+ *    operador. Cartão SEM dados de cartão aqui: o pagador paga na fatura
+ *    hospedada pelo Asaas.
+ *
+ * Idempotência (não duplicar cobrança em retentativa/duplo clique):
+ *  1. cobrança pendente e ainda válida do MESMO período já registrada ->
+ *     devolve a existente sem tocar no Asaas;
+ *  2. criação anterior que falhou DEPOIS de o Asaas gravar (timeout) ->
+ *     a externalReference `subscription:<id>:<periodo>` localiza a cobrança
+ *    remota pendente e o registro local é completado.
  *
  * Sem Asaas configurado, devolve { ok:false, motivo:"asaas_nao_configurado" }.
  */
 export async function gerarCobrancaPeriodo(
   companyId: number,
-  opts: { vencimento?: string } = {},
+  opts: { vencimento?: string; meio?: MeioCobranca } = {},
 ): Promise<
-  | { ok: true; paymentId: string; dueDate: string; invoiceUrl: string | null; amountCents: number }
-  | { ok: false; motivo: "asaas_nao_configurado" | "sem_empresa" | "sem_dados_bancarios" | "documento_invalido"; erro?: string }
+  | {
+      ok: true;
+      paymentId: string;
+      dueDate: string;
+      invoiceUrl: string | null;
+      amountCents: number;
+      /** Meio efetivamente registrado pelo Asaas (UNDEFINED, PIX, ...). */
+      billingType: string;
+      /** Só para boleto: PDF e linha digitável (quando o Asaas devolveu). */
+      bankSlipUrl: string | null;
+      linhaDigitavel: string | null;
+      /** true quando não havia nova cobrança a criar (período já cobrado). */
+      reutilizada: boolean;
+    }
+  | { ok: false; motivo: "asaas_nao_configurado" | "sem_empresa" | "sem_dados_bancarios" | "documento_invalido" | "meio_invalido"; erro?: string }
 > {
+  const meio: MeioCobranca = opts.meio ?? "UNDEFINED";
+  if (!ehMeioCobranca(meio)) return { ok: false, motivo: "meio_invalido" };
+
   const env = asaasTeste ? "sandbox" : await asaasEnvironment();
   if (env === "nao_configurado") return { ok: false, motivo: "asaas_nao_configurado" };
 
@@ -367,6 +451,53 @@ export async function gerarCobrancaPeriodo(
     return { ok: false, motivo: "documento_invalido" };
   }
 
+  const periodo = periodoDaCobranca(sub);
+  const { periodStart, periodEnd } = periodo;
+  const vencimento = opts.vencimento ?? periodo.vencimento;
+  const hoje = hojeISO();
+
+  /**
+   * Idempotência local: o MESMO período já tem cobrança pendente ainda
+   * válida (vencimento >= hoje) -> devolve ela. Cobre duplo clique e
+   * retentativa de tela sem criar segunda cobrança nem tocar no Asaas.
+   * Cobrança vencida não trava: o operador pode gerar uma nova.
+   */
+  const existente = await one<{
+    id: number;
+    asaas_payment_id: string | null;
+    due_date: string | null;
+    invoice_url: string | null;
+    billing_type: string | null;
+    amount_cents: number;
+  }>(
+    `SELECT id, asaas_payment_id, due_date, invoice_url, billing_type, amount_cents
+       FROM subscription_payments
+      WHERE company_id = ? AND subscription_id = ?
+        AND period_start = ? AND period_end = ?
+        AND status = 'pending' AND asaas_payment_id IS NOT NULL
+        AND due_date IS NOT NULL AND due_date >= ?
+      ORDER BY id DESC LIMIT 1`,
+    [companyId, sub.id, periodStart, periodEnd, hoje],
+  );
+  if (existente?.asaas_payment_id) {
+    return {
+      ok: true,
+      paymentId: existente.asaas_payment_id,
+      dueDate: existente.due_date ?? vencimento,
+      invoiceUrl: existente.invoice_url,
+      amountCents: existente.amount_cents,
+      billingType: existente.billing_type ?? "PIX",
+      bankSlipUrl: null,
+      linhaDigitavel: null,
+      reutilizada: true,
+    };
+  }
+
+  // externalReference única POR PERÍODO: permite localizar no Asaas uma
+  // cobrança criada numa tentativa anterior que falhou antes do INSERT local
+  // (timeout de resposta) — a retentativa recupera em vez de duplicar.
+  const refExterna = `subscription:${sub.id}:${periodStart}`;
+
   let customerId = sub.asaas_customer_id;
   try {
     if (!customerId) {
@@ -380,23 +511,61 @@ export async function gerarCobrancaPeriodo(
       await run(`UPDATE subscriptions SET asaas_customer_id = ? WHERE id = ?`, [customerId, sub.id]);
     }
 
-    const vencimento = opts.vencimento ?? proximoVencimento(sub.current_period_end ?? undefined);
-    const periodStart = sub.current_period_end ?? diaISO(0);
-    const periodEnd = diaISO(30, periodStart);
-    const payment = await client.createPixPayment({
-      customer: customerId,
-      value: plano.price_cents / 100,
-      dueDate: vencimento,
-      description: `Assinatura ${plano.name} — ${empresa.name}`,
-      externalReference: `subscription:${sub.id}`,
-    });
+    // Idempotência remota (best-effort): cobrança pendente já existente no
+    // Asaas para este período -> só completa o registro local.
+    let recuperada: AsaasPayment | null = null;
+    try {
+      const candidatas = await client.listPaymentsByExternalReference(refExterna);
+      recuperada =
+        candidatas.find((p) => p.id && p.status === "PENDING" && p.dueDate === vencimento) ?? null;
+    } catch {
+      // Lookup é otimização de segurança: falha não impede a criação normal.
+    }
 
-    await insert(
-      `INSERT INTO subscription_payments
-         (company_id, subscription_id, asaas_payment_id, amount_cents, billing_type, status, due_date, period_start, period_end, invoice_url)
-       VALUES (?,?,?,?,?,'pending',?,?,?,?)`,
-    [companyId, sub.id, payment.id, plano.price_cents, payment.billingType || "PIX", vencimento, periodStart, periodEnd, payment.invoiceUrl ?? null],
-    );
+    let payment: AsaasPayment;
+    if (recuperada) {
+      payment = recuperada;
+      await registrarCobrancaLocal(companyId, sub.id, payment, plano.price_cents, vencimento, periodStart, periodEnd).catch(
+        () => {},
+      );
+    } else {
+      try {
+        payment = await client.createPayment({
+          customer: customerId,
+          billingType: meio,
+          value: plano.price_cents / 100,
+          dueDate: vencimento,
+          description: `Assinatura ${plano.name} — ${empresa.name}`,
+          externalReference: refExterna,
+        });
+      } catch (e) {
+        // Fallback de estabilidade: se a conta/fluxo recusar a fatura com
+        // escolha do pagador (HTTP 400 = nada foi criado), cai para PIX —
+        // o comportamento atual — em vez de a cobrança de renovação falhar.
+        if (!(e instanceof AsaasError && e.status === 400 && meio === "UNDEFINED")) throw e;
+        payment = await client.createPayment({
+          customer: customerId,
+          billingType: "PIX",
+          value: plano.price_cents / 100,
+          dueDate: vencimento,
+          description: `Assinatura ${plano.name} — ${empresa.name}`,
+          externalReference: refExterna,
+        });
+      }
+      await registrarCobrancaLocal(companyId, sub.id, payment, plano.price_cents, vencimento, periodStart, periodEnd);
+    }
+
+    // Boleto: linha digitável/código de barras — best-effort (a fatura e o
+    // PDF continuam disponíveis mesmo se esta consulta falhar).
+    let linhaDigitavel: string | null = null;
+    if ((payment.billingType || meio) === "BOLETO" && payment.id) {
+      try {
+        const linha = await client.getBankSlipLine(payment.id);
+        linhaDigitavel = linha.identificationField ?? null;
+      } catch {
+        linhaDigitavel = null;
+      }
+    }
 
     // Aviso ao owner (fail-open): cobrança à disposição com link da fatura.
     const owner = await ownerDaEmpresa(companyId);
@@ -404,15 +573,32 @@ export async function gerarCobrancaPeriodo(
       void enviarEmail({
         to: owner.email,
         subject: "Cobrança gerada — Locô",
-        html: emailCobrancaGerada(empresa.name, plano.name, dinheiroFmt(plano.price_cents), vencimento, payment.invoiceUrl ?? null),
+        html: emailCobrancaGerada(
+          empresa.name,
+          plano.name,
+          dinheiroFmt(plano.price_cents),
+          vencimento,
+          payment.invoiceUrl ?? null,
+          payment.billingType || meio,
+        ),
       }).catch(() => false);
     }
 
-    return { ok: true, paymentId: payment.id, dueDate: vencimento, invoiceUrl: payment.invoiceUrl ?? null, amountCents: plano.price_cents };
+    return {
+      ok: true,
+      paymentId: payment.id,
+      dueDate: vencimento,
+      invoiceUrl: payment.invoiceUrl ?? null,
+      amountCents: plano.price_cents,
+      billingType: payment.billingType || meio,
+      bankSlipUrl: payment.bankSlipUrl ?? null,
+      linhaDigitavel,
+      reutilizada: false,
+    };
   } catch (e) {
     if (e instanceof AsaasError) {
       // Log para o tail do Worker: sem isso a falha fica invisível atrás da
-      // mensagem genérica da tela.
+      // mensagem genérica da tela. Nunca loga a API key — só status/erro.
       console.error("[billing] AsaasError ao gerar cobrança:", e.status, e.message, JSON.stringify(e.errors ?? []));
       return { ok: false, motivo: "sem_dados_bancarios", erro: e.message };
     }
@@ -427,6 +613,96 @@ export async function gerarCobrancaPeriodo(
 async function lerApiKey(): Promise<string | null> {
   const { credenciaisAsaas } = await import("./platform-settings");
   return (await credenciaisAsaas()).apiKey;
+}
+
+export type DadosPagamento = {
+  paymentId: string;
+  billingType: string;
+  statusAsaas: string;
+  invoiceUrl: string | null;
+  /** Boleto: PDF. */
+  bankSlipUrl: string | null;
+  /** Boleto: linha digitável (quando o Asaas devolveu). */
+  linhaDigitavel: string | null;
+  /** Pix: código copia e cola (quando disponível). */
+  pixPayload: string | null;
+  /** Pix: QR Code em base64 (quando disponível). */
+  pixQrCode: string | null;
+};
+
+/**
+ * Dados de pagamento de UMA cobrança da empresa — consulta ao Asaas sob
+ * demanda (nada sensível é persistido além do que já existe).
+ *
+ * Isolamento multiempresa garantido aqui: a linha é buscada por id E
+ * company_id; cobrança de outra empresa devolve null, sem consultar o Asaas.
+ */
+export async function dadosPagamentoCobranca(
+  companyId: number,
+  pagamentoId: number,
+): Promise<DadosPagamento | null> {
+  const linha = await one<{ id: number; asaas_payment_id: string | null }>(
+    `SELECT id, asaas_payment_id FROM subscription_payments WHERE id = ? AND company_id = ?`,
+    [pagamentoId, companyId],
+  );
+  if (!linha?.asaas_payment_id) return null;
+
+  const env = asaasTeste ? "sandbox" : await asaasEnvironment();
+  if (env === "nao_configurado") return null;
+  const client = asaasTeste
+    ? asaasClient(asaasTeste)
+    : asaasClient({
+        apiKey: (await lerApiKey()) ?? "",
+        baseUrl: env === "producao" ? ASAAS_PRODUCAO : ASAAS_SANDBOX,
+      });
+  if (!asaasTeste && !(await lerApiKey())) return null;
+
+  let payment: AsaasPayment;
+  try {
+    payment = await client.getPayment(linha.asaas_payment_id);
+  } catch (e) {
+    if (e instanceof AsaasError) {
+      console.error("[billing] AsaasError ao consultar pagamento:", e.status, e.message);
+      return null;
+    }
+    throw e;
+  }
+
+  const meio = payment.billingType ?? "";
+  let bankSlipUrl: string | null = payment.bankSlipUrl ?? null;
+  let linhaDigitavel: string | null = null;
+  let pixPayload: string | null = null;
+  let pixQrCode: string | null = null;
+
+  // Dados extras por modalidade — best-effort: a fatura continua válida
+  // mesmo que uma dessas consultas falhe.
+  if (meio === "BOLETO") {
+    try {
+      linhaDigitavel = (await client.getBankSlipLine(payment.id)).identificationField ?? null;
+    } catch {
+      linhaDigitavel = null;
+    }
+  } else if (meio === "PIX") {
+    try {
+      const qr = await client.getPixQrCode(payment.id);
+      pixPayload = qr.payload ?? null;
+      pixQrCode = qr.encodedImage ?? null;
+    } catch {
+      pixPayload = null;
+      pixQrCode = null;
+    }
+  }
+
+  return {
+    paymentId: payment.id,
+    billingType: meio,
+    statusAsaas: payment.status,
+    invoiceUrl: payment.invoiceUrl ?? null,
+    bankSlipUrl,
+    linhaDigitavel,
+    pixPayload,
+    pixQrCode,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -445,8 +721,14 @@ export async function processarEventoPayment(event: string, payload: any): Promi
   const asaasId = typeof payment.id === "string" ? payment.id : null;
   if (!asaasId) return;
 
-  const linha = await one<{ id: number; company_id: number; subscription_id: number; amount_cents: number }>(
-    `SELECT id, company_id, subscription_id, amount_cents FROM subscription_payments WHERE asaas_payment_id = ?`,
+  const linha = await one<{
+    id: number;
+    company_id: number;
+    subscription_id: number;
+    amount_cents: number;
+    status: string;
+  }>(
+    `SELECT id, company_id, subscription_id, amount_cents, status FROM subscription_payments WHERE asaas_payment_id = ?`,
     [asaasId],
   );
   // Pagamento desconhecido (criado fora do sistema): registra e sai.
@@ -458,18 +740,39 @@ export async function processarEventoPayment(event: string, payload: any): Promi
   }
 
   const status = normalizarStatus(event, payment.status);
-  const paidAt = status === "received" || status === "confirmed" ? new Date().toISOString().slice(0, 19).replace("T", " ") : null;
+
+  // Evento sem status definitivo (PAYMENT_CREATED, análises de risco de cartão,
+  // tipos novos do Asaas…) NÃO pode rebaixar uma cobrança já confirmada para
+  // 'pending' — pagamento confirmado só sai daqui por evento explícito
+  // (REFUNDED/CANCELED/OVERDUE).
+  const statusFinal =
+    status === "pending" && ["received", "confirmed", "refunded", "canceled"].includes(linha.status)
+      ? linha.status
+      : status;
+
+  const paidAt =
+    statusFinal === "received" || statusFinal === "confirmed"
+      ? linha.status === "received" || linha.status === "confirmed"
+        ? null // já confirmada antes: preserva o paid_at original
+        : new Date().toISOString().slice(0, 19).replace("T", " ")
+      : null;
+  // Meio escolhido na fatura (cobrança UNDEFINED) — só grava tipos que o
+  // CHECK de subscriptions.payment_method aceita; mantém o atual caso contrário.
+  const meioConfirmado = ["PIX", "CREDIT_CARD", "BOLETO"].includes(String(payment.billingType ?? ""))
+    ? String(payment.billingType)
+    : null;
 
   await run(
     `UPDATE subscription_payments SET status = ?, paid_at = COALESCE(?, paid_at),
+       billing_type = COALESCE(?, billing_type),
        invoice_url = COALESCE(?, invoice_url), invoice_number = COALESCE(?, invoice_number),
        updated_at = datetime('now','localtime')
       WHERE id = ?`,
-    [status, paidAt, payment.invoiceUrl ?? null, payment.invoiceNumber ?? null, linha.id],
+    [statusFinal, paidAt, meioConfirmado, payment.invoiceUrl ?? null, payment.invoiceNumber ?? null, linha.id],
   );
 
-  if (status === "received" || status === "confirmed") {
-    await ativarAssinatura(linha.company_id, linha.subscription_id, linha.amount_cents, payment.billingType);
+  if (statusFinal === "received" || statusFinal === "confirmed") {
+    await ativarAssinatura(linha.company_id, linha.subscription_id, linha.amount_cents, meioConfirmado ?? undefined);
   }
 }
 
