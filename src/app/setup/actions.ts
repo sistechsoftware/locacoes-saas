@@ -34,7 +34,8 @@ export async function setupAction(_prev: string | null, formData: FormData): Pro
 
   await createSession(resultado.userId);
 
-  // Boas-vindas — fail-open: se falhar, o setup segue íntegro.
+  // Boas-vindas — fail-open: se falhar, o setup segue íntegro. Destinatário =
+  // e-mail informado no cadastro do primeiro proprietário.
   async function baseUrl(): Promise<string> {
     try {
       const h = await headers();
@@ -45,14 +46,11 @@ export async function setupAction(_prev: string | null, formData: FormData): Pro
       return "";
     }
   }
-  const { emailBoasVindasSetup, enviarEmail } = await import("@/lib/email");
+  const { enviarBoasVindasSetup } = await import("@/lib/email");
   const url = await baseUrl();
-  void enviarEmail({
-    to: resultado.email,
-    subject: "Bem-vindo(a) ao Locô",
-    html: emailBoasVindasSetup(resultado.nome, resultado.empresa, url),
-    text: `Conta criada! Entre em ${url}/login.`,
-  }).catch(() => false);
+  void enviarBoasVindasSetup({ nome: resultado.nome, empresa: resultado.empresa, email: resultado.email }, url).catch(
+    () => false,
+  );
 
   await logAction(
     { id: resultado.userId, name: "", username: "", role: "owner", company_id: 1, avatar_url: null, platform_admin: true },

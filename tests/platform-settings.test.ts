@@ -126,3 +126,59 @@ describe("credenciaisAsaas — resolução", () => {
     assert.equal(await asaasEnvironment(), "sandbox");
   });
 });
+
+describe("leitura fora de request (cron) via env do agendador", () => {
+  /*
+   * O handler `scheduled` do Worker não roda com runWithCloudflareRequestContext:
+   * getCloudflareContext() lança dentro da rotina diária. Antes do fallback em
+   * src/lib/worker-env.ts, isso tornava PAINEL_CHAVE e ASAAS_* invisíveis no
+   * cron — a rotina marcava inadimplência mas NUNCA conseguia gerar a cobrança.
+   */
+  beforeEach(async () => {
+    (await import("../src/lib/worker-env.ts")).limparEnvDoAgendador();
+  });
+  afterEach(async () => {
+    (await import("../src/lib/worker-env.ts")).limparEnvDoAgendador();
+  });
+
+  it("sem contexto Cloudflare, o env do agendador alimenta as credenciais do Worker", async () => {
+    const ps = await import("../src/lib/platform-settings.ts");
+    const we = await import("../src/lib/worker-env.ts");
+    ps.__definirChavePainelTeste(null); // nada de gancho: só o env do cron
+    we.definirEnvDoAgendador({
+      ASAAS_API_KEY: "$aact_do_secret",
+      ASAAS_ENVIRONMENT: "production",
+      ASAAS_WEBHOOK_TOKEN: "whsec_do_secret",
+    });
+
+    const c = await ps.credenciaisAsaas();
+    assert.equal(c.apiKey, "$aact_do_secret");
+    assert.equal(c.environment, "production");
+    assert.equal(c.webhookToken, "whsec_do_secret");
+    assert.equal(c.origem.apiKey, "worker", "sem secreto de request, o secret é lido do env do agendador");
+  });
+
+  it("PAINEL_CHAVE do agendador decifra o segredo do painel (é o caminho da cobrança automática)", async () => {
+    const ps = await import("../src/lib/platform-settings.ts");
+    const we = await import("../src/lib/worker-env.ts");
+    await ps.gravarConfig("asaas_api_key", "$aact_do_painel"); // gravado CIFRADO no banco
+
+    ps.__definirChavePainelTeste(null); // leitura sem gancho = leitura do cron
+    we.definirEnvDoAgendador({ PAINEL_CHAVE: CHAVE });
+
+    assert.equal(await ps.lerConfig("asaas_api_key"), "$aact_do_painel", "decifra fora de request");
+    const c = await ps.credenciaisAsaas();
+    assert.equal(c.apiKey, "$aact_do_painel");
+    assert.equal(c.origem.apiKey, "painel");
+  });
+
+  it("sem agendador e sem contexto: credenciais seguem ausentes (nada muda fora do Worker)", async () => {
+    const ps = await import("../src/lib/platform-settings.ts");
+    const we = await import("../src/lib/worker-env.ts");
+    ps.__definirChavePainelTeste(null);
+    we.limparEnvDoAgendador();
+    const c = await ps.credenciaisAsaas();
+    assert.equal(c.apiKey, null);
+    assert.equal(c.origem.apiKey, "ausente");
+  });
+});

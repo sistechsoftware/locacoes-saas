@@ -11,10 +11,13 @@ import {
   __definirEnvEmailTeste,
   __emailsEnviados,
   __esquecerAvisosEmail,
+  emailConfigurado,
   emailEstado,
   enviarEmail,
   montarConfigEmail,
+  publicUrlDaPlataforma,
 } from "../src/lib/email.ts";
+import { definirEnvDoAgendador, limparEnvDoAgendador } from "../src/lib/worker-env.ts";
 import { ultimosErros } from "../src/lib/error-log.ts";
 
 beforeEach(() => {
@@ -23,6 +26,7 @@ beforeEach(() => {
   __definirEmailTeste(null);
   __definirEnvEmailTeste(null);
   __esquecerAvisosEmail();
+  limparEnvDoAgendador();
 });
 
 describe("envio via Resend (fetch injetável)", () => {
@@ -156,5 +160,51 @@ describe("templates", () => {
     assert.match(cob, /https:\/\/asaas\/fatura/);
     const pago = emailPagamentoConfirmado("L", "Essencial", "R$ 79,90", "2026-11-12");
     assert.match(pago, /12\/11\/2026/);
+  });
+});
+
+describe("config fora de request: env do agendador (cron)", () => {
+  /*
+   * O handler `scheduled` do Worker não roda com runWithCloudflareRequestContext,
+   * então getCloudflareContext() lança dentro das rotinas agendadas. Sem o env
+   * entregue ao módulo worker-env, todo e-mail do cron caía em sem_contexto
+   * (evidência real: error_logs de produção de 2026-10-13 03:00, aviso de fim
+   * de trial pulado). Estes testes cobrem o fallback e garantem que a trava do
+   * resend.dev continua valendo também no cron.
+   */
+  it("sem contexto Cloudflare + env do agendador → configurado (PUBLIC_URL incluso)", async () => {
+    definirEnvDoAgendador({
+      RESEND_API_KEY: "re_abc123",
+      RESEND_FROM: "Locô — Gestão para Locações <no-reply@locogestao.com.br>",
+      PUBLIC_URL: "https://app.locogestao.com.br",
+    });
+    assert.equal(await emailConfigurado(), true, "cron volta a enxergar os secrets");
+    assert.equal(await emailEstado(), "ok");
+    assert.equal(await publicUrlDaPlataforma(), "https://app.locogestao.com.br");
+  });
+
+  it("proteção do domínio de teste também vale no cron (remetente_dev bloqueado)", async () => {
+    definirEnvDoAgendador({
+      RESEND_API_KEY: "re_abc123",
+      RESEND_FROM: "Locô <onboarding@resend.dev>",
+    });
+    assert.equal(await emailEstado(), "remetente_dev");
+    // Bloqueado ANTES de qualquer chamada de rede: devolve false sem fetch.
+    assert.equal(await enviarEmail({ to: "cliente@externo.com", subject: "s", html: "<p>x</p>" }), false);
+    const erros = await ultimosErros("server");
+    assert.equal(erros.length, 1);
+    assert.match(erros[0].message, /domínio de teste resend\.dev/);
+  });
+
+  it("agendador sem secrets → sem_api_key (motivo verdadeiro, não sem_contexto)", async () => {
+    definirEnvDoAgendador({});
+    assert.equal(await emailEstado(), "sem_api_key");
+  });
+
+  it("sem agendador e sem contexto → sem_contexto (comportamento original preservado)", async () => {
+    definirEnvDoAgendador({ RESEND_API_KEY: "re_abc123", RESEND_FROM: "x@locogestao.com.br" });
+    limparEnvDoAgendador();
+    assert.equal(await emailEstado(), "sem_contexto");
+    assert.equal(await publicUrlDaPlataforma(), "");
   });
 });

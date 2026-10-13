@@ -4,10 +4,19 @@ import { runWithDb } from "./src/lib/db";
 import { runNotificationScheduler, webPushSender } from "./src/lib/push-scheduler";
 import { runBirthdayDaily, runFidelityDaily, paraCadaEmpresa } from "./src/lib/fidelidade-cron";
 import { mensagemDeErro, podarErrosAntigos, registrarErro } from "./src/lib/error-log";
+import { definirEnvDoAgendador } from "./src/lib/worker-env";
 
 export default {
   fetch: handler.fetch,
   async scheduled(event, env, ctx) {
+    // O cron NÃO roda com runWithCloudflareRequestContext (só o fetch do OpenNext
+    // envolve a request), então getCloudflareContext() lança dentro das rotinas
+    // agendadas. Entregar o env ao módulo worker-env mantém leitura de secret
+    // fora de request: RESEND_API_KEY/RESEND_FROM (e-mails do cron: fim de trial,
+    // cobrança gerada) e PUBLIC_URL (links desses e-mails). Evidência da falha
+    // anterior: error_logs de produção com motivo sem_contexto às 03:00.
+    definirEnvDoAgendador(env);
+
     const now = Math.floor(event.scheduledTime / 1000);
     const sender =
       env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY
