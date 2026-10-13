@@ -15,6 +15,9 @@
  */
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createTestDb } from "./helpers/d1.ts";
 import { all, insert, one, run } from "../src/lib/db.ts";
 import { getSettings, setSettings, DEFAULT_SETTINGS } from "../src/lib/settings.ts";
@@ -39,6 +42,8 @@ import {
 import { RESERVATION_STATUS } from "../src/lib/domain.ts";
 import { getOperacao, operacaoDaEmpresa, restaurarOperacaoConfig, salvarOperacaoConfig } from "../src/lib/operacao-db.ts";
 import { windowError } from "../src/lib/availability-time.ts";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 let cliente = 0;
 let reserva = 0;
@@ -461,5 +466,49 @@ describe("perfil salvo (op_perfil) e personalizado de primeira classe", () => {
     assert.equal((await operacaoDaEmpresa(2)).perfil, "carretinhas");
     assert.equal((await operacaoDaEmpresa(1)).perfil, "festas");
     assert.equal((await operacaoDaEmpresa(1)).rotulos.operacao_fim, "Retirada");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Contrato do formulário do painel (cliente → FormData → servidor)   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Regressão do bug em que NENHUMA configuração operacional salvava:
+ * o perfil vivia só no state do React e nunca entrava no FormData, então o
+ * servidor recebia o form sem `op_perfil`, `perfilSalvo()` devolvia null e a
+ * action recusava tudo com "Perfil operacional inválido" — idêntico em web
+ * e mobile (o erro era do servidor, não do dispositivo). Os testes de
+ * `validarOperacaoForm` passavam porque injetavam `op_perfil` à mão; nada
+ * cobrava que o FORMULÁRIO enviasse os campos que o servidor exige.
+ */
+describe("formulário do painel envia o que o servidor valida", () => {
+  const fonte = fs.readFileSync(
+    path.join(ROOT, "src/app/(app)/configuracoes/OperacaoSettings.tsx"),
+    "utf8",
+  );
+  const inicio = fonte.indexOf('<form action={submitSalvar}');
+  const form = fonte.slice(inicio, fonte.indexOf("</form>", inicio));
+
+  it("o form de salvar carrega o perfil escolhido como campo (op_perfil)", () => {
+    assert.ok(inicio >= 0, "form action={submitSalvar} sumiu do painel");
+    assert.ok(
+      form.includes('type="hidden"') && form.includes("name={OPERACAO_KEYS.perfil}"),
+      "o form precisa enviar name={OPERACAO_KEYS.perfil} (hidden): sem esse campo " +
+        "no FormData o servidor recusa o salvamento inteiro com " +
+        '"Perfil operacional inválido"',
+    );
+  });
+
+  it('os checkboxes de visibilidade enviam value="1" (é o único valor que o servidor lê como visível)', () => {
+    // os 4 checkboxes vêm de um único <input> dentro do map de CAMPOS_VIS
+    const inputs = form.match(/<input\s[\s\S]*?\/>/g) ?? [];
+    const checkbox = inputs.find((i) => i.includes('type="checkbox"'));
+    assert.ok(checkbox, "input dos checkboxes de visibilidade sumiu do form");
+    assert.ok(
+      checkbox.includes("name={VIS_KEY[chave]}") && checkbox.includes('value="1"'),
+      'checkbox sem value="1" (o mapa CAMPOS_VIS renderiza os 4): marcado, ' +
+        'o navegador envia "on" e o servidor grava oculto — salvaria errado em silêncio',
+    );
   });
 });

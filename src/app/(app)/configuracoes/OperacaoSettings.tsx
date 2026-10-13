@@ -3,6 +3,7 @@ import { useEffect, useState, useActionState } from "react";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Alerta, Badge, Field } from "@/components/ui";
 import {
+  OPERACAO_KEYS,
   PERFIS,
   ROTULO_KEY,
   VIS_KEY,
@@ -215,6 +216,10 @@ export default function OperacaoSettings({ inicial }: { inicial: OperacaoConfig 
       </section>
 
       <form action={submitSalvar} className="space-y-4">
+        {/* o perfil é dado do formulário, não só da tela: sem este campo o
+            servidor recebe FormData sem op_perfil e recusa TUDO com
+            "Perfil operacional inválido" (estado React não viaja sozinho) */}
+        <input type="hidden" name={OPERACAO_KEYS.perfil} value={estado.perfil} />
         <section className="cartao p-4">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">Nomenclaturas</h2>
           <div className="space-y-3">
@@ -264,6 +269,7 @@ export default function OperacaoSettings({ inicial }: { inicial: OperacaoConfig 
                 <input
                   name={VIS_KEY[chave]}
                   type="checkbox"
+                  value="1"
                   checked={estado.vis[chave]}
                   onChange={(e) => alternarVis(chave, e.target.checked)}
                   className="mt-0.5 h-4 w-4"
