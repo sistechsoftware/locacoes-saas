@@ -12,6 +12,8 @@ import { adiantamentosPendentes } from "@/lib/receber";
 import { OperationCard } from "@/components/OperationCard";
 import { FreightCard } from "@/components/FreightCard";
 import { Icon } from "@/components/Icons";
+import { getOperacao } from "@/lib/operacao-db";
+import { pluralizar } from "@/lib/operacao";
 
 export const dynamic = "force-dynamic";
 
@@ -50,12 +52,18 @@ export default async function DashboardPage({
   // locacao e fretes em aberto de dias anteriores, na mesma linha do tempo.
   const atrasoMisto = ordenarOperacoesMistas([...atrasadas, ...fretesAtrasados]);
   // os indicadores contam alertas, entao so podem ser lidos depois do recalculo
-  const [s, todosAlertas, aniversarios, adiantamentos] = await Promise.all([
+  const [s, todosAlertas, aniversarios, adiantamentos, operacaoCfg] = await Promise.all([
     dashboardStats(query, options),
     listNotifications(true),
     resumoAniversarios(),
     adiantamentosPendentes(d0),
+    getOperacao(),
   ]);
+  // rótulos das operações de início/fim conforme a configuração da empresa
+  const nomesOperacao: Record<string, string> = {
+    entrega: operacaoCfg.rotulos.operacao_inicio,
+    retirada: operacaoCfg.rotulos.operacao_fim,
+  };
   const doTipo = (kind: string) => operacoesHoje.filter((o: any) => o.kind === kind);
   const entregas = doTipo("entrega");
   const retiradas = doTipo("retirada");
@@ -79,7 +87,9 @@ export default async function DashboardPage({
 
       {/* atalhos rapidos */}
       <div className="scroll-x -mx-3 flex gap-2 px-3 sm:mx-0 sm:px-0">
-        {ATALHOS.map((a) => (
+        {ATALHOS.map((a) =>
+          a.href === "/operacao/nova" ? { ...a, label: operacaoCfg.rotulos.operacao_inicio } : a,
+        ).map((a) => (
           <Link
             key={a.href}
             href={a.href}
@@ -153,8 +163,8 @@ export default async function DashboardPage({
             </Alerta>
           )}
 
-          <BlocoOperacao titulo="Entregas" icone="🚚" ops={entregas} />
-          <BlocoOperacao titulo="Retiradas" icone="🔄" ops={retiradas} />
+          <BlocoOperacao titulo={pluralizar(operacaoCfg.rotulos.operacao_inicio)} icone="🚚" ops={entregas} nomes={nomesOperacao} />
+          <BlocoOperacao titulo={pluralizar(operacaoCfg.rotulos.operacao_fim)} icone="🔄" ops={retiradas} nomes={nomesOperacao} />
           <BlocoOperacao titulo="Montagens" icone="🛠️" ops={montagens} />
           <BlocoOperacao titulo="Desmontagens" icone="🧰" ops={desmontagens} />
           <BlocoFrete ops={fretesHoje} />
@@ -247,8 +257,8 @@ export default async function DashboardPage({
       <div>
         <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-stone-500">Operação</h2>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Entregas hoje" value={s.operacao.entregas} icon="🚚" href="/operacao" />
-          <Stat label="Retiradas hoje" value={s.operacao.retiradas} icon="🔄" href="/operacao?aba=retiradas" />
+          <Stat label={`${pluralizar(operacaoCfg.rotulos.operacao_inicio)} hoje`} value={s.operacao.entregas} icon="🚚" href="/operacao" />
+          <Stat label={`${pluralizar(operacaoCfg.rotulos.operacao_fim)} hoje`} value={s.operacao.retiradas} icon="🔄" href="/operacao?aba=retiradas" />
           <Stat label="Montagens hoje" value={s.operacao.montagens} icon="🛠️" href="/operacao?aba=montagens" />
           <Stat
             label="Desmontagens hoje"
@@ -257,13 +267,13 @@ export default async function DashboardPage({
             href="/operacao?aba=desmontagens"
           />
           <Stat
-            label="Entregas atrasadas"
+            label={`${pluralizar(operacaoCfg.rotulos.operacao_inicio)} atrasadas`}
             value={s.operacao.entregasAtrasadas}
             tone={s.operacao.entregasAtrasadas ? "vermelho" : undefined}
             href="/operacao?aba=atrasadas"
           />
           <Stat
-            label="Retiradas atrasadas"
+            label={`${pluralizar(operacaoCfg.rotulos.operacao_fim)} atrasadas`}
             value={s.operacao.retiradasAtrasadas}
             tone={s.operacao.retiradasAtrasadas ? "vermelho" : undefined}
             href="/operacao?aba=atrasadas"
@@ -329,7 +339,18 @@ export default async function DashboardPage({
   );
 }
 
-function BlocoOperacao({ titulo, icone, ops }: { titulo: string; icone: string; ops: any[] }) {
+function BlocoOperacao({
+  titulo,
+  icone,
+  ops,
+  nomes,
+}: {
+  titulo: string;
+  icone: string;
+  ops: any[];
+  /** Rótulos da empresa para início/fim (configuração operacional). */
+  nomes?: Record<string, string>;
+}) {
   return (
     <div>
       <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-tinta-900">
@@ -341,7 +362,7 @@ function BlocoOperacao({ titulo, icone, ops }: { titulo: string; icone: string; 
       ) : (
         <div className="space-y-2">
           {ops.map((o) => (
-            <OperationCard key={o.id} op={o} />
+            <OperationCard key={o.id} op={o} nomesOperacao={nomes} />
           ))}
         </div>
       )}

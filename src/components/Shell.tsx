@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "./Icons";
 import ChatBell from "./ChatBell";
 import Avatar from "./Avatar";
-import { EXTRA_NAV, MOBILE_NAV, NAV } from "@/lib/nav";
+import { EXTRA_NAV, MOBILE_NAV, NAV, comRotuloOperacoes } from "@/lib/nav";
 import { pokeUnread } from "@/lib/chat-unread";
 import { useUnread } from "@/lib/use-unread";
 
@@ -16,7 +16,16 @@ const active = (pathname: string, href: string) =>
 
 /* --------------------------- barra lateral (desktop) --------------------------- */
 
-export function Sidebar({ company, logo }: { company: string; logo?: string }) {
+export function Sidebar({
+  company,
+  logo,
+  operacaoLabel,
+}: {
+  company: string;
+  logo?: string;
+  /** Nome das operações vindo da configuração da empresa (menu /operacao). */
+  operacaoLabel?: string;
+}) {
   const pathname = usePathname();
   // No desktop a lateral fica fixa (sticky) com a altura da viewport: quando os
   // itens nao cabem, somente a area de navegacao rola, sem arrastar a pagina
@@ -40,7 +49,7 @@ export function Sidebar({ company, logo }: { company: string; logo?: string }) {
       {/* min-h-0: dentro do flex, permite a navegacao encolher ate a altura
           disponivel — sem isso o overflow-y-auto nunca ativa. */}
       <nav className="navegacao-lateral min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
-        {NAV.map((n) => (
+        {comRotuloOperacoes(NAV, operacaoLabel).map((n) => (
           <Link
             key={n.href}
             href={n.href}
@@ -175,7 +184,7 @@ function GlobalSearch() {
 
 /* ------------------------------ barra inferior -------------------------------- */
 
-export function BottomNav() {
+export function BottomNav({ operacaoLabel }: { operacaoLabel?: string }) {
   const pathname = usePathname();
   const [sheet, setSheet] = useState(false);
   // Mesmo estado do sino do topo: uma unica fonte de verdade para o badge.
@@ -186,7 +195,7 @@ export function BottomNav() {
 
   useEffect(() => setSheet(false), [pathname]);
 
-  const noMais = EXTRA_NAV.some((n) => active(pathname, n.href));
+  const noMais = comRotuloOperacoes(EXTRA_NAV, operacaoLabel).some((n) => active(pathname, n.href));
 
   return (
     <>
@@ -201,7 +210,7 @@ export function BottomNav() {
           >
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-nuvem-300" />
             <div className="grid grid-cols-3 gap-2">
-              {EXTRA_NAV.map((n) => (
+              {comRotuloOperacoes(EXTRA_NAV, operacaoLabel).map((n) => (
                 <Link
                   key={n.href}
                   href={n.href}
@@ -230,7 +239,7 @@ export function BottomNav() {
             largura — nunca quebra mesmo se MOBILE_NAV crescer (o slice
             protege o invariante). */}
         <div className="mx-2 mb-2 flex items-stretch rounded-2xl border border-nuvem-300 bg-white shadow-lg shadow-tinta-900/5">
-          {MOBILE_NAV.slice(0, 4).map((n) => {
+          {comRotuloOperacoes(MOBILE_NAV, operacaoLabel).slice(0, 4).map((n) => {
             const isActive = active(pathname, n.href);
             return (
               <Link
@@ -298,7 +307,7 @@ const ACOES = [
   { href: "/fretes/calculadora", label: "Calcular Frete", icon: "financeiro" },
 ];
 
-export function FloatingAction() {
+export function FloatingAction({ novaOperacaoLabel }: { novaOperacaoLabel?: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   // Mesmo estado do sino do topo: badge de nao lidas do atalho Mensagens.
@@ -317,7 +326,9 @@ export function FloatingAction() {
       {/* Acima da barra inferior (cartao + margem), em qualquer aparelho. */}
       <div className="nao-imprimir fixed bottom-28 right-4 z-40 flex flex-col items-end gap-2 md:bottom-6">
         {open &&
-          ACOES.map((a) => (
+          ACOES.map((a) =>
+            a.href === "/operacao/nova" && novaOperacaoLabel ? { ...a, label: novaOperacaoLabel } : a,
+          ).map((a) => (
             <Link
               key={a.href}
               href={a.href}

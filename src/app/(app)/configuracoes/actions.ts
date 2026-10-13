@@ -9,7 +9,7 @@ import { podeCriarUsuario } from "@/lib/billing";
 import { atualizarUsuario, criarUsuario, excluirUsuario, alternarStatusUsuario } from "@/lib/usuarios";
 import { getSettings, setSettings } from "@/lib/settings";
 import { resolverOperacao, validarOperacaoForm } from "@/lib/operacao";
-import { restaurarOperacaoConfig } from "@/lib/operacao-db";
+import { restaurarOperacaoConfig, salvarOperacaoConfig } from "@/lib/operacao-db";
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
 import { validarDimensoesRecibo } from "@/lib/recibo-visual";
 
@@ -157,15 +157,27 @@ export async function saveReciboSettings(fd: FormData) {
  * barreira. Gravar isto muda apenas exibição — reservas, orçamentos, cauções
  * e cobranças já registrados permanecem intocados.
  */
-export async function saveOperacaoSettings(fd: FormData) {
+export type ResultadoOperacaoSave = { ok: true } | { ok: false; erro: string };
+
+export async function saveOperacaoSettings(fd: FormData): Promise<ResultadoOperacaoSave> {
   const user = await assertAdmin();
   const r = validarOperacaoForm(Object.fromEntries(fd.entries()) as Record<string, string>);
-  if (!r.ok) redirect(`/configuracoes?aba=operacao&erro=${encodeURIComponent(r.erro)}`);
-  await setSettings(r.values);
+  // erro de validação volta PARA A TELA (sem redirect): o administrador vê o
+  // motivo e o que digitou continua na tela — nada de “salvamento fantasma”.
+  if (!r.ok) return r;
+  await salvarOperacaoConfig(r.values, user.company_id);
   const perfil = resolverOperacao(r.values).perfil;
   await logAction(user, "editar", "configuracao", null, `${user.name} atualizou a configuração operacional (perfil ${perfil})`);
-  // rótulos aparecem em várias telas: invalida o layout inteiro
-  revalidatePath("/", "layout");
+  /*
+   * NADA de revalidatePath("/", "layout") aqui: era ele que dava a
+   * sensação de lentidão depois de salvar — invalidar o layout inteiro
+   * forçava o cliente a refazer a navegação toda, inclusive a página pesada
+   * de Configurações. Todas as telas que consomem estas configurações são
+   * force-dynamic (leem o banco a cada request), então o valor novo aparece
+   * sem qualquer invalidação; só a página atual é revalidada por segurança.
+   */
+  revalidatePath("/configuracoes");
+  return { ok: true };
 }
 
 /**
@@ -174,11 +186,12 @@ export async function saveOperacaoSettings(fd: FormData) {
  * empresa da sessão — nenhum registro de reserva, orçamento, caução ou
  * cobrança é alterado ou removido.
  */
-export async function restaurarOperacao() {
+export async function restaurarOperacao(): Promise<ResultadoOperacaoSave> {
   const user = await assertAdmin();
   await restaurarOperacaoConfig(user.company_id);
   await logAction(user, "editar", "configuracao", null, `${user.name} restaurou os padrões da configuração operacional`);
-  revalidatePath("/", "layout");
+  revalidatePath("/configuracoes");
+  return { ok: true };
 }
 
 /* ---------------------------------- usuarios ----------------------------------- */

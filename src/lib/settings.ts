@@ -135,10 +135,13 @@ export const DEFAULT_SETTINGS: Settings = {
    * setSettings aceita-las por empresa — sem elas, o painel Operacao nao
    * conseguiria persistir nada.
    */
+  op_perfil: "",
   op_rotulo_evento: "",
   op_rotulo_evento_hora: "",
   op_rotulo_inicio: "",
   op_rotulo_fim: "",
+  op_rotulo_op_inicio: "",
+  op_rotulo_op_fim: "",
   op_vis_evento: "1",
   op_vis_endereco: "1",
   op_vis_montagem: "1",

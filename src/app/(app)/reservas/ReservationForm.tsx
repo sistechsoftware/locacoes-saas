@@ -9,6 +9,7 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { money, parseMoney } from "@/lib/format";
 import { sugerirJanelaEvento } from "@/lib/availability-time";
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL, RESERVATION_STATUS } from "@/lib/domain";
+import { statusReserva } from "@/lib/operacao";
 import { unicosPorId, type OpcaoSelecionavel } from "@/lib/search-select-utils";
 import SearchableSelect from "@/components/SearchableSelect";
 import { checkStock } from "./actions";
@@ -50,6 +51,8 @@ export default function ReservationForm({
   operacao?: OperacaoConfig;
 }) {
   const { rotulos, vis } = operacao;
+  // status com a nomenclatura da empresa (fim da locação = retirada/devolução)
+  const statusReservaCfg = statusReserva(operacao, RESERVATION_STATUS);
   const [error, formAction] = useActionState(action, null);
   const [items, setItems] = useState<ItemRow[]>(initialItems);
   const [customerId, setCustomerId] = useState(String(reservation?.customer_id ?? defaultCustomerId ?? ""));
@@ -297,8 +300,8 @@ export default function ReservationForm({
         {!vis.montagem && reservation?.needs_disassembly ? <input type="hidden" name="needs_disassembly" value="1" /> : null}
         <div className="mt-3 grid grid-cols-2 gap-2">
           {([
-            ["needs_delivery", "Entrega", reservation ? !!reservation.needs_delivery : true],
-            ["needs_pickup", "Retirada", reservation ? !!reservation.needs_pickup : true],
+            ["needs_delivery", rotulos.operacao_inicio, reservation ? !!reservation.needs_delivery : true],
+            ["needs_pickup", rotulos.operacao_fim, reservation ? !!reservation.needs_pickup : true],
             ...(vis.montagem
               ? [
                   ["needs_assembly", "Montagem", reservation ? !!reservation.needs_assembly : false],
@@ -543,7 +546,7 @@ export default function ReservationForm({
         <Grid>
           <Field label="Status">
             <select name="status" defaultValue={reservation?.status ?? "pre_reserva"} className="campo">
-              {RESERVATION_STATUS.filter((s) => s.value !== "orcamento").map((s) => (
+              {statusReservaCfg.filter((s) => s.value !== "orcamento").map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
                 </option>

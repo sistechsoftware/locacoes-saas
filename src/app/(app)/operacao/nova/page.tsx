@@ -3,6 +3,7 @@ import { requireModule } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import OperationForm from "./OperationForm";
 import { createOperation } from "../actions";
+import { getOperacao } from "@/lib/operacao-db";
 
 export const dynamic = "force-dynamic";
 
@@ -22,16 +23,29 @@ export default async function NovaOperacaoPage({
   );
   const vehicles = await all<any>(`SELECT id, name FROM vehicles WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]);
   const users = await all<{id:number;name:string}>("SELECT id,name FROM users WHERE company_id=? AND active=1 ORDER BY name", [cid]);
+  // nomenclatura das operações conforme a configuração da empresa
+  const operacaoCfg = await getOperacao();
+  const nomesOperacao: Record<string, string> = {
+    entrega: operacaoCfg.rotulos.operacao_inicio,
+    retirada: operacaoCfg.rotulos.operacao_fim,
+  };
+  const tipos = [
+    operacaoCfg.rotulos.operacao_inicio,
+    operacaoCfg.rotulos.operacao_fim.toLowerCase(),
+    ...(operacaoCfg.vis.montagem ? ["montagem", "desmontagem"] : []),
+  ];
+  const subtitle = tipos.join(", ").replace(/, ([^,]*)$/, " ou $1");
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <PageHeader title="Nova Operação" subtitle="Entrega, retirada, montagem ou desmontagem" />
+      <PageHeader title="Nova Operação" subtitle={subtitle} />
       <Card>
         <OperationForm
           action={createOperation}
           reservations={reservations}
           vehicles={vehicles}
           users={users}
+          nomesOperacao={nomesOperacao}
           defaultReservation={sp.reserva ? Number(sp.reserva) : undefined}
           defaultKind={sp.tipo}
         />

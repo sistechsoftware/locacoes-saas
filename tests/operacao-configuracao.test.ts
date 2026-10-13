@@ -23,13 +23,21 @@ import {
   OPERACAO_KEYS,
   PERFIS,
   ROTULOS_PADRAO,
+  ROTULO_KEY,
+  VIS_KEY,
   classificarPerfil,
   dataEventoOuInicio,
+  nomeOperacao,
+  nomeOperacoesPlural,
+  pluralizar,
   resolverOperacao,
   rotuloOu,
+  statusReserva,
+  tituloOperacoes,
   validarOperacaoForm,
 } from "../src/lib/operacao.ts";
-import { getOperacao, operacaoDaEmpresa, restaurarOperacaoConfig } from "../src/lib/operacao-db.ts";
+import { RESERVATION_STATUS } from "../src/lib/domain.ts";
+import { getOperacao, operacaoDaEmpresa, restaurarOperacaoConfig, salvarOperacaoConfig } from "../src/lib/operacao-db.ts";
 import { windowError } from "../src/lib/availability-time.ts";
 
 let cliente = 0;
@@ -92,6 +100,8 @@ describe("perfil de carretinhas e reboques", () => {
       op_rotulo_fim: PERFIS.carretinhas.rotulos.fim,
       op_rotulo_evento: PERFIS.carretinhas.rotulos.evento,
       op_rotulo_evento_hora: PERFIS.carretinhas.rotulos.evento_hora,
+      op_rotulo_op_inicio: PERFIS.carretinhas.rotulos.operacao_inicio,
+      op_rotulo_op_fim: PERFIS.carretinhas.rotulos.operacao_fim,
       op_vis_evento: "0",
       op_vis_endereco: "0",
       op_vis_montagem: "0",
@@ -100,6 +110,8 @@ describe("perfil de carretinhas e reboques", () => {
     assert.equal(op.perfil, "carretinhas");
     assert.equal(op.rotulos.inicio, "Data e horário da retirada");
     assert.equal(op.rotulos.fim, "Data e horário da devolução");
+    assert.equal(op.rotulos.operacao_inicio, "Retirada");
+    assert.equal(op.rotulos.operacao_fim, "Devolução");
     assert.deepEqual(op.vis, { evento: false, endereco: false, montagem: false, caucao: false });
   });
 
@@ -111,6 +123,8 @@ describe("perfil de carretinhas e reboques", () => {
         op_rotulo_evento_hora: PERFIS.carretinhas.rotulos.evento_hora,
         op_rotulo_inicio: PERFIS.carretinhas.rotulos.inicio,
         op_rotulo_fim: PERFIS.carretinhas.rotulos.fim,
+        op_rotulo_op_inicio: PERFIS.carretinhas.rotulos.operacao_inicio,
+        op_rotulo_op_fim: PERFIS.carretinhas.rotulos.operacao_fim,
         op_vis_evento: "0",
         op_vis_endereco: "0",
         op_vis_montagem: "0",
@@ -222,27 +236,34 @@ describe("validação no servidor", () => {
   });
 
   it("caracteres de controle são removidos e o valor é normalizado", () => {
-    const r = validarOperacaoForm({ op_rotulo_inicio: "  Início\r\n da locação\u0000 " });
+    const r = validarOperacaoForm({ op_perfil: "personalizado", op_rotulo_inicio: "  Início\r\n da locação\u0000 " });
     assert.ok(r.ok);
     assert.equal((r as any).values.op_rotulo_inicio, "Início da locação");
   });
 
   it("rótulo vazio é aceito e gravado como vazio (volta ao padrão)", () => {
-    const r = validarOperacaoForm({ op_rotulo_inicio: "   " });
+    const r = validarOperacaoForm({ op_perfil: "personalizado", op_rotulo_inicio: "   " });
     assert.ok(r.ok);
     assert.equal((r as any).values.op_rotulo_inicio, "");
   });
 
   it("visibilidade só aceita checkbox marcado como visível", () => {
-    const r = validarOperacaoForm({ op_vis_evento: "1", op_vis_endereco: "qualquer" });
+    const r = validarOperacaoForm({ op_perfil: "personalizado", op_vis_evento: "1", op_vis_endereco: "qualquer" });
     assert.ok(r.ok);
     assert.equal((r as any).values.op_vis_evento, "1");
     assert.equal((r as any).values.op_vis_endereco, "0");
     assert.equal((r as any).values.op_vis_caucao, "0", "ausente = oculto no formulário");
   });
 
+  it("perfil inválido é recusado no servidor", () => {
+    const r = validarOperacaoForm({ op_perfil: "qualquercoisa" });
+    assert.equal(r.ok, false);
+    const semPerfil = validarOperacaoForm({});
+    assert.equal(semPerfil.ok, false);
+  });
+
   it("o que passa na validação é exatamente o que o resolver lê", async () => {
-    const r = validarOperacaoForm({ op_rotulo_fim: "Devolução", op_vis_montagem: "1" });
+    const r = validarOperacaoForm({ op_perfil: "personalizado", op_rotulo_fim: "Devolução", op_vis_montagem: "1" });
     assert.ok(r.ok);
     await setSettings((r as any).values);
     const op = await getOperacao();
@@ -311,5 +332,134 @@ describe("restauração de padrões e preservação de dados", () => {
     const op = await getOperacao();
     assert.equal(op.vis.caucao, false);
     assert.equal(op.vis.montagem, false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Auditoria de perfis: nomes das operações, perfil salvo e salvamento */
+/* ------------------------------------------------------------------ */
+
+/** Campos de formulário equivalentes ao preset (o que o painel envia). */
+function presetFields(p: "festas" | "carretinhas"): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of Object.keys(PERFIS[p].rotulos) as (keyof typeof ROTULO_KEY)[]) {
+    out[ROTULO_KEY[k]] = PERFIS[p].rotulos[k];
+  }
+  for (const k of Object.keys(PERFIS[p].vis) as (keyof typeof VIS_KEY)[]) {
+    out[VIS_KEY[k]] = PERFIS[p].vis[k] ? "1" : "0";
+  }
+  return out;
+}
+
+describe("nomes das operações (início e fim) em toda a aplicação", () => {
+  beforeEach(cenario);
+
+  it("padrão: checkboxes, menu e cartões exibem exatamente os textos atuais", async () => {
+    const op = await getOperacao();
+    assert.equal(op.rotulos.operacao_inicio, "Entrega");
+    assert.equal(op.rotulos.operacao_fim, "Retirada");
+    assert.equal(tituloOperacoes(op), "Entregas e Retiradas", "menu continua igual para clientes atuais");
+    assert.equal(nomeOperacao(op, "entrega"), "Entrega");
+    assert.equal(nomeOperacao(op, "retirada"), "Retirada");
+    assert.equal(nomeOperacoesPlural(op, "entrega"), "Entregas");
+    assert.equal(nomeOperacoesPlural(op, "retirada"), "Retiradas");
+    // montagem/desmontagem continuam com o rótulo do domínio
+    assert.equal(nomeOperacao(op, "montagem"), null);
+    assert.equal(nomeOperacao(op, "desmontagem"), null);
+  });
+
+  it("carretinhas: checkboxes, menu e status mostram retirada e devolução", async () => {
+    await salvarOperacaoConfig({ op_perfil: "carretinhas", ...presetFields("carretinhas") }, 1);
+    const op = await getOperacao();
+    assert.equal(op.rotulos.operacao_inicio, "Retirada");
+    assert.equal(op.rotulos.operacao_fim, "Devolução");
+    assert.equal(tituloOperacoes(op), "Retiradas e Devoluções", "menu acompanha o perfil");
+    const status = statusReserva(op, RESERVATION_STATUS);
+    assert.equal(status.find((s) => s.value === "retirada")!.label, "Devolução");
+    assert.equal(status.find((s) => s.value === "aguardando_retirada")!.label, "Aguardando devolução");
+    // os VALORES internos dos status não mudam — só o texto
+    assert.deepEqual(status.map((s) => s.value), RESERVATION_STATUS.map((s) => s.value));
+  });
+
+  it("empresas de festas continuam com os rótulos de status atuais, letra por letra", async () => {
+    const op = await getOperacao();
+    const status = statusReserva(op, RESERVATION_STATUS);
+    assert.deepEqual(status.map((s) => s.label), RESERVATION_STATUS.map((s) => s.label));
+  });
+
+  it("plural simples cobre os nomes dos perfis", () => {
+    assert.equal(pluralizar("Entrega"), "Entregas");
+    assert.equal(pluralizar("Retirada"), "Retiradas");
+    assert.equal(pluralizar("Devolução"), "Devoluções");
+    assert.equal(pluralizar("Busca"), "Buscas");
+  });
+});
+
+describe("perfil salvo (op_perfil) e personalizado de primeira classe", () => {
+  beforeEach(cenario);
+
+  it("'Personalizado' escolhido persiste mesmo coincidindo com um preset", async () => {
+    const r = validarOperacaoForm({ op_perfil: "personalizado", ...presetFields("carretinhas") });
+    assert.ok(r.ok);
+    assert.equal((r as any).values.op_perfil, "personalizado");
+    await salvarOperacaoConfig((r as any).values, 1);
+    const op = await getOperacao();
+    assert.equal(op.perfil, "personalizado", "o perfil gravado não é reclassificado pela leitura");
+  });
+
+  it("preset escolhido com valores divergentes é gravado como personalizado", () => {
+    const r = validarOperacaoForm({ op_perfil: "carretinhas", ...presetFields("carretinhas"), op_rotulo_fim: "Entrega de volta" });
+    assert.ok(r.ok);
+    assert.equal((r as any).values.op_perfil, "personalizado");
+  });
+
+  it("preset coerente é gravado como o próprio preset", () => {
+    const r = validarOperacaoForm({ op_perfil: "festas", ...presetFields("festas") });
+    assert.ok(r.ok);
+    assert.equal((r as any).values.op_perfil, "festas");
+  });
+
+  it("trocar de perfil várias vezes: a última gravação vence, sem resíduo", async () => {
+    for (const p of ["carretinhas", "festas", "carretinhas"] as const) {
+      const r = validarOperacaoForm({ op_perfil: p, ...presetFields(p) });
+      assert.ok(r.ok);
+      await salvarOperacaoConfig((r as any).values, 1);
+      const visto = await getOperacao();
+      assert.equal(visto.perfil, p, `logo após salvar ${p}`);
+    }
+    const op = await getOperacao();
+    assert.equal(op.rotulos.operacao_fim, "Devolução");
+    assert.equal(op.vis.caucao, false);
+  });
+
+  it("sem op_perfil (empresas anteriores à chave) o perfil deriva dos valores", () => {
+    assert.equal(resolverOperacao({}).perfil, "festas");
+    assert.equal(resolverOperacao({ op_vis_caucao: "0" }).perfil, "personalizado");
+  });
+
+  it("salvar sem alteração não gera nova escrita (batch só das chaves mudadas)", async () => {
+    const valores = { op_perfil: "carretinhas", ...presetFields("carretinhas") };
+    await salvarOperacaoConfig(valores, 1);
+    const rev1 = await one<any>(`SELECT revision FROM stock_revision WHERE id = 1`);
+    await salvarOperacaoConfig({ ...valores }, 1); // idêntico: nada a gravar
+    const rev2 = await one<any>(`SELECT revision FROM stock_revision WHERE id = 1`);
+    assert.equal(rev2.revision, rev1.revision, "segundo salvamento idêntico não toca o banco");
+  });
+
+  it("restaurar limpa também o perfil salvo e devolve o padrão", async () => {
+    await salvarOperacaoConfig({ op_perfil: "personalizado", op_rotulo_fim: "Entrega de volta" }, 1);
+    await restaurarOperacaoConfig(1);
+    const op = await getOperacao();
+    assert.equal(op.perfil, "festas");
+    assert.equal(op.rotulos.fim, ROTULOS_PADRAO.fim);
+    assert.equal(op.rotulos.operacao_fim, ROTULOS_PADRAO.operacao_fim);
+  });
+
+  it("salvar na empresa 2 não toca a empresa 1 (escrita sempre com company_id)", async () => {
+    await run(`INSERT INTO companies (id, name, active) VALUES (2, 'ZB', 1)`);
+    await salvarOperacaoConfig({ op_perfil: "carretinhas", ...presetFields("carretinhas") }, 2);
+    assert.equal((await operacaoDaEmpresa(2)).perfil, "carretinhas");
+    assert.equal((await operacaoDaEmpresa(1)).perfil, "festas");
+    assert.equal((await operacaoDaEmpresa(1)).rotulos.operacao_fim, "Retirada");
   });
 });

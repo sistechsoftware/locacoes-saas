@@ -5,6 +5,8 @@ import { ACTIVE_STATUSES } from "@/lib/domain";
 import { addDays, dateBR, endOfMonth, money, startOfMonth, startOfWeek, today } from "@/lib/format";
 import { Card, Empty, PageHeader, Section, Stat } from "@/components/ui";
 import { Tabs } from "@/components/List";
+import { getOperacao } from "@/lib/operacao-db";
+import { nomeOperacoesPlural, pluralizar } from "@/lib/operacao";
 
 export const dynamic = "force-dynamic";
 const ACTIVE = ACTIVE_STATUSES.map((s) => `'${s}'`).join(",");
@@ -33,6 +35,8 @@ export default async function RelatoriosPage({
   /* company_id do contexto autenticado — a base de TODOS os agregados abaixo.
      Sem fallback de tenant: sessao e a unica fonte do escopo. */
   const ctx = await requireModule("relatorios");
+  // nomenclatura das operações conforme a configuração da empresa
+  const operacaoCfg = await getOperacao();
   const cid = ctx.companyId;
   const sp = await searchParams;
   const p = sp.p ?? "mes";
@@ -204,8 +208,8 @@ export default async function RelatoriosPage({
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Locações" value={locacoes} />
           <Stat label="Canceladas" value={canceladas} />
-          <Stat label="Entregas" value={opCount("entrega")} />
-          <Stat label="Retiradas" value={opCount("retirada")} />
+          <Stat label={nomeOperacoesPlural(operacaoCfg, "entrega")} value={opCount("entrega")} />
+          <Stat label={pluralizar(operacaoCfg.rotulos.operacao_fim)} value={opCount("retirada")} />
           <Stat label="Montagens" value={opCount("montagem")} />
           <Stat label="Fretes" value={fretesQtd} />
         </div>

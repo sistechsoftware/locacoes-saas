@@ -8,6 +8,8 @@ import { attachmentsFor } from "@/lib/uploads";
 import { checklistFor } from "@/lib/checklists";
 import { logsFor } from "@/lib/audit";
 import { OPERATION_KINDS, OPERATION_STATUS, RESERVATION_STATUS } from "@/lib/domain";
+import { getOperacao } from "@/lib/operacao-db";
+import { nomeOperacao, statusReserva } from "@/lib/operacao";
 import { dateBR, dateTimeBR, mapsLink, money, phoneBR, timeBR, utcParaLocal, waLink } from "@/lib/format";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icons";
@@ -36,6 +38,10 @@ export default async function OperacaoDetalhePage({
   if (!op) notFound();
 
   const kind = OPERATION_KINDS.find((k) => k.value === op.kind)!;
+  // nome exibido da operação conforme a configuração da empresa; o tipo
+  // interno (kind) continua o mesmo para dados, regras e notificações
+  const operacaoCfg = await getOperacao();
+  const rotuloKind = nomeOperacao(operacaoCfg, op.kind) ?? kind.label;
   const itens = op.reservation_id
     ? await all<any>(
         `SELECT i.*, p.name AS product_name, p.id AS product_id FROM reservation_items i
@@ -61,14 +67,14 @@ export default async function OperacaoDetalhePage({
   const maps = mapsLink(op.address, op.district, op.city);
   const wa = waLink(
     op.whatsapp || op.phone,
-    `Olá, ${(op.customer ?? "").split(" ")[0]}! Sobre a ${kind.label.toLowerCase()} de hoje às ${timeBR(op.scheduled_at)}.`,
+    `Olá, ${(op.customer ?? "").split(" ")[0]}! Sobre a ${rotuloKind.toLowerCase()} de hoje às ${timeBR(op.scheduled_at)}.`,
   );
   const ehRetirada = op.kind === "retirada" || op.kind === "desmontagem";
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`${kind.icon} ${kind.label}`}
+        title={`${kind.icon} ${rotuloKind}`}
         subtitle={`${dateBR(op.scheduled_at)} às ${timeBR(op.scheduled_at)} · ${op.customer ?? "sem cliente"}`}
         action={
           op.reservation_id ? <LinkButton href={`/reservas/${op.reservation_id}`}>Ver reserva</LinkButton> : undefined
@@ -80,7 +86,7 @@ export default async function OperacaoDetalhePage({
       <Card>
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge defs={OPERATION_STATUS} value={op.status} />
-          {op.reservation_status && <StatusBadge defs={RESERVATION_STATUS} value={op.reservation_status} />}
+          {op.reservation_status && <StatusBadge defs={statusReserva(operacaoCfg, RESERVATION_STATUS)} value={op.reservation_status} />}
           {op.reservation_number && <Badge tone="cinza">{op.reservation_number}</Badge>}
         </div>
 
@@ -219,7 +225,7 @@ export default async function OperacaoDetalhePage({
         </Section>
       </div>
 
-      <Section title={`Checklist de ${ehRetirada ? "retirada" : "entrega"}`}>
+      <Section title={`Checklist de ${ehRetirada ? nomeOperacao(operacaoCfg, "retirada") : nomeOperacao(operacaoCfg, "entrega")}`}>
         <form action={saveChecklist} className="space-y-3">
           <input type="hidden" name="operation_id" value={op.id} />
           <div className="space-y-1.5">

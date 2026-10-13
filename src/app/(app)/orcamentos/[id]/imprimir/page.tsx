@@ -64,7 +64,10 @@ export default async function OrcamentoImprimirPage({ params }: { params: Promis
 
   // linhas de servico so aparecem quando tem valor
   const servicos = [
-    { rotulo: "Frete (entrega e retirada)", valor: q.freight_cents },
+    {
+      rotulo: `Frete (${operacao.rotulos.operacao_inicio.toLowerCase()} e ${operacao.rotulos.operacao_fim.toLowerCase()})`,
+      valor: q.freight_cents,
+    },
     { rotulo: "Montagem", valor: q.assembly_cents },
     { rotulo: "Desmontagem", valor: q.disassembly_cents },
     { rotulo: "Outros serviços", valor: q.other_cents },

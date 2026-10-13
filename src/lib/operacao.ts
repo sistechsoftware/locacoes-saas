@@ -1,22 +1,25 @@
 /**
- * Configurações operacionais por empresa — nomenclaturas e visibilidade.
+ * Configurações operacionais por empresa — nomenclaturas, visibilidade e perfil.
  *
  * Camada PURA, sem "server-only": as constantes e o resolver são compartilhados
- * com os formulários de cliente (ReservationForm/QuoteForm) e com os testes.
- * A leitura/escrita no banco vive em operacao-db.ts e o painel em
+ * com os formulários de cliente (ReservationForm/QuoteForm), com o menu e com
+ * os testes. A leitura/escrita no banco vive em operacao-db.ts e o painel em
  * app/(app)/configuracoes.
  *
  * Princípios (arquitetura de configs por empresa):
  *  - Dados internos são estáveis: event_date, event_time, delivery_at,
- *    pickup_at, address, assembly_cents, disassembly_cents e deposits não
- *    mudam de nome nem de significado. Renomear um rótulo NÃO move datas,
- *    inverte operações nem altera cálculos.
+ *    pickup_at, address, assembly_cents, disassembly_cents, deposits e os
+ *    kinds de operação ("entrega"/"retirada") não mudam de nome nem de
+ *    significado. Renomear um rótulo NÃO move datas, inverte operações nem
+ *    altera cálculos — só muda o que a interface apresenta.
  *  - Ocultar um campo é decisão de EXIBIÇÃO: some dos formulários novos, mas
  *    o dado gravado é preservado (hidden input na edição) e a estrutura do
  *    banco permanece intacta.
  *  - Valores vazios/ausentes caem nos padrões da plataforma, que são
  *    exatamente o comportamento atual dos clientes de festas — nenhuma
  *    empresa existente muda de tela sem que o administrador salve algo.
+ *  - O PERFIL é um dado gravado (op_perfil), não derivado: "Personalizado" é
+ *    um perfil de primeira classe e nunca é sobrescrito por classificação.
  */
 
 /* ------------------------------- perfis ------------------------------- */
@@ -37,6 +40,10 @@ export const ROTULOS_PADRAO = {
   evento_hora: "Horário do evento",
   inicio: "Entrega em",
   fim: "Retirada em",
+  /** Nome curto da operação de INÍCIO (checkbox "Entrega", menu, cartões). */
+  operacao_inicio: "Entrega",
+  /** Nome curto da operação de FIM (checkbox "Retirada", menu, cartões). */
+  operacao_fim: "Retirada",
 } as const;
 
 export type RotuloChave = keyof typeof ROTULOS_PADRAO;
@@ -51,7 +58,10 @@ export type Visibilidade = Record<VisChave, boolean>;
 /* --------------------------- config resolvida ------------------------ */
 
 export type OperacaoConfig = {
-  /** Perfil classificado a partir dos valores efetivos (nunca fica defasado). */
+  /**
+   * Perfil efetivamente salvo da empresa. Sem `op_perfil` no banco (empresas
+   * anteriores a esta chave), deriva dos valores — nunca o contrário.
+   */
   perfil: PerfilOperacional;
   rotulos: Rotulos;
   vis: Visibilidade;
@@ -66,10 +76,13 @@ export type OperacaoConfig = {
  * qualquer outro valor (inclusive ausente) = visível.
  */
 export const OPERACAO_KEYS = {
+  perfil: "op_perfil",
   rotulo_evento: "op_rotulo_evento",
   rotulo_evento_hora: "op_rotulo_evento_hora",
   rotulo_inicio: "op_rotulo_inicio",
   rotulo_fim: "op_rotulo_fim",
+  rotulo_op_inicio: "op_rotulo_op_inicio",
+  rotulo_op_fim: "op_rotulo_op_fim",
   vis_evento: "op_vis_evento",
   vis_endereco: "op_vis_endereco",
   vis_montagem: "op_vis_montagem",
@@ -81,6 +94,8 @@ export const ROTULO_KEY: Record<RotuloChave, string> = {
   evento_hora: OPERACAO_KEYS.rotulo_evento_hora,
   inicio: OPERACAO_KEYS.rotulo_inicio,
   fim: OPERACAO_KEYS.rotulo_fim,
+  operacao_inicio: OPERACAO_KEYS.rotulo_op_inicio,
+  operacao_fim: OPERACAO_KEYS.rotulo_op_fim,
 };
 
 export const VIS_KEY: Record<VisChave, string> = {
@@ -103,6 +118,8 @@ export const PERFIS: Record<"festas" | "carretinhas", { rotulos: Rotulos; vis: V
       evento_hora: "Horário do evento",
       inicio: "Data e horário da entrega",
       fim: "Data e horário da retirada",
+      operacao_inicio: "Entrega",
+      operacao_fim: "Retirada",
     },
     vis: { evento: true, endereco: true, montagem: true, caucao: true },
   },
@@ -114,6 +131,8 @@ export const PERFIS: Record<"festas" | "carretinhas", { rotulos: Rotulos; vis: V
       evento_hora: "Horário da retirada",
       inicio: "Data e horário da retirada",
       fim: "Data e horário da devolução",
+      operacao_inicio: "Retirada",
+      operacao_fim: "Devolução",
     },
     vis: { evento: false, endereco: false, montagem: false, caucao: false },
   },
@@ -129,6 +148,8 @@ export const OPERACAO_PADRAO: OperacaoConfig = {
     evento_hora: false,
     inicio: false,
     fim: false,
+    operacao_inicio: false,
+    operacao_fim: false,
     endereco: false,
     montagem: false,
     caucao: false,
@@ -146,19 +167,32 @@ function mesmaVis(a: Visibilidade, b: Visibilidade): boolean {
   return (Object.keys(VIS_PADRAO) as VisChave[]).every((k) => a[k] === b[k]);
 }
 
+/** Os valores efetivos batem com o preset deste perfil? */
+export function valoresBatemComPerfil(
+  perfil: "festas" | "carretinhas",
+  rotulos: Rotulos,
+  vis: Visibilidade,
+): boolean {
+  return mesmo(rotulos, PERFIS[perfil].rotulos) && mesmaVis(vis, PERFIS[perfil].vis);
+}
+
 /**
- * Classifica o perfil vigente a partir dos valores EFETIVOS.
- * É deterministicamente recalculado a cada leitura — o perfil nunca fica
- * defasado em relação ao que a empresa realmente usa.
+ * Fallback para empresas SEM `op_perfil` gravado (todas as que existem antes
+ * desta chave): classifica pelos valores efetivos.
  *  - valores = preset de carretinhas → carretinhas
  *  - valores = preset de festas OU = padrão da plataforma → festas
  *  - qualquer outra combinação → personalizado
  */
 export function classificarPerfil(rotulos: Rotulos, vis: Visibilidade): PerfilOperacional {
-  if (mesmo(rotulos, PERFIS.carretinhas.rotulos) && mesmaVis(vis, PERFIS.carretinhas.vis)) return "carretinhas";
-  if (mesmo(rotulos, PERFIS.festas.rotulos) && mesmaVis(vis, PERFIS.festas.vis)) return "festas";
+  if (valoresBatemComPerfil("carretinhas", rotulos, vis)) return "carretinhas";
+  if (valoresBatemComPerfil("festas", rotulos, vis)) return "festas";
   if (mesmo(rotulos, ROTULOS_PADRAO) && mesmaVis(vis, VIS_PADRAO)) return "festas";
   return "personalizado";
+}
+
+function perfilSalvo(bruto: string | null | undefined): PerfilOperacional | null {
+  const v = String(bruto ?? "").trim();
+  return v === "festas" || v === "carretinhas" || v === "personalizado" ? v : null;
 }
 
 /**
@@ -181,7 +215,8 @@ export function resolverOperacao(settings: SettingsDe): OperacaoConfig {
     vis[k] = bruto === "" ? VIS_PADRAO[k] : bruto !== "0";
     personalizado[k] = vis[k] !== VIS_PADRAO[k];
   }
-  return { perfil: classificarPerfil(rotulos, vis), rotulos, vis, personalizado };
+  const perfil = perfilSalvo(settings[OPERACAO_KEYS.perfil]) ?? classificarPerfil(rotulos, vis);
+  return { perfil, rotulos, vis, personalizado };
 }
 
 /**
@@ -194,6 +229,84 @@ export function resolverOperacao(settings: SettingsDe): OperacaoConfig {
  */
 export function rotuloOu(config: OperacaoConfig, chave: RotuloChave, legado: string): string {
   return config.personalizado[chave] ? config.rotulos[chave] : legado;
+}
+
+/* --------------------- nomes das operações (início/fim) --------------- */
+
+/** Plural simples para os títulos de menu/estatística ("Entrega"→"Entregas"). */
+export function pluralizar(nome: string): string {
+  const n = nome.trim();
+  if (!n) return n;
+  const minusculo = n.toLowerCase();
+  if (minusculo.endsWith("ão")) return `${n.slice(0, -2)}ões`;
+  if (minusculo.endsWith("rs") || minusculo.endsWith("z")) return `${n}s`;
+  if (minusculo.endsWith("m")) return `${n.slice(0, -1)}ns`;
+  if (minusculo.endsWith("s")) return `${n}es`;
+  return `${n}s`;
+}
+
+function capitalizar(nome: string): string {
+  return nome ? nome[0].toUpperCase() + nome.slice(1) : nome;
+}
+
+/**
+ * Nome exibido de uma operação pelo TIPO interno ("entrega"/"retirada").
+ * O tipo é domínio estável; só o texto acompanha a configuração da empresa.
+ * Tipos que não são início/fim (montagem, desmontagem, frete…) devem usar o
+ * rótulo do domínio — a função devolve null para sinalizar isso.
+ */
+export function nomeOperacao(config: OperacaoConfig, kind: string): string | null {
+  if (kind === "entrega") return config.rotulos.operacao_inicio;
+  if (kind === "retirada") return config.rotulos.operacao_fim;
+  return null;
+}
+
+/** Título de menu/aba: "Entregas e Retiradas" por padrão, "Retiradas e Devoluções" em carretinhas. */
+export function tituloOperacoes(config: OperacaoConfig): string {
+  return `${pluralizar(config.rotulos.operacao_inicio)} e ${pluralizar(config.rotulos.operacao_fim)}`;
+}
+
+/** Rótulo da operação para os botões/estatísticas no plural ("Entregas"). */
+export function nomeOperacoesPlural(config: OperacaoConfig, kind: "entrega" | "retirada"): string {
+  return pluralizar(kind === "entrega" ? config.rotulos.operacao_inicio : config.rotulos.operacao_fim);
+}
+
+/**
+ * Rótulos das notificações/filtros por TIPO, com a nomenclatura da empresa
+ * para os tipos de operação de início/fim. As chaves (tipos internos)
+ * permanecem as mesmas — só o texto exibido acompanha a configuração.
+ */
+export function tiposNotificacao(
+  config: OperacaoConfig,
+  tipos: Record<string, string>,
+): Record<string, string> {
+  return {
+    ...tipos,
+    entrega: nomeOperacoesPlural(config, "entrega"),
+    retirada: nomeOperacoesPlural(config, "retirada"),
+  };
+}
+
+/* ------------------------- status das reservas ------------------------ */
+
+/**
+ * Status de reserva com a nomenclatura da empresa para o fim da locação.
+ *
+ * "retirada" (status em que a locação terminou) e "aguardando_retirada"
+ * acompanham o nome da operação final: festas continuam com "Retirada" e
+ * "Aguardando retirada" (textos atuais); carretinhas mostram "Devolução" e
+ * "Aguardando devolução". Os VALORES dos status não mudam — só o texto.
+ */
+export function statusReserva<T extends { value: string; label: string; tone: string }>(
+  config: OperacaoConfig,
+  defs: readonly T[],
+): T[] {
+  const fim = config.rotulos.operacao_fim;
+  return defs.map((s) => {
+    if (s.value === "retirada") return { ...s, label: capitalizar(fim) };
+    if (s.value === "aguardando_retirada") return { ...s, label: `Aguardando ${fim.toLowerCase()}` };
+    return s;
+  });
 }
 
 /* --------------------------- data do evento -------------------------- */
@@ -226,7 +339,13 @@ export type ResultadoOperacao =
 /**
  * Valida e normaliza o formulário do painel. Regras aplicadas NO SERVIDOR:
  * rótulos trimmed, sem caracteres de controle e com tamanho máximo; visibilidade
- * só aceita "1". Valores vazios são apagados (voltam ao padrão da plataforma).
+ * só aceita "1"; perfil precisa ser um dos três valores válidos. Valores vazios
+ * de rótulo são apagados (voltam ao padrão da plataforma).
+ *
+ * Regra explícita do perfil: um PRESET escolhido com valores divergentes do
+ * preset é gravado como "personalizado" — o perfil salvo nunca mente sobre o
+ * que a empresa realmente usa. "Personalizado" escolhido é gravado como está,
+ * mesmo coincidindo com um preset (é escolha explícita do administrador).
  */
 export function validarOperacaoForm(dados: SettingsDe): ResultadoOperacao {
   const values: Record<string, string> = {};
@@ -243,6 +362,17 @@ export function validarOperacaoForm(dados: SettingsDe): ResultadoOperacao {
   for (const k of Object.keys(VIS_PADRAO) as VisChave[]) {
     // checkbox: presente com valor "1" = visível; ausente = oculto
     values[VIS_KEY[k]] = String(dados[VIS_KEY[k]] ?? "") === "1" ? "1" : "0";
+  }
+
+  const perfilEscolhido = perfilSalvo(dados[OPERACAO_KEYS.perfil]);
+  if (!perfilEscolhido) return { ok: false, erro: "Perfil operacional inválido." };
+  if (perfilEscolhido === "personalizado") {
+    values[OPERACAO_KEYS.perfil] = "personalizado";
+  } else {
+    const efetivo = resolverOperacao(values);
+    values[OPERACAO_KEYS.perfil] = valoresBatemComPerfil(perfilEscolhido, efetivo.rotulos, efetivo.vis)
+      ? perfilEscolhido
+      : "personalizado";
   }
   return { ok: true, values };
 }
