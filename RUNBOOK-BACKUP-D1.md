@@ -10,7 +10,7 @@ Este runbook é a fonte verdadeira para RPO/RTO, rotina diária, restore e rollb
 
 | Peça | Onde | Comando |
 |---|---|---|
-| Backup (export + SHA-256 + R2) | `scripts/db-backup.mjs` | `npm run db:backup:production` / `db:backup:staging` |
+| Backup (export + validação + SHA-256 + R2 **remoto** + verificação read-back) | `scripts/db-backup.mjs` | `npm run db:backup:production` / `db:backup:staging` |
 | Restore (gate + verificação) | `scripts/db-restore.mjs` | `npm run db:restore:staging` / `db:restore:production` |
 | Migration com backup obrigatório | `scripts/db-migrate.mjs` | `npm run db:migrate` (é este que roda as migrations de produção) |
 | Agendamento diário | `.github/workflows/backup-d1.yml` | todo dia 03:00 UTC + manual (`workflow_dispatch`) |
@@ -19,7 +19,9 @@ Este runbook é a fonte verdadeira para RPO/RTO, rotina diária, restore e rollb
 | Auditoria | `backups/manifesto.log` | 1 linha por backup: data, ambiente, bytes, SHA-256, destino R2 |
 
 Artefatos por execução: `backups/<prod|staging>-<AAAA-MM-DD-HHMMSS>[-<rotulo>].sql`
-+ `.sha256` ao lado. O mesmo arquivo é enviado para `r2://limas-saas-backups/d1/`.
++ `.sha256` ao lado. O mesmo arquivo é enviado para `r2://limas-saas-backups/d1/`
+**com `r2 object put --remote`** e então **baixado de volta do R2 remoto** para
+conferir o SHA-256 — só depois disso o `manifesto.log` registra a linha como `ok`.
 
 ## 2. RPO e RTO
 
@@ -35,10 +37,15 @@ Artefatos por execução: `backups/<prod|staging>-<AAAA-MM-DD-HHMMSS>[-<rotulo>]
 1. **Bucket R2**: já existe `limas-saas-backups` (o script cria automaticamente se faltar).
    Lifecycle já aplicado: `wrangler r2 bucket lifecycle add limas-saas-backups expirar-backups-antigos d1/ --expire-days 90 -y`
 2. **GitHub Actions** (para o agendamento diário) — passo manual, requer permissão de admin:
-   - `Settings → Secrets → Actions`:
-     - `CLOUDFLARE_API_TOKEN` — token da API com permissão **D1:Edit** e **Workers R2:Edit** (escopo mínimo);
+   - `Settings → Secrets and variables → Actions → New repository secret`:
+     - `CLOUDFLARE_API_TOKEN` — token da API com permissão **D1:Read** e **Workers R2:Edit** (escopo mínimo);
      - `CLOUDFLARE_ACCOUNT_ID` — id da conta (`b6a8322542c3dc9a7c706fe457734530`).
    - Sem esses secrets o workflow falha alto de propósito — silêncio é pior que falha.
+     O passo `Verificar secrets do Cloudflare` acusa a ausência **antes** de
+     qualquer export e aponta para este parágrafo.
+   - **STATUS 2026-10-12: nenhum dos dois secrets existe no repositório**
+     (`GET /repos/…/actions/secrets` → `total_count: 0`). É a causa raiz dos
+     alertas de 10/10, 11/10 e 12/10 e a correção é **manual** (admin do repo).
 3. **Cron local alternativo** (se o GitHub Actions não for usado):
    - Linux/macOS: `0 3 * * * cd /caminho/locacoes-saas && npm run db:backup:production >> backups/cron.log 2>&1`
    - Windows: `schtasks /create /tn "backup-d1" /sc daily /st 00:00 /tr "cmd /c cd C:\caminho\locacoes-saas && npm run db:backup:production >> backups\cron.log 2>&1"`
@@ -51,7 +58,22 @@ npm run db:backup:production   # exporta produção → conferência → SHA-256
 npm run db:backup:staging      # idem staging
 ```
 
+- Etapas, nesta ordem: **1.** export do D1 → **2.** validação do dump (tamanho,
+  `CREATE TABLE`, `d1_migrations`) → **3.** assinatura SHA-256 → **4.** upload
+  para o R2 **remoto** → **5.** verificação (o objeto é baixado de volta e o
+  SHA-256 conferido) → **6.** linha no manifesto e exit 0.
 - Sai com código ≠ 0 se **qualquer** etapa falhar (o agendador precisa ver a falha).
+  Sucesso só é declarado **depois da etapa 5** — o simples término de um comando
+  não prova que existe cópia recuperável.
+- Etapas transitórias (export, upload, verificação) têm **3 tentativas** com
+  espera (`BACKUP_TENTATIVAS` / `BACKUP_ESPERA_MS`), sempre sobre o mesmo
+  arquivo/chave — sem duplicar nem sobrescrever nada.
+- **Nunca sobrescreve**: se o nome do arquivo já existe (duas execuções no
+  mesmo segundo), o script falha sem tocar no arquivo — no Actions o
+  `concurrency: backup-d1` impede execuções simultâneas.
+- **`--remote` é obrigatório no upload**: sem a flag, o `wrangler r2 object put`
+  grava no R2 **simulado local** (`.wrangler/state/v3/r2`), sai com 0 e o backup
+  nunca sai da máquina — comportamento corrigido em 2026-10-12 (ver §12).
 - Sobe para o R2 também o `.sha256`; conferência posterior: `sha256sum -c`.
 - Flags úteis: `--sem-r2` (só local), `--manter-dias N` (retenção local), `--rotulo x` (ex.: `pre-migrate`).
 - **Confiança semanal recomendada:** `ls -la backups/` + conferir `manifesto.log` e o
@@ -177,13 +199,51 @@ todas tratadas em `scripts/db-restore.mjs`:
 | Gate do `npm run db:migrate` com falha de backup simulada | ✔ abortou, banco intacto |
 | `npm run db:migrate` completo (backup → no-op apply) | ✔ exit 0 |
 | Lifecycle R2 90 dias | ✔ `wrangler r2 bucket lifecycle list` |
+| **Auditoria 2026-10-12** — `npx tsx --test tests/db-backup.test.ts` (wrangler simulado) | ✔ 20 testes: `--remote` obrigatório, credencial ausente, export vazio/incompleto, falha de upload, objeto ausente/corrompido no destino, tentativas limitadas, retenção, não sobrescrever, YAML do workflow |
+| Estado do R2 remoto em 2026-10-12 | ✖ bucket `limas-saas-backups` com **0 objetos** (uploads iam para o R2 local simulado) |
+| Wrangler real + token inválido (2026-10-12) | ✔ 3 tentativas com espera de 5 s, `Authentication error [code: 10000]`, exit 1, **nenhum arquivo parcial** e nenhuma linha no manifesto |
+| Export D1 **local** com wrangler real (2026-10-12) | ✔ staging 79 KB / 141 linhas, SHA-256 idêntico ao do dump local de 09/10 |
 
 Repetir ao menos a linha "Restore remoto em staging" **trimestralmente** (é o teste
 que prova que o RTO/RPO valem alguma coisa).
 
-## 11. Pendências manuais
+## 11. Pendências manuais (estado em 2026-10-12)
 
-- [ ] Criar os secrets `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` no GitHub
-      Actions (§3.2) — até lá o backup diário só roda por cron local/manual.
-- [ ] Definir para onde o workflow deve alertar em falha (e-mail/Slack) — o job já
-      falha alto, falta o canal de aviso.
+- [ ] **Criar os secrets `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` no
+      GitHub Actions** (§3.2). Enquanto não existirem, o agendamento diário
+      continua falhando — causa raiz #1 do alerta de 12/10/2026 07:31.
+- [ ] **Confirmar a primeira execução verde depois das correções**: abrir o run
+      no Actions, conferir as etapas no log e o artefato `manifesto-backup-d1`
+      com a linha `r2://limas-saas-backups/d1/prod-….sql`. Até lá **não há
+      cópia no armazenamento independente**.
+- [ ] **Reprocessar um dump para o R2 remoto**: os dumps de 09/10 e 10/10 só
+      existem nesta máquina; com credencial, rodar `npm run db:backup:production`
+      publica a cópia mais recente no bucket. Não apagar nada antes disso.
+- [ ] Definir para onde o workflow deve alertar em falha além do e-mail padrão
+      do GitHub Actions (e-mail/Slack) — o job já falha alto, falta o canal.
+- [ ] Tornar o `manifesto.log` durável (hoje ele só existe na máquina que roda o
+      backup e no artefato do run, retido por 30 dias).
+
+## 12. Auditoria de 2026-10-12 — resumo
+
+Dois problemas independentes, ambos com evidência:
+
+1. **Secrets ausentes (causa do e-mail).** As 3 execuções agendadas (10/10,
+   11/10, 12/10) falharam em ~30 s no step `Backup de produção`: o log mostra
+   `CLOUDFLARE_API_TOKEN:` vazio e o wrangler aborta com *“it's necessary to set
+   a CLOUDFLARE_API_TOKEN environment variable”*. `GET /actions/secrets` devolve
+   `total_count: 0`. O job `backup` falhou; o step de staging foi **pulado**, não
+   falhou por conta própria.
+2. **Upload para o R2 local simulado (falha silenciosa).** `db-backup.mjs` chamava
+   `r2 object put` **sem `--remote`**: o wrangler grava no R2 simulado local e sai
+   com 0. Prova: `r2 object get … --remote` → *“The specified key does not exist”*
+   e `r2 bucket info` → `object_count: 0`, enquanto os 20 objetos existem em
+   `.wrangler/state/v3/r2/limas-saas-backups/`. Ou seja, **mesmo com os secrets
+   criados, o workflow ficaria verde sem gravar nada fora da máquina**.
+
+Correções: `--remote` + verificação read-back (SHA-256) no script, preflight de
+secrets, staging independente da falha de produção, artefato com `warn` e resumo
+de diagnóstico no workflow — todos cobertos por `tests/db-backup.test.ts`.
+
+O que **continua** pendente e não é código: criar os dois secrets (§11) e
+confirmar a primeira execução real verde.
