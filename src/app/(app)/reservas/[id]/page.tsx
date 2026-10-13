@@ -45,6 +45,8 @@ import { recompensasDisponiveis, simularUso } from "@/lib/fidelidade-db";
 import { aplicarRecompensa } from "../fidelidade-actions";
 import { situacaoParcela } from "@/lib/financeiro";
 import { situacaoAdiantamento } from "@/lib/adiantamento";
+import { getOperacao } from "@/lib/operacao-db";
+import { rotuloOu } from "@/lib/operacao";
 import {
   atualizarAdiantamentoAction,
   cancelarAdiantamentoAction,
@@ -72,6 +74,8 @@ export default async function ReservaPage({
   const { erro, aviso } = sp;
   const r = await getReservation(Number(id), cid);
   if (!r) notFound();
+  // nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação)
+  const operacao = await getOperacao();
 
   /*
    * Leitura da tela em paralelo.
@@ -272,10 +276,16 @@ export default async function ReservaPage({
         <Section title="Dados da reserva">
           <Row label="Cliente" value={<Link href={`/clientes/${r.customer_id}`} className="text-marca-600">{r.customer_name}</Link>} />
           <Row label="Telefone" value={phoneBR(r.customer_phone) || "-"} />
-          <Row label="Data do evento" value={`${dateBR(r.event_date)}${r.event_time ? ` às ${r.event_time}` : ""}`} />
-          <Row label="Endereço" value={[r.address, r.district, r.city].filter(Boolean).join(", ") || "-"} />
-          <Row label="Entrega" value={dateTimeBR(r.delivery_at)} />
-          <Row label="Retirada" value={dateTimeBR(r.pickup_at)} />
+          {/* campos ocultos pela configuração da empresa não são exibidos;
+              o dado permanece gravado e acessível no histórico */}
+          {operacao.vis.evento && (
+            <Row label={operacao.rotulos.evento} value={`${dateBR(r.event_date)}${r.event_time ? ` às ${r.event_time}` : ""}`} />
+          )}
+          {operacao.vis.endereco && (
+            <Row label="Endereço" value={[r.address, r.district, r.city].filter(Boolean).join(", ") || "-"} />
+          )}
+          <Row label={rotuloOu(operacao, "inicio", "Entrega")} value={dateTimeBR(r.delivery_at)} />
+          <Row label={rotuloOu(operacao, "fim", "Retirada")} value={dateTimeBR(r.pickup_at)} />
           <Row
             label="Serviços"
             value={
@@ -333,8 +343,10 @@ export default async function ReservaPage({
           <div className="mt-3 space-y-1 rounded-xl bg-nuvem-100 p-3 text-sm">
             <Row label="Produtos" value={money(r.items_cents)} />
             <Row label="Frete" value={money(r.freight_cents)} />
-            <Row label="Montagem" value={money(r.assembly_cents)} />
-            <Row label="Desmontagem" value={money(r.disassembly_cents)} />
+            {/* linha some só quando desabilitada E sem valor: valor lançado
+                continua visível para o total fechar com o que foi cobrado */}
+            {(operacao.vis.montagem || r.assembly_cents > 0) && <Row label="Montagem" value={money(r.assembly_cents)} />}
+            {(operacao.vis.montagem || r.disassembly_cents > 0) && <Row label="Desmontagem" value={money(r.disassembly_cents)} />}
             <Row label="Outros" value={money(r.other_cents)} />
             <Row label="Desconto" value={"- " + money(r.discount_cents)} />
             <div className="flex items-center justify-between pt-1 text-base font-bold">

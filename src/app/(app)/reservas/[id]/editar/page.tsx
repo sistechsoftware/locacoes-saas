@@ -10,6 +10,7 @@ import { sellableProducts } from "@/lib/stock";
 import { preparationMinutes } from "@/lib/availability-settings";
 import { CUSTOMER_PICK_COLUMNS } from "@/lib/queries";
 import { activeAccounts } from "@/lib/compras";
+import { getOperacao } from "@/lib/operacao-db";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,7 @@ export default async function EditarReservaPage({ params }: { params: Promise<{ 
         isAdmin={ehAdmin(user.role)}
         submitLabel="Salvar alterações"
         contas={contas}
+        operacao={await getOperacao()}
       />
     </div>
   );

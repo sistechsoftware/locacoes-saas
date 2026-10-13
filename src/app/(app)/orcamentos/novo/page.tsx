@@ -6,6 +6,7 @@ import { createQuote } from "../actions";
 import { sellableProducts } from "@/lib/stock";
 import { preparationMinutes } from "@/lib/availability-settings";
 import { CUSTOMER_PICK_COLUMNS } from "@/lib/queries";
+import { getOperacao } from "@/lib/operacao-db";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function NovoOrcamentoPage({
         customers={customers}
         defaultCustomerId={cliente ? Number(cliente) : undefined}
         submitLabel="Criar Orçamento"
+        operacao={await getOperacao()}
       />
     </div>
   );

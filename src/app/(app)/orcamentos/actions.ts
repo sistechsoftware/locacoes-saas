@@ -11,6 +11,8 @@ import { recalcQuote, recalcReservation, syncOperations } from "@/lib/reservatio
 import { checkConflicts, conflictsMessage, rebuildReservationComponents, stamp } from "@/lib/stock";
 import { tenantCompanyId } from "@/lib/tenant";
 import { addDays, parseMoney } from "@/lib/format";
+import { dataEventoOuInicio } from "@/lib/operacao";
+import { getOperacao } from "@/lib/operacao-db";
 
 type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
 
@@ -30,9 +32,14 @@ function readItems(fd: FormData): ItemInput[] {
   }
 }
 
-function readHeader(fd: FormData) {
-  const event_date = String(fd.get("event_date") ?? "").slice(0, 10);
+function readHeader(fd: FormData, opts: { derivarEvento?: boolean } = {}) {
   const event_time = String(fd.get("event_time") ?? "");
+  /* Mesma regra da reserva: com o campo de evento oculto pela configuração
+   * da empresa, a data do evento deriva do início da locação (delivery_at) —
+   * o campo interno continua estável e nada é apagado. */
+  const event_date = opts.derivarEvento
+    ? dataEventoOuInicio(String(fd.get("event_date") ?? ""), String(fd.get("delivery_at") ?? ""))
+    : String(fd.get("event_date") ?? "").slice(0, 10);
   return {
     customer_id: Number(fd.get("customer_id")),
     event_date,
@@ -57,8 +64,9 @@ function readHeader(fd: FormData) {
 
 export async function createQuote(_prev: string | null, fd: FormData): Promise<string | null> {
   const { user, companyId } = await requireModuleEdit("orcamentos");
+  const op = await getOperacao();
   let h: ReturnType<typeof readHeader>;
-  try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
+  try { h = readHeader(fd, { derivarEvento: !op.vis.evento }); } catch (e) { return (e as Error).message; }
   const invalidWindow = windowError(h.delivery_at, h.pickup_at);
   if (invalidWindow) return invalidWindow;
   const items = readItems(fd);
@@ -118,8 +126,9 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
 export async function updateQuote(_prev: string | null, fd: FormData): Promise<string | null> {
   const { user, companyId } = await requireModuleEdit("orcamentos");
   const id = Number(fd.get("id"));
+  const op = await getOperacao();
   let h: ReturnType<typeof readHeader>;
-  try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
+  try { h = readHeader(fd, { derivarEvento: !op.vis.evento }); } catch (e) { return (e as Error).message; }
   const invalidWindow = windowError(h.delivery_at, h.pickup_at);
   if (invalidWindow) return invalidWindow;
   const items = readItems(fd);

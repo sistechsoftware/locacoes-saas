@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { porToken, congelarCorpoAoAbrir } from "@/lib/assinatura-db";
 import { impedimento, MENSAGEM_IMPEDIMENTO } from "@/lib/assinatura";
-import { getSettings } from "@/lib/settings";
+import { settingsDaEmpresa } from "@/lib/settings";
+import { operacaoDaEmpresa } from "@/lib/operacao-db";
 import { dateBR, dateTimeBR, money, nowLocal } from "@/lib/format";
 import PainelAssinatura from "./PainelAssinatura";
 import ContratoTexto from "@/components/ContratoTexto";
@@ -28,7 +29,13 @@ export default async function AssinarPage({ params }: { params: Promise<{ token:
    * seguinte, e editar o modelo depois não altera o que ele leu.
    */
   const registro = await congelarCorpoAoAbrir(registroAberto);
-  const s = await getSettings();
+  /*
+   * Página pública sem sessão de empresa: as configurações são lidas pelo
+   * company_id DO REGISTRO (assinatura da própria reserva). Sem este escopo,
+   * o fallback de tenant devolveria as settings da empresa errada.
+   */
+  const s = await settingsDaEmpresa(registro.company_id);
+  const operacao = await operacaoDaEmpresa(registro.company_id);
   const bloqueio = impedimento(registro, nowLocal());
 
   return (
@@ -48,13 +55,15 @@ export default async function AssinarPage({ params }: { params: Promise<{ token:
             <dt className="text-stone-500">Contrato</dt>
             <dd className="text-right font-semibold text-tinta-900">{registro.contract_number}</dd>
           </div>
-          {registro.event_date && (
+          {/* rótulo/visibilidade conforme a configuração da empresa dona do
+              contrato; o dado gravado permanece no documento */}
+          {operacao.vis.evento && registro.event_date && (
             <div className="flex justify-between gap-3">
-              <dt className="text-stone-500">Data do evento</dt>
+              <dt className="text-stone-500">{operacao.rotulos.evento}</dt>
               <dd className="text-right font-semibold text-tinta-900">{dateBR(registro.event_date)}</dd>
             </div>
           )}
-          {[registro.address, registro.district, registro.city].filter(Boolean).length > 0 && (
+          {operacao.vis.endereco && [registro.address, registro.district, registro.city].filter(Boolean).length > 0 && (
             <div className="flex justify-between gap-3">
               <dt className="text-stone-500">Local</dt>
               <dd className="text-right text-tinta-900">

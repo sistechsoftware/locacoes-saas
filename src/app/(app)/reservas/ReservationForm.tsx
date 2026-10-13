@@ -14,6 +14,7 @@ import SearchableSelect from "@/components/SearchableSelect";
 import { checkStock } from "./actions";
 import { useStockCheck } from "@/components/useStockCheck";
 import PreparationChoice from "@/components/PreparationChoice";
+import { OPERACAO_PADRAO, ROTULOS_PADRAO, type OperacaoConfig } from "@/lib/operacao";
 
 type Customer = { id: number; name: string; doc?: string; phone: string; reserva_numeros?: string; address: string; district: string; city: string };
 type Action = (prev: string | null, fd: FormData) => Promise<string | null>;
@@ -30,6 +31,7 @@ export default function ReservationForm({
   submitLabel = "Salvar Reserva",
   preparationMinutes = 0,
   contas = [],
+  operacao = OPERACAO_PADRAO,
 }: {
   action: Action;
   products: Product[];
@@ -44,7 +46,10 @@ export default function ReservationForm({
   preparationMinutes?: number;
   /** Contas financeiras ativas, para o adiantamento registrar onde o dinheiro entrou. */
   contas?: { id: number; name: string }[];
+  /** Nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação). */
+  operacao?: OperacaoConfig;
 }) {
+  const { rotulos, vis } = operacao;
   const [error, formAction] = useActionState(action, null);
   const [items, setItems] = useState<ItemRow[]>(initialItems);
   const [customerId, setCustomerId] = useState(String(reservation?.customer_id ?? defaultCustomerId ?? ""));
@@ -156,7 +161,9 @@ export default function ReservationForm({
       <input type="hidden" name="discount" value={discount} />
 
       <section className="cartao p-4">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">Cliente e Evento</h2>
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">
+          {vis.evento ? "Cliente e Evento" : "Cliente"}
+        </h2>
         <div className="space-y-3">
           <Field label="Cliente *">
             <div className="flex gap-2">
@@ -190,41 +197,72 @@ export default function ReservationForm({
             </div>
           </Field>
 
-          <Grid>
-            <Field label="Data do evento *">
-              <input
-                name="event_date"
-                type="date"
-                value={eventDate}
-                onChange={(e) => setEventDate(e.target.value)}
-                className="campo"
-                required
-              />
-            </Field>
-            <Field label="Horário do evento">
-              <input name="event_time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="campo" />
-            </Field>
-          </Grid>
+          {/*
+            Campo de evento oculto pela configuração da empresa: os inputs
+            continuam presentes (ocultos) para PRESERVAR o dado na edição e o
+            servidor deriva a data do início da locação na criação. Ocultar
+            nunca apaga nem invalida o campo interno event_date/event_time.
+          */}
+          {vis.evento ? (
+            <Grid>
+              <Field label={`${rotulos.evento} *`}>
+                <input
+                  name="event_date"
+                  type="date"
+                  value={eventDate}
+                  onChange={(e) => setEventDate(e.target.value)}
+                  className="campo"
+                  required
+                />
+              </Field>
+              <Field label={rotulos.evento_hora}>
+                <input name="event_time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="campo" />
+              </Field>
+            </Grid>
+          ) : (
+            <>
+              <input type="hidden" name="event_date" value={eventDate} />
+              <input type="hidden" name="event_time" value={eventTime} />
+            </>
+          )}
 
-          <Field label="Endereço do evento">
-            <input name="address" value={address} onChange={(e) => setAddress(e.target.value)} className="campo" />
-          </Field>
-          <Grid>
-            <Field label="Bairro">
-              <input name="district" value={district} onChange={(e) => setDistrict(e.target.value)} className="campo" />
-            </Field>
-            <Field label="Cidade">
-              <input name="city" value={city} onChange={(e) => setCity(e.target.value)} className="campo" />
-            </Field>
-          </Grid>
+          {vis.endereco ? (
+            <>
+              <Field label="Endereço do evento">
+                <input name="address" value={address} onChange={(e) => setAddress(e.target.value)} className="campo" />
+              </Field>
+              <Grid>
+                <Field label="Bairro">
+                  <input name="district" value={district} onChange={(e) => setDistrict(e.target.value)} className="campo" />
+                </Field>
+                <Field label="Cidade">
+                  <input name="city" value={city} onChange={(e) => setCity(e.target.value)} className="campo" />
+                </Field>
+              </Grid>
+            </>
+          ) : (
+            /* endereço desabilitado: valores já gravados seguem no submit */
+            <>
+              <input type="hidden" name="address" value={address} />
+              <input type="hidden" name="district" value={district} />
+              <input type="hidden" name="city" value={city} />
+            </>
+          )}
         </div>
       </section>
 
-      <RouteEstimate tipo="locacao" destination={[address, district, city].filter(Boolean).join(", ")} onApply={setFreight} />
+      {vis.endereco && (
+        <RouteEstimate tipo="locacao" destination={[address, district, city].filter(Boolean).join(", ")} onApply={setFreight} />
+      )}
       <section className="cartao p-4">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">Entrega e retirada</h2>
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">
+          {/* título legado mantido enquanto a empresa não personaliza os rótulos */}
+          {rotulos.inicio !== ROTULOS_PADRAO.inicio || rotulos.fim !== ROTULOS_PADRAO.fim
+            ? "Período da locação"
+            : "Entrega e retirada"}
+        </h2>
         <Grid>
-          <Field label="Entrega em" hint="Define quando o equipamento sai do estoque.">
+          <Field label={rotulos.inicio} hint="Define quando o equipamento sai do estoque.">
             <input
               name="delivery_at"
               required
@@ -237,7 +275,7 @@ export default function ReservationForm({
               className="campo"
             />
           </Field>
-          <Field label="Retirada em" hint="Define quando o equipamento volta ao estoque.">
+          <Field label={rotulos.fim} hint="Define quando o equipamento volta ao estoque.">
             <input
               name="pickup_at"
               required
@@ -253,19 +291,27 @@ export default function ReservationForm({
         </Grid>
         <PreparationChoice value={considerPreparation} onChange={setConsiderPreparation} minutes={preparationMinutes} from={deliveryAt} to={pickupAt} />
         {stockError && <Alerta tone="ambar">{stockError}</Alerta>}
+        {/* montagem/desmontagem ocultas: os flags já gravados seguem no
+            submit via hidden input — ocultar nunca zera um dado salvo */}
+        {!vis.montagem && reservation?.needs_assembly ? <input type="hidden" name="needs_assembly" value="1" /> : null}
+        {!vis.montagem && reservation?.needs_disassembly ? <input type="hidden" name="needs_disassembly" value="1" /> : null}
         <div className="mt-3 grid grid-cols-2 gap-2">
-          {[
+          {([
             ["needs_delivery", "Entrega", reservation ? !!reservation.needs_delivery : true],
             ["needs_pickup", "Retirada", reservation ? !!reservation.needs_pickup : true],
-            ["needs_assembly", "Montagem", reservation ? !!reservation.needs_assembly : false],
-            ["needs_disassembly", "Desmontagem", reservation ? !!reservation.needs_disassembly : false],
-          ].map(([name, label, checked]) => (
+            ...(vis.montagem
+              ? [
+                  ["needs_assembly", "Montagem", reservation ? !!reservation.needs_assembly : false],
+                  ["needs_disassembly", "Desmontagem", reservation ? !!reservation.needs_disassembly : false],
+                ]
+              : []),
+          ] as [string, string, boolean][]).map(([name, label, checked]) => (
             <label
               key={name as string}
               className="flex items-center gap-2 rounded-xl border border-nuvem-300 bg-white px-3 py-2.5 text-sm font-medium"
             >
-              <input type="checkbox" name={name as string} defaultChecked={checked as boolean} className="h-4 w-4" />
-              {label as string}
+              <input type="checkbox" name={name} defaultChecked={checked} className="h-4 w-4" />
+              {label}
             </label>
           ))}
         </div>
@@ -300,7 +346,7 @@ export default function ReservationForm({
           </div>
         )}
 
-        <ItemsEditor products={products} items={items} onChange={setItems} stock={stockInfo} dataReferencia={eventDate} />
+        <ItemsEditor products={products} items={items} onChange={setItems} stock={stockInfo} dataReferencia={eventDate || deliveryAt.slice(0, 10)} />
       </section>
 
       <section className="cartao p-4">
@@ -309,38 +355,53 @@ export default function ReservationForm({
           <Field label="Frete (R$)">
             <input value={freight} onChange={(e) => setFreight(e.target.value)} inputMode="decimal" className="campo" />
           </Field>
-          <Field label="Montagem (R$)">
-            <input value={assembly} onChange={(e) => setAssembly(e.target.value)} inputMode="decimal" className="campo" />
-          </Field>
-          <Field label="Desmontagem (R$)">
-            <input
-              value={disassembly}
-              onChange={(e) => setDisassembly(e.target.value)}
-              inputMode="decimal"
-              className="campo"
-            />
-          </Field>
+          {/* montagem/desmontagem desabilitadas: os valores já lançados
+              continuam no estado (e no hidden input "assembly"/
+              "disassembly" do topo) — só a edição some da tela */}
+          {vis.montagem && (
+            <Field label="Montagem (R$)">
+              <input value={assembly} onChange={(e) => setAssembly(e.target.value)} inputMode="decimal" className="campo" />
+            </Field>
+          )}
+          {vis.montagem && (
+            <Field label="Desmontagem (R$)">
+              <input
+                value={disassembly}
+                onChange={(e) => setDisassembly(e.target.value)}
+                inputMode="decimal"
+                className="campo"
+              />
+            </Field>
+          )}
           <Field label="Outros serviços (R$)">
             <input value={other} onChange={(e) => setOther(e.target.value)} inputMode="decimal" className="campo" />
           </Field>
           <Field label="Desconto (R$)">
             <input value={discount} onChange={(e) => setDiscount(e.target.value)} inputMode="decimal" className="campo" />
           </Field>
-          <Field label="Caução (R$)" hint="Valor separado da locação.">
-            <input
-              name="deposit"
-              defaultValue={cents(reservation?.deposit_cents)}
-              inputMode="decimal"
-              className="campo"
-            />
-          </Field>
+          {/* caução desabilitada: o valor já gravado da reserva segue no
+              submit via hidden input — a desativação nunca zera a caução */}
+          {vis.caucao ? (
+            <Field label="Caução (R$)" hint="Valor separado da locação.">
+              <input
+                name="deposit"
+                defaultValue={cents(reservation?.deposit_cents)}
+                inputMode="decimal"
+                className="campo"
+              />
+            </Field>
+          ) : (
+            <input type="hidden" name="deposit" value={cents(reservation?.deposit_cents)} />
+          )}
         </Grid>
 
         <div className="mt-3 space-y-1 rounded-xl bg-nuvem-100 p-3 text-sm">
           <Linha label="Produtos" value={money(itemsTotal)} />
           <Linha label="Frete" value={money(parseMoney(freight))} />
-          <Linha label="Montagem" value={money(parseMoney(assembly))} />
-          <Linha label="Desmontagem" value={money(parseMoney(disassembly))} />
+          {/* linha some só quando desabilitada E sem valor — valor lançado
+              continua visível para o total fechar com o que foi cobrado */}
+          {(vis.montagem || parseMoney(assembly) > 0) && <Linha label="Montagem" value={money(parseMoney(assembly))} />}
+          {(vis.montagem || parseMoney(disassembly) > 0) && <Linha label="Desmontagem" value={money(parseMoney(disassembly))} />}
           <Linha label="Outros" value={money(parseMoney(other))} />
           <Linha label="Desconto" value={"- " + money(parseMoney(discount))} />
           <div className="flex items-center justify-between border-t border-nuvem-300 pt-2 text-base font-bold">

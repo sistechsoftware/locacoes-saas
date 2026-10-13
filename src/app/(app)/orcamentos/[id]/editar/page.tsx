@@ -8,6 +8,7 @@ import { updateQuote } from "../../actions";
 import { sellableProducts } from "@/lib/stock";
 import { preparationMinutes } from "@/lib/availability-settings";
 import { CUSTOMER_PICK_COLUMNS } from "@/lib/queries";
+import { getOperacao } from "@/lib/operacao-db";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function EditarOrcamentoPage({ params }: { params: Promise<
         quote={quote}
         items={items}
         submitLabel="Salvar Alterações"
+        operacao={await getOperacao()}
       />
     </div>
   );

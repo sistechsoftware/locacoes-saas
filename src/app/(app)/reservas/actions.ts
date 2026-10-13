@@ -22,6 +22,8 @@ import { aoConcluirLocacao, devolverRecompensaDaReserva, reverterReserva } from 
 import { criarAdiantamento } from "@/lib/receber";
 import { HOLDING_STATUSES } from "@/lib/domain";
 import { money, parseMoney, addDays, today } from "@/lib/format";
+import { dataEventoOuInicio } from "@/lib/operacao";
+import { getOperacao } from "@/lib/operacao-db";
 
 export type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
 
@@ -41,9 +43,18 @@ function readItems(fd: FormData): ItemInput[] {
   }
 }
 
-function readHeader(fd: FormData) {
-  const event_date = String(fd.get("event_date") ?? "").slice(0, 10);
+function readHeader(fd: FormData, opts: { derivarEvento?: boolean } = {}) {
   const event_time = String(fd.get("event_time") ?? "");
+  /*
+   * Campo de evento OCULTO pela configuração da empresa: a data do evento
+   * deriva do início da locação que o usuário digitou (delivery_at). O campo
+   * interno event_date continua estável e preenchido — nada é apagado nem
+   * duplicado, e a disponibilidade continua usando delivery_at/pickup_at.
+   * Visível, o comportamento é exatamente o antigo.
+   */
+  const event_date = opts.derivarEvento
+    ? dataEventoOuInicio(String(fd.get("event_date") ?? ""), String(fd.get("delivery_at") ?? ""))
+    : String(fd.get("event_date") ?? "").slice(0, 10);
   return {
     customer_id: Number(fd.get("customer_id")),
     event_date,
@@ -80,13 +91,16 @@ const conflictMessage = conflictsMessage;
 export async function createReservation(_prev: string | null, fd: FormData): Promise<string | null> {
   const { user, companyId } = await requireModuleEdit("reservas");
   const version = await stockVersion(companyId);
+  const op = await getOperacao();
   let h: ReturnType<typeof readHeader>;
-  try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
+  try { h = readHeader(fd, { derivarEvento: !op.vis.evento }); } catch (e) { return (e as Error).message; }
   const options = { considerPreparation: fd.get("consider_preparation") !== "0" };
   const items = readItems(fd);
   const override = fd.get("override") === "1" && ehAdmin(user.role);
   if (!h.customer_id) return "Selecione o cliente.";
-  if (!h.event_date) return "Informe a data do evento.";
+  // validação respeitando a configuração: com o campo de evento oculto, o
+  // que importa é o início da locação (que a tela exige e o servidor deriva)
+  if (!h.event_date) return op.vis.evento ? "Informe a data do evento." : "Informe a data de início da locação.";
   if (!items.length) return "Adicione ao menos um item a reserva.";
   const invalid = windowError(h.delivery_at, h.pickup_at);
   if (invalid) return invalid;
@@ -134,8 +148,9 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
   // Isolamento: reserva de outra empresa e "nao encontrada".
   const current = await one<any>("SELECT * FROM reservations WHERE id=? AND company_id=?", [id, companyId]);
   if (!current) return "Reserva não encontrada.";
+  const op = await getOperacao();
   let h: ReturnType<typeof readHeader>;
-  try { h = readHeader(fd); } catch (e) { return (e as Error).message; }
+  try { h = readHeader(fd, { derivarEvento: !op.vis.evento }); } catch (e) { return (e as Error).message; }
   const items = readItems(fd);
   const options = { considerPreparation: fd.get("consider_preparation") !== "0" };
   const override = fd.get("override") === "1" && ehAdmin(user.role);

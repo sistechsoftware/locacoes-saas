@@ -8,6 +8,8 @@ import { ehAdmin } from "@/lib/roles";
 import { podeCriarUsuario } from "@/lib/billing";
 import { atualizarUsuario, criarUsuario, excluirUsuario, alternarStatusUsuario } from "@/lib/usuarios";
 import { getSettings, setSettings } from "@/lib/settings";
+import { resolverOperacao, validarOperacaoForm } from "@/lib/operacao";
+import { restaurarOperacaoConfig } from "@/lib/operacao-db";
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
 import { validarDimensoesRecibo } from "@/lib/recibo-visual";
 
@@ -144,6 +146,39 @@ export async function saveReciboSettings(fd: FormData) {
   await setSettings(values);
   await logAction(user, "editar", "configuracao", null, `${user.name} configurou o tamanho dos recibos (${tamanho})`);
   revalidatePath("/configuracoes");
+}
+
+/**
+ * Configuração operacional da empresa (Configurações → Operação).
+ *
+ * Persiste nomenclaturas e visibilidade no KV company_settings, sempre da
+ * empresa da SESSÃO (assertAdmin + setSettings sem companyId alternativo).
+ * A validação roda AQUI, no servidor: o componente de tela nunca é a
+ * barreira. Gravar isto muda apenas exibição — reservas, orçamentos, cauções
+ * e cobranças já registrados permanecem intocados.
+ */
+export async function saveOperacaoSettings(fd: FormData) {
+  const user = await assertAdmin();
+  const r = validarOperacaoForm(Object.fromEntries(fd.entries()) as Record<string, string>);
+  if (!r.ok) redirect(`/configuracoes?aba=operacao&erro=${encodeURIComponent(r.erro)}`);
+  await setSettings(r.values);
+  const perfil = resolverOperacao(r.values).perfil;
+  await logAction(user, "editar", "configuracao", null, `${user.name} atualizou a configuração operacional (perfil ${perfil})`);
+  // rótulos aparecem em várias telas: invalida o layout inteiro
+  revalidatePath("/", "layout");
+}
+
+/**
+ * Restaura os rótulos e a visibilidade ao padrão da plataforma, mediante
+ * ação explícita e confirmada no painel. Apaga somente as chaves `op_*` da
+ * empresa da sessão — nenhum registro de reserva, orçamento, caução ou
+ * cobrança é alterado ou removido.
+ */
+export async function restaurarOperacao() {
+  const user = await assertAdmin();
+  await restaurarOperacaoConfig(user.company_id);
+  await logAction(user, "editar", "configuracao", null, `${user.name} restaurou os padrões da configuração operacional`);
+  revalidatePath("/", "layout");
 }
 
 /* ---------------------------------- usuarios ----------------------------------- */

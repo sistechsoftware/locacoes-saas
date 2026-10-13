@@ -128,6 +128,21 @@ export const DEFAULT_SETTINGS: Settings = {
   birthday_notify_upcoming: "",
   birthday_push: "",
   birthday_hour: "",
+  /*
+   * Configuracoes operacionais por empresa (rotulos e visibilidade),
+   * resolvidas em lib/operacao.ts. Rotulo vazio = texto padrao da
+   * plataforma; visibilidade "1" = visivel. Entram aqui para a whitelist de
+   * setSettings aceita-las por empresa — sem elas, o painel Operacao nao
+   * conseguiria persistir nada.
+   */
+  op_rotulo_evento: "",
+  op_rotulo_evento_hora: "",
+  op_rotulo_inicio: "",
+  op_rotulo_fim: "",
+  op_vis_evento: "1",
+  op_vis_endereco: "1",
+  op_vis_montagem: "1",
+  op_vis_caucao: "1",
 };
 
 const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
@@ -140,7 +155,16 @@ const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
  * templates, PIX e preferências; os defaults técnicos vêm daqui.
  */
 export const getSettings = cache(async function (): Promise<Settings> {
-  const companyId = await tenantCompanyId();
+  return settingsDaEmpresa(await tenantCompanyId());
+});
+
+/**
+ * Configurações de uma empresa EXPLÍCITA — para páginas sem sessão de empresa
+ * (assinatura pública por token) que já conhecem o company_id do registro.
+ * Sem este escopo, a página pública cairia no fallback de tenant e leria as
+ * settings de outra empresa.
+ */
+export async function settingsDaEmpresa(companyId: number): Promise<Settings> {
   const out: Settings = { ...DEFAULT_SETTINGS };
   const rows = await all<{ key: string; value: string | null }>(
     "SELECT key, value FROM company_settings WHERE company_id = ?",
@@ -158,7 +182,7 @@ export const getSettings = cache(async function (): Promise<Settings> {
     out.contract_template_digital = out.contract_template;
   }
   return out;
-});
+}
 
 export async function getSetting(key: string): Promise<string> {
   return (await getSettings())[key] ?? "";
