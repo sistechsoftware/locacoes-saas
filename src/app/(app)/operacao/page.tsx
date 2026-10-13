@@ -5,6 +5,8 @@ import { Card, Empty, LinkButton, PageHeader } from "@/components/ui";
 import { OperationCard } from "@/components/OperationCard";
 import { FreightCard } from "@/components/FreightCard";
 import { Tabs } from "@/components/List";
+import { getOperacao } from "@/lib/operacao-db";
+import { nomeOperacoesPlural, pluralizar, tituloOperacoes } from "@/lib/operacao";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,12 @@ export default async function OperacaoPage({
   searchParams: Promise<{ aba?: string; data?: string; dias?: string }>;
 }) {
   await requireModule("operacao");
+  // nomenclatura das operações conforme a configuração da empresa
+  const operacaoCfg = await getOperacao();
+  const nomesOperacao: Record<string, string> = {
+    entrega: operacaoCfg.rotulos.operacao_inicio,
+    retirada: operacaoCfg.rotulos.operacao_fim,
+  };
   const sp = await searchParams;
   const aba = sp.aba ?? "entregas";
   const data = sp.data || today();
@@ -66,7 +74,7 @@ export default async function OperacaoPage({
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Entregas e Retiradas"
+        title={tituloOperacoes(operacaoCfg)}
         subtitle={dias === 0 ? dateBR(data) : `${dateBR(data)} até ${dateBR(ate)}`}
         action={<LinkButton href="/operacao/nova" variant="primario">+ Nova Operação</LinkButton>}
       />
@@ -95,7 +103,16 @@ export default async function OperacaoPage({
       </Card>
 
       <Tabs
-        items={ABAS.map((a) => ({ value: a.value, label: a.label, count: (contagem as any)[a.value] }))}
+        items={ABAS.map((a) => ({
+          value: a.value,
+          label:
+            a.value === "entregas"
+              ? nomeOperacoesPlural(operacaoCfg, "entrega")
+              : a.value === "retiradas"
+                ? pluralizar(operacaoCfg.rotulos.operacao_fim)
+                : a.label,
+          count: (contagem as any)[a.value],
+        }))}
         current={aba}
         base={`/operacao?data=${data}&dias=${dias}`}
       />
@@ -110,7 +127,12 @@ export default async function OperacaoPage({
               // diferentes e podem compartilhar o mesmo id numerico.
               <FreightCard key={`${o.kind}-${o.id}`} f={o} showDate={dias > 0 || aba === "atrasadas"} />
             ) : (
-              <OperationCard key={`${o.kind}-${o.id}`} op={o} showDate={dias > 0 || aba === "atrasadas"} />
+              <OperationCard
+                key={`${o.kind}-${o.id}`}
+                op={o}
+                showDate={dias > 0 || aba === "atrasadas"}
+                nomesOperacao={nomesOperacao}
+              />
             ),
           )}
         </div>

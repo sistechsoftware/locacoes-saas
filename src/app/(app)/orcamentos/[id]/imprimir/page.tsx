@@ -4,6 +4,8 @@ import Link from "next/link";
 import { one } from "@/lib/db";
 import { companyContext, requireModule } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
+import { getOperacao } from "@/lib/operacao-db";
+import { rotuloOu } from "@/lib/operacao";
 import { quoteItems } from "@/lib/reservations";
 import { QUOTE_STATUS, statusLabel } from "@/lib/domain";
 import { dateBR, dateUtcBR, docBR, money, phoneBR, timeBR } from "@/lib/format";
@@ -53,7 +55,7 @@ export default async function OrcamentoImprimirPage({ params }: { params: Promis
   const q = await carregar(Number(id), ctx.companyId);
   if (!q) notFound();
 
-  const [itens, s] = await Promise.all([quoteItems(q.id), getSettings()]);
+  const [itens, s, operacao] = await Promise.all([quoteItems(q.id), getSettings(), getOperacao()]);
 
   const enderecoEmpresa = [s.company_address, s.company_city].filter(Boolean).join(" - ");
   const enderecoCliente = [q.customer_address, q.customer_district, q.customer_city].filter(Boolean).join(", ");
@@ -62,7 +64,10 @@ export default async function OrcamentoImprimirPage({ params }: { params: Promis
 
   // linhas de servico so aparecem quando tem valor
   const servicos = [
-    { rotulo: "Frete (entrega e retirada)", valor: q.freight_cents },
+    {
+      rotulo: `Frete (${operacao.rotulos.operacao_inicio.toLowerCase()} e ${operacao.rotulos.operacao_fim.toLowerCase()})`,
+      valor: q.freight_cents,
+    },
     { rotulo: "Montagem", valor: q.assembly_cents },
     { rotulo: "Desmontagem", valor: q.disassembly_cents },
     { rotulo: "Outros serviços", valor: q.other_cents },
@@ -122,17 +127,27 @@ export default async function OrcamentoImprimirPage({ params }: { params: Promis
         {/* evento */}
         {(q.event_date || enderecoEvento || q.delivery_at || q.pickup_at) && (
           <section className="mt-4">
-            <h2 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-marca-600">Evento</h2>
+            <h2 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-marca-600">
+              {operacao.vis.evento ? "Evento" : "Locação"}
+            </h2>
             <div className="rounded-lg bg-nuvem-100 px-3 py-2.5 text-sm text-stone-700">
-              {q.event_date && (
+              {operacao.vis.evento && q.event_date && (
                 <p>
-                  Data do evento: <b className="text-tinta-900">{dateBR(q.event_date)}</b>
+                  {operacao.rotulos.evento}: <b className="text-tinta-900">{dateBR(q.event_date)}</b>
                   {q.event_time ? ` às ${q.event_time}` : ""}
                 </p>
               )}
-              {q.delivery_at && <p>Entrega prevista: {dateBR(q.delivery_at)} {timeBR(q.delivery_at)}</p>}
-              {q.pickup_at && <p>Retirada prevista: {dateBR(q.pickup_at)} {timeBR(q.pickup_at)}</p>}
-              {enderecoEvento && <p>Local: {enderecoEvento}</p>}
+              {q.delivery_at && (
+                <p>
+                  {rotuloOu(operacao, "inicio", "Entrega prevista")}: {dateBR(q.delivery_at)} {timeBR(q.delivery_at)}
+                </p>
+              )}
+              {q.pickup_at && (
+                <p>
+                  {rotuloOu(operacao, "fim", "Retirada prevista")}: {dateBR(q.pickup_at)} {timeBR(q.pickup_at)}
+                </p>
+              )}
+              {operacao.vis.endereco && enderecoEvento && <p>Local: {enderecoEvento}</p>}
             </div>
           </section>
         )}

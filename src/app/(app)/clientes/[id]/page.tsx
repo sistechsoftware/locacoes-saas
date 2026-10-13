@@ -6,6 +6,8 @@ import { ehAdmin } from "@/lib/roles";
 import { getCustomer } from "@/lib/queries";
 import { logsFor } from "@/lib/audit";
 import { RESERVATION_STATUS, QUOTE_STATUS } from "@/lib/domain";
+import { getOperacao } from "@/lib/operacao-db";
+import { statusReserva } from "@/lib/operacao";
 import { dateBR, docBR, mapsLink, money, phoneBR, utcParaLocal, waLink } from "@/lib/format";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, StatusBadge, Stat } from "@/components/ui";
 import { ListRow } from "@/components/List";
@@ -33,6 +35,8 @@ export default async function ClientePage({
   /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant):
      o cliente da URL so resolve se pertencer a esta empresa. */
   const ctx = await requireModule("clientes");
+  // status de reserva com a nomenclatura operacional da empresa
+  const STATUS_RESERVA = statusReserva(await getOperacao(), RESERVATION_STATUS);
   const user = ctx.user;
   const cid = ctx.companyId;
   const { id } = await params;
@@ -193,7 +197,7 @@ export default async function ClientePage({
                 <ListRow
                   key={r.id}
                   href={`/reservas/${r.id}`}
-                  badges={<StatusBadge defs={RESERVATION_STATUS} value={r.status} />}
+                  badges={<StatusBadge defs={STATUS_RESERVA} value={r.status} />}
                   title={`${r.number} - ${dateBR(r.event_date)}`}
                   subtitle={[r.address, r.district].filter(Boolean).join(", ")}
                   right={

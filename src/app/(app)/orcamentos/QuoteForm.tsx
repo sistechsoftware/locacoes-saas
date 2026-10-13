@@ -14,6 +14,7 @@ import SearchableSelect from "@/components/SearchableSelect";
 import { checkStock } from "../reservas/actions";
 import { useStockCheck } from "@/components/useStockCheck";
 import PreparationChoice from "@/components/PreparationChoice";
+import { OPERACAO_PADRAO, rotuloOu, type OperacaoConfig } from "@/lib/operacao";
 
 type Customer = { id: number; name: string; doc?: string; phone?: string; reserva_numeros?: string; address: string; district: string; city: string };
 type Action = (prev: string | null, fd: FormData) => Promise<string | null>;
@@ -27,6 +28,7 @@ export default function QuoteForm({
   defaultCustomerId,
   submitLabel = "Salvar Orçamento",
   preparationMinutes = 0,
+  operacao = OPERACAO_PADRAO,
 }: {
   action: Action;
   products: Product[];
@@ -36,7 +38,10 @@ export default function QuoteForm({
   defaultCustomerId?: number;
   submitLabel?: string;
   preparationMinutes?: number;
+  /** Nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação). */
+  operacao?: OperacaoConfig;
 }) {
+  const { rotulos, vis } = operacao;
   const [error, formAction] = useActionState(action, null);
   const [items, setItems] = useState<ItemRow[]>(initialItems);
   const [customerId, setCustomerId] = useState(String(quote?.customer_id ?? defaultCustomerId ?? ""));
@@ -123,7 +128,9 @@ export default function QuoteForm({
       {quote && <input type="hidden" name="id" value={quote.id} />}
       <input type="hidden" name="items" value={JSON.stringify(items)} />
       <input type="hidden" name="freight" value={freight} />
-      <RouteEstimate tipo="locacao" destination={[address,district,city].filter(Boolean).join(", ")} onApply={setFreight}/>
+      {vis.endereco && (
+        <RouteEstimate tipo="locacao" destination={[address,district,city].filter(Boolean).join(", ")} onApply={setFreight}/>
+      )}
       <input type="hidden" name="assembly" value={assembly} />
       <input type="hidden" name="disassembly" value={disassembly} />
       <input type="hidden" name="other" value={other} />
@@ -162,20 +169,33 @@ export default function QuoteForm({
               />
             </div>
           </Field>
+          {/* campo de evento oculto pela configuração da empresa: os inputs
+              ocultos preservam o dado gravado; na criação o servidor deriva a
+              data do início da locação. Ocultar nunca apaga o campo interno. */}
+          {vis.evento && (
+            <Grid>
+              <Field label={rotulos.evento}>
+                <input
+                  name="event_date"
+                  type="date"
+                  value={eventDate}
+                  onChange={(e) => setEventDate(e.target.value)}
+                  className="campo"
+                />
+              </Field>
+              <Field label={rotuloOu(operacao, "evento_hora", "Horário")}>
+                <input name="event_time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="campo" />
+              </Field>
+            </Grid>
+          )}
+          {!vis.evento && (
+            <>
+              <input type="hidden" name="event_date" value={eventDate} />
+              <input type="hidden" name="event_time" value={eventTime} />
+            </>
+          )}
           <Grid>
-            <Field label="Data do evento">
-              <input
-                name="event_date"
-                type="date"
-                value={eventDate}
-                onChange={(e) => setEventDate(e.target.value)}
-                className="campo"
-              />
-            </Field>
-            <Field label="Horário">
-              <input name="event_time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="campo" />
-            </Field>
-            <Field label="Entrega prevista">
+            <Field label={rotuloOu(operacao, "inicio", "Entrega prevista")}>
               <input
                 name="delivery_at"
                 type="datetime-local"
@@ -186,24 +206,35 @@ export default function QuoteForm({
                 className="campo"
               />
             </Field>
-            <Field label="Retirada prevista">
+            <Field label={rotuloOu(operacao, "fim", "Retirada prevista")}>
               <input required name="pickup_at" type="datetime-local" value={pickupAt} onChange={(e) => {
               pickupManual.current = true;
               setPickupAt(e.target.value);
             }} className="campo" />
             </Field>
           </Grid>
-          <Field label="Endereço">
-            <input name="address" value={address} onChange={(e) => setAddress(e.target.value)} className="campo" />
-          </Field>
-          <Grid>
-            <Field label="Bairro">
-              <input name="district" value={district} onChange={(e) => setDistrict(e.target.value)} className="campo" />
-            </Field>
-            <Field label="Cidade">
-              <input name="city" value={city} onChange={(e) => setCity(e.target.value)} className="campo" />
-            </Field>
-          </Grid>
+          {vis.endereco ? (
+            <>
+              <Field label="Endereço">
+                <input name="address" value={address} onChange={(e) => setAddress(e.target.value)} className="campo" />
+              </Field>
+              <Grid>
+                <Field label="Bairro">
+                  <input name="district" value={district} onChange={(e) => setDistrict(e.target.value)} className="campo" />
+                </Field>
+                <Field label="Cidade">
+                  <input name="city" value={city} onChange={(e) => setCity(e.target.value)} className="campo" />
+                </Field>
+              </Grid>
+            </>
+          ) : (
+            /* endereço desabilitado: valores já gravados seguem no submit */
+            <>
+              <input type="hidden" name="address" value={address} />
+              <input type="hidden" name="district" value={district} />
+              <input type="hidden" name="city" value={city} />
+            </>
+          )}
         </div>
       </section>
 
@@ -222,7 +253,7 @@ export default function QuoteForm({
             </Alerta>
           </div>
         )}
-        <ItemsEditor products={products} items={items} onChange={setItems} stock={stockInfo} dataReferencia={eventDate} />
+        <ItemsEditor products={products} items={items} onChange={setItems} stock={stockInfo} dataReferencia={eventDate || deliveryAt.slice(0, 10)} />
       </section>
 
       <section className="cartao p-4">
@@ -231,17 +262,23 @@ export default function QuoteForm({
           <Field label="Frete (R$)">
             <input value={freight} onChange={(e) => setFreight(e.target.value)} inputMode="decimal" className="campo" />
           </Field>
-          <Field label="Montagem (R$)">
-            <input value={assembly} onChange={(e) => setAssembly(e.target.value)} inputMode="decimal" className="campo" />
-          </Field>
-          <Field label="Desmontagem (R$)">
-            <input
-              value={disassembly}
-              onChange={(e) => setDisassembly(e.target.value)}
-              inputMode="decimal"
-              className="campo"
-            />
-          </Field>
+          {/* montagem/desmontagem desabilitadas: os valores já lançados
+              permanecem nos hidden inputs do topo — só a edição some */}
+          {vis.montagem && (
+            <Field label="Montagem (R$)">
+              <input value={assembly} onChange={(e) => setAssembly(e.target.value)} inputMode="decimal" className="campo" />
+            </Field>
+          )}
+          {vis.montagem && (
+            <Field label="Desmontagem (R$)">
+              <input
+                value={disassembly}
+                onChange={(e) => setDisassembly(e.target.value)}
+                inputMode="decimal"
+                className="campo"
+              />
+            </Field>
+          )}
           <Field label="Outros (R$)">
             <input value={other} onChange={(e) => setOther(e.target.value)} inputMode="decimal" className="campo" />
           </Field>

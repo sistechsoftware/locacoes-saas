@@ -4,6 +4,8 @@ import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-t
 import { stockOptions } from "@/lib/availability-settings";
 import { scanConflicts } from "@/lib/stock";
 import { requireModule } from "@/lib/auth";
+import { getOperacao } from "@/lib/operacao-db";
+import { pluralizar } from "@/lib/operacao";
 import { listNotifications, rebuildNotifications } from "@/lib/notifications";
 import { Empty, PageHeader, Stat } from "@/components/ui";
 import { Tabs } from "@/components/List";
@@ -30,6 +32,15 @@ export default async function NotificacoesPage({
   searchParams: Promise<AvailabilityParams & { tipo?: string }>;
 }) {
   await requireModule("notificacoes");
+  // rótulos das operações conforme a configuração da empresa
+  const operacaoCfg = await getOperacao();
+  const tipos = TIPOS.map((t) =>
+    t.value === "entrega"
+      ? { ...t, label: pluralizar(operacaoCfg.rotulos.operacao_inicio) }
+      : t.value === "retirada"
+        ? { ...t, label: pluralizar(operacaoCfg.rotulos.operacao_fim) }
+        : t,
+  );
   const sp = await searchParams;
   const { tipo = "todos" } = sp;
   const query = availabilityQuery(sp);
@@ -67,7 +78,7 @@ export default async function NotificacoesPage({
         {conflicts.map((c) => <p key={c.reservation_id} className="text-sm"><Link href={`/reservas/${c.reservation_id}?preparo=${query.considerPreparation ? 1 : 0}`} className="text-marca-600 underline">{c.number}</Link>: {c.faltas.map(f => `${f.product}: faltam ${f.missing}`).join("; ")}</p>)}
       </section>
       <p className="text-xs text-stone-500">Os alertas automáticos abaixo verificam os compromissos futuros com a preparação configurada sempre ativa. O filtro acima é uma simulação e não altera alertas compartilhados.</p>
-      <Tabs items={TIPOS} current={tipo} base={`/notificacoes/alertas?${query.queryString}`} param="tipo" />
+      <Tabs items={tipos} current={tipo} base={`/notificacoes/alertas?${query.queryString}`} param="tipo" />
 
       {lista.length === 0 ? (
         <Empty>Nenhum alerta neste filtro. Operacao em dia.</Empty>

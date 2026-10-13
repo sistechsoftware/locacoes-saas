@@ -68,3 +68,19 @@ export const MOBILE_SAAS_NAV: { href: string; label: string; icon: string }[] = 
 /** Menu "Mais" da barra inferior: tudo que nao cabe na barra, na ordem
  *  original do menu lateral (Mensagens primeiro) — sem duplicar entradas. */
 export const EXTRA_NAV = NAV.filter((n) => !n.mobile);
+
+/**
+ * Aplica o nome das operações da empresa ao item de menu /operacao.
+ *
+ * Fonte única: o label do menu NÃO é texto fixo — vem da configuração
+ * operacional (tituloOperacoes), passada pelo layout autenticado. Sem o
+ * rótulo (ou em telas sem configuração), o item mantém o texto legado
+ * "Entregas e Retiradas".
+ */
+export function comRotuloOperacoes<T extends { href: string; label: string }>(
+  itens: readonly T[],
+  label?: string,
+): T[] {
+  if (!label) return itens as T[];
+  return itens.map((n) => (n.href === "/operacao" ? { ...n, label } : n));
+}

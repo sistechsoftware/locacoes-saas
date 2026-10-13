@@ -15,6 +15,7 @@ export default function OperationForm({
   users,
   defaultReservation,
   defaultKind,
+  nomesOperacao,
 }: {
   action: Action;
   reservations: { id: number; number: string; customer_name: string; event_date: string }[];
@@ -22,6 +23,8 @@ export default function OperationForm({
   users: { id: number; name: string }[];
   defaultReservation?: number;
   defaultKind?: string;
+  /** Rótulos da empresa para início/fim (kind interno permanece o mesmo). */
+  nomesOperacao?: Record<string, string>;
 }) {
   const [error, formAction] = useActionState(action, null);
   const [reservationId, setReservationId] = useState(defaultReservation ? String(defaultReservation) : "");
@@ -44,7 +47,7 @@ export default function OperationForm({
         <select name="kind" defaultValue={defaultKind ?? "entrega"} className="campo">
           {OPERATION_KINDS.map((k) => (
             <option key={k.value} value={k.value}>
-              {k.icon} {k.label}
+              {k.icon} {nomesOperacao?.[k.value] ?? k.label}
             </option>
           ))}
         </select>

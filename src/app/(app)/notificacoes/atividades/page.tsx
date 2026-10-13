@@ -2,6 +2,8 @@ import Link from "next/link";
 import { all, one } from "@/lib/db";
 import { requireModule } from "@/lib/auth";
 import { NOTIFICATION_TYPES, type Activity } from "@/lib/push-rules";
+import { getOperacao } from "@/lib/operacao-db";
+import { tiposNotificacao } from "@/lib/operacao";
 import { Empty, PageHeader } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { completeSeparation, updateActivity } from "../push-actions";
@@ -33,7 +35,7 @@ export default async function ActivitiesPage({searchParams}:{searchParams:Promis
   const items = Number(sp.reserva) ? await all<{name:string;qty:number}>(`SELECT p.name,SUM(c.qty) AS qty FROM reservation_item_components c JOIN products p ON p.id=c.product_id WHERE c.reservation_id=? AND c.company_id=? GROUP BY p.id ORDER BY p.name`,[Number(sp.reserva),cid]) : [];
   return <div className="space-y-4"><PageHeader title="Atividades Operacionais" subtitle="Atribuição direta, agenda integrada e separação de materiais"/>
     <Link href="/notificacoes" className="text-marca-600 underline">Central de Notificações</Link>
-    <form className="flex flex-wrap gap-2"><select name="tipo" defaultValue={sp.tipo??""} className="campo max-w-56"><option value="">Todos os tipos</option>{Object.entries(NOTIFICATION_TYPES).filter(([k])=>!["alteracao","cancelamento"].includes(k)).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><select name="estado" className="campo max-w-44" defaultValue={sp.estado??"pending"}><option value="pending">Pendentes</option><option value="todos">Todos os estados</option></select>{sp.reserva&&<input type="hidden" name="reserva" value={sp.reserva}/>}<button className="border rounded-xl px-4">Filtrar</button></form>
+    <form className="flex flex-wrap gap-2"><select name="tipo" defaultValue={sp.tipo??""} className="campo max-w-56"><option value="">Todos os tipos</option>{Object.entries(tiposNotificacao(await getOperacao(), NOTIFICATION_TYPES)).filter(([k])=>!["alteracao","cancelamento"].includes(k)).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><select name="estado" className="campo max-w-44" defaultValue={sp.estado??"pending"}><option value="pending">Pendentes</option><option value="todos">Todos os estados</option></select>{sp.reserva&&<input type="hidden" name="reserva" value={sp.reserva}/>}<button className="border rounded-xl px-4">Filtrar</button></form>
     {!!sp.reserva && <section className="cartao p-4"><h2 className="font-bold">Materiais Físicos da Reserva</h2><p className="text-sm text-stone-500">Kits expandidos pela composição salva na reserva. Concluir a separação não movimenta nem duplica estoque.</p><ul className="mt-2 space-y-1">{items.map(i=><li key={i.name}>{i.qty} × {i.name}</li>)}</ul><Link href={`/reservas/${Number(sp.reserva)}`} className="text-marca-600 underline text-sm">Conferir reserva e itens comerciais</Link></section>}
     {!activities.length&&<Empty>Nenhuma atividade neste filtro.</Empty>}
     {activities.map(a=><article key={a.id} id={`atividade-${a.id}`} className="cartao p-4 space-y-2"><h2 className="font-bold">{a.title}</h2><p className="text-sm">{a.scheduled_at.replace("T"," ")} · {a.status==="pending"?"Pendente":a.status==="completed"?"Concluída":"Cancelada"} · {a.assignee_name||"Equipe pelas funções"}</p>

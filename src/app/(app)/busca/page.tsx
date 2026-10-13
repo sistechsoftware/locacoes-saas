@@ -5,12 +5,16 @@ import { CONTRACT_STATUS, FREIGHT_STATUS, QUOTE_STATUS, RESERVATION_STATUS, UNIT
 import { dateBR, money, phoneBR } from "@/lib/format";
 import { Empty, PageHeader, Section, StatusBadge } from "@/components/ui";
 import { ListRow, SearchForm } from "@/components/List";
+import { getOperacao } from "@/lib/operacao-db";
+import { statusReserva } from "@/lib/operacao";
 
 export const dynamic = "force-dynamic";
 
 export default async function BuscaPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   // Página: assinatura bloqueada redireciona para a tela explicativa.
   await requireUser({ bloqueio: "redirecionar" });
+  // status de reserva com a nomenclatura operacional da empresa
+  const STATUS_RESERVA = statusReserva(await getOperacao(), RESERVATION_STATUS);
   const { q = "" } = await searchParams;
   const termo = q.trim();
   if (!termo) redirect("/dashboard");
@@ -61,7 +65,7 @@ export default async function BuscaPage({ searchParams }: { searchParams: Promis
               <ListRow
                 key={x.id}
                 href={`/reservas/${x.id}`}
-                badges={<StatusBadge defs={RESERVATION_STATUS} value={x.status} />}
+                badges={<StatusBadge defs={STATUS_RESERVA} value={x.status} />}
                 title={`${x.number} - ${x.customer_name}`}
                 subtitle={dateBR(x.event_date)}
                 right={<span className="text-sm font-bold">{money(x.total_cents)}</span>}

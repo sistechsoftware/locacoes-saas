@@ -6,9 +6,20 @@ import { mapsLink, phoneBR, timeBR, waLink } from "@/lib/format";
 
 const KIND = Object.fromEntries(OPERATION_KINDS.map((k) => [k.value, k]));
 
-/** Cartao operacional usado no dashboard, na agenda e na tela de entregas. */
-export function OperationCard({ op, showDate = false }: { op: any; showDate?: boolean }) {
+/** Cartao operacional usado no dashboard, na agenda e na tela de entregas.
+ *  `nomesOperacao` traz os rótulos da empresa para início/fim (kind é domínio
+ *  estável; só o texto acompanha a configuração operacional). */
+export function OperationCard({
+  op,
+  showDate = false,
+  nomesOperacao,
+}: {
+  op: any;
+  showDate?: boolean;
+  nomesOperacao?: Record<string, string>;
+}) {
   const kind = KIND[op.kind] ?? OPERATION_KINDS[0];
+  const rotulo = nomesOperacao?.[op.kind] ?? kind.label;
   const endereco = [op.address, op.district, op.city].filter(Boolean).join(", ");
   const maps = mapsLink(op.address, op.district, op.city);
   const wa = waLink(op.whatsapp || op.phone, `Olá, ${op.customer ?? ""}!`);
@@ -32,7 +43,7 @@ export function OperationCard({ op, showDate = false }: { op: any; showDate?: bo
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge tone={kind.tone}>{kind.label}</Badge>
+              <Badge tone={kind.tone}>{rotulo}</Badge>
               <StatusBadge defs={OPERATION_STATUS} value={op.status} />
               {late && <Badge tone="vermelho">Atrasada</Badge>}
             </div>

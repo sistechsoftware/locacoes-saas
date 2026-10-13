@@ -18,6 +18,8 @@ import { Alerta, Card, Empty, LinkButton, PageHeader, Row, Section, StatusBadge 
 import { Icon } from "@/components/Icons";
 import { SubmitButton } from "@/components/SubmitButton";
 import { convertQuote, deleteQuote, setQuoteStatus } from "../actions";
+import { getOperacao } from "@/lib/operacao-db";
+import { rotuloOu } from "@/lib/operacao";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,8 @@ export default async function OrcamentoPage({
     [Number(id), cid],
   );
   if (!q) notFound();
+  // nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação)
+  const operacao = await getOperacao();
 
   const items = await quoteItems(q.id);
   const w = holdWindow(q);
@@ -132,11 +136,19 @@ export default async function OrcamentoPage({
               </Link>
             }
           />
-          <Row label="Data do evento" value={q.event_date ? dateBR(q.event_date) : "-"} />
-          <Row label="Horário" value={q.event_time || "-"} />
-          <Row label="Endereço" value={[q.address, q.district, q.city].filter(Boolean).join(", ") || "-"} />
-          <Row label="Entrega prevista" value={q.delivery_at ? dateTimeBR(q.delivery_at) : "-"} />
-          <Row label="Retirada prevista" value={q.pickup_at ? dateTimeBR(q.pickup_at) : "-"} />
+          {/* campos ocultos pela configuração da empresa não são exibidos;
+              o dado permanece gravado e acessível no histórico */}
+          {operacao.vis.evento && (
+            <>
+              <Row label={operacao.rotulos.evento} value={q.event_date ? dateBR(q.event_date) : "-"} />
+              <Row label={rotuloOu(operacao, "evento_hora", "Horário")} value={q.event_time || "-"} />
+            </>
+          )}
+          {operacao.vis.endereco && (
+            <Row label="Endereço" value={[q.address, q.district, q.city].filter(Boolean).join(", ") || "-"} />
+          )}
+          <Row label={rotuloOu(operacao, "inicio", "Entrega prevista")} value={q.delivery_at ? dateTimeBR(q.delivery_at) : "-"} />
+          <Row label={rotuloOu(operacao, "fim", "Retirada prevista")} value={q.pickup_at ? dateTimeBR(q.pickup_at) : "-"} />
           {q.notes && <Row label="Observações" value={q.notes} />}
         </Section>
 
@@ -159,8 +171,10 @@ export default async function OrcamentoPage({
           <div className="mt-3 space-y-1 rounded-xl bg-nuvem-100 p-3 text-sm">
             <Row label="Produtos" value={money(q.items_cents)} />
             <Row label="Frete" value={money(q.freight_cents)} />
-            <Row label="Montagem" value={money(q.assembly_cents)} />
-            <Row label="Desmontagem" value={money(q.disassembly_cents)} />
+            {/* linha some só quando desabilitada E sem valor: valor lançado
+                continua visível para o total fechar com o que foi cobrado */}
+            {(operacao.vis.montagem || q.assembly_cents > 0) && <Row label="Montagem" value={money(q.assembly_cents)} />}
+            {(operacao.vis.montagem || q.disassembly_cents > 0) && <Row label="Desmontagem" value={money(q.disassembly_cents)} />}
             <Row label="Outros" value={money(q.other_cents)} />
             <Row label="Desconto" value={"- " + money(q.discount_cents)} />
             <div className="flex items-center justify-between pt-1 text-base font-bold">

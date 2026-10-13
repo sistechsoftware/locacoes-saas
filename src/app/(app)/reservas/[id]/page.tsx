@@ -45,6 +45,8 @@ import { recompensasDisponiveis, simularUso } from "@/lib/fidelidade-db";
 import { aplicarRecompensa } from "../fidelidade-actions";
 import { situacaoParcela } from "@/lib/financeiro";
 import { situacaoAdiantamento } from "@/lib/adiantamento";
+import { getOperacao } from "@/lib/operacao-db";
+import { nomeOperacao, rotuloOu, statusReserva } from "@/lib/operacao";
 import {
   atualizarAdiantamentoAction,
   cancelarAdiantamentoAction,
@@ -72,6 +74,10 @@ export default async function ReservaPage({
   const { erro, aviso } = sp;
   const r = await getReservation(Number(id), cid);
   if (!r) notFound();
+  // nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação)
+  const operacao = await getOperacao();
+  // status com a nomenclatura da empresa (fim da locação = retirada/devolução)
+  const STATUS_RESERVA = statusReserva(operacao, RESERVATION_STATUS);
 
   /*
    * Leitura da tela em paralelo.
@@ -223,7 +229,7 @@ export default async function ReservaPage({
       {/* status e fluxo */}
       <Card>
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge defs={RESERVATION_STATUS} value={r.status} />
+          <StatusBadge defs={STATUS_RESERVA} value={r.status} />
           <Badge tone={pay.tone}>Pagamento: {pay.label}</Badge>
           <Badge tone={m.depositStatus === "recebida" ? "verde" : "ambar"}>
             Caução: {statusLabel(DEPOSIT_STATUS, m.depositStatus)}
@@ -242,7 +248,7 @@ export default async function ReservaPage({
               <input type="hidden" name="id" value={r.id} />
               <input type="hidden" name="status" value={proximo} />
               <SubmitButton variant="sucesso">
-                Avançar para: {statusLabel(RESERVATION_STATUS, proximo)}
+                Avançar para: {statusLabel(STATUS_RESERVA, proximo)}
               </SubmitButton>
             </form>
           )}
@@ -250,7 +256,7 @@ export default async function ReservaPage({
             <input type="hidden" name="consider_preparation" value={query.considerPreparation ? "1" : "0"} />
             <input type="hidden" name="id" value={r.id} />
             <select name="status" defaultValue={r.status} className="campo w-auto">
-              {RESERVATION_STATUS.map((s) => (
+              {STATUS_RESERVA.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
                 </option>
@@ -272,16 +278,22 @@ export default async function ReservaPage({
         <Section title="Dados da reserva">
           <Row label="Cliente" value={<Link href={`/clientes/${r.customer_id}`} className="text-marca-600">{r.customer_name}</Link>} />
           <Row label="Telefone" value={phoneBR(r.customer_phone) || "-"} />
-          <Row label="Data do evento" value={`${dateBR(r.event_date)}${r.event_time ? ` às ${r.event_time}` : ""}`} />
-          <Row label="Endereço" value={[r.address, r.district, r.city].filter(Boolean).join(", ") || "-"} />
-          <Row label="Entrega" value={dateTimeBR(r.delivery_at)} />
-          <Row label="Retirada" value={dateTimeBR(r.pickup_at)} />
+          {/* campos ocultos pela configuração da empresa não são exibidos;
+              o dado permanece gravado e acessível no histórico */}
+          {operacao.vis.evento && (
+            <Row label={operacao.rotulos.evento} value={`${dateBR(r.event_date)}${r.event_time ? ` às ${r.event_time}` : ""}`} />
+          )}
+          {operacao.vis.endereco && (
+            <Row label="Endereço" value={[r.address, r.district, r.city].filter(Boolean).join(", ") || "-"} />
+          )}
+          <Row label={rotuloOu(operacao, "inicio", "Entrega")} value={dateTimeBR(r.delivery_at)} />
+          <Row label={rotuloOu(operacao, "fim", "Retirada")} value={dateTimeBR(r.pickup_at)} />
           <Row
             label="Serviços"
             value={
               [
-                r.needs_delivery && "entrega",
-                r.needs_pickup && "retirada",
+                r.needs_delivery && operacao.rotulos.operacao_inicio.toLowerCase(),
+                r.needs_pickup && operacao.rotulos.operacao_fim.toLowerCase(),
                 r.needs_assembly && "montagem",
                 r.needs_disassembly && "desmontagem",
               ]
@@ -333,8 +345,10 @@ export default async function ReservaPage({
           <div className="mt-3 space-y-1 rounded-xl bg-nuvem-100 p-3 text-sm">
             <Row label="Produtos" value={money(r.items_cents)} />
             <Row label="Frete" value={money(r.freight_cents)} />
-            <Row label="Montagem" value={money(r.assembly_cents)} />
-            <Row label="Desmontagem" value={money(r.disassembly_cents)} />
+            {/* linha some só quando desabilitada E sem valor: valor lançado
+                continua visível para o total fechar com o que foi cobrado */}
+            {(operacao.vis.montagem || r.assembly_cents > 0) && <Row label="Montagem" value={money(r.assembly_cents)} />}
+            {(operacao.vis.montagem || r.disassembly_cents > 0) && <Row label="Desmontagem" value={money(r.disassembly_cents)} />}
             <Row label="Outros" value={money(r.other_cents)} />
             <Row label="Desconto" value={"- " + money(r.discount_cents)} />
             <div className="flex items-center justify-between pt-1 text-base font-bold">
@@ -369,11 +383,15 @@ export default async function ReservaPage({
         action={<Link href="/operacao" className="text-xs font-semibold text-marca-600">Ver operação</Link>}
       >
         {ops.length === 0 ? (
-          <Empty>Nenhuma operação agendada. Marque entrega, retirada ou montagem ao editar a reserva.</Empty>
+          <Empty>
+            Nenhuma operação agendada. Marque {operacao.rotulos.operacao_inicio.toLowerCase()},{" "}
+            {operacao.rotulos.operacao_fim.toLowerCase()} ou montagem ao editar a reserva.
+          </Empty>
         ) : (
           <div className="space-y-2">
             {ops.map((o) => {
               const kind = OPERATION_KINDS.find((k) => k.value === o.kind)!;
+              const rotuloKind = nomeOperacao(operacao, o.kind) ?? kind.label;
               return (
                 <Link
                   key={o.id}
@@ -383,7 +401,7 @@ export default async function ReservaPage({
                   <span className="text-lg">{kind.icon}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-bold text-tinta-900">
-                      {kind.label} - {dateBR(o.scheduled_at)} {timeBR(o.scheduled_at)}
+                      {rotuloKind} - {dateBR(o.scheduled_at)} {timeBR(o.scheduled_at)}
                     </span>
                     <span className="block text-xs text-stone-500">
                       {o.assignee ? `Responsável: ${o.assignee}` : "Sem responsável definido"}

@@ -10,6 +10,8 @@ import { listUsers } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { limiteUsuarios, usuariosAtivos } from "@/lib/billing";
 import { getSettings } from "@/lib/settings";
+import { getOperacao } from "@/lib/operacao-db";
+import OperacaoSettings from "./OperacaoSettings";
 import { Alerta, Badge, Card, Empty, Field, Grid, PageHeader, Section } from "@/components/ui";
 import { Tabs } from "@/components/List";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -53,6 +55,8 @@ export default async function ConfiguracoesPage({
   const admin = ehAdmin(user.role);
   const { aba = "empresa", erro } = await searchParams;
   const s = await getSettings();
+  /* Configuração operacional (rótulos/visibilidade) — só a aba Operação usa. */
+  const operacaoOperacional = aba === "operacao" ? await getOperacao() : null;
   const categorias = await all<any>(
     `SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.company_id = c.company_id) AS produtos
        FROM categories c WHERE c.company_id = ? ORDER BY c.name`,
@@ -98,6 +102,7 @@ export default async function ConfiguracoesPage({
     { value: "veiculos", label: "Veículos" },
     { value: "fornecedores", label: "Fornecedores" },
     ...(admin ? [{ value: "contas", label: "Contas" }] : []),
+    { value: "operacao", label: "Operação" },
     { value: "frete", label: "Frete" },
     { value: "recibos", label: "Recibos" },
     { value: "disponibilidade", label: "Disponibilidade" },
@@ -122,6 +127,8 @@ export default async function ConfiguracoesPage({
       )}
 
       <Tabs items={ABAS} current={aba} base="/configuracoes" />
+
+      {aba === "operacao" && operacaoOperacional && <OperacaoSettings inicial={operacaoOperacional} />}
 
       {aba === "disponibilidade" && <Section title="Preparação após Devolução">
         <form action={saveStockSettings} className="space-y-3">

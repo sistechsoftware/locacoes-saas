@@ -3,6 +3,8 @@ import { all, batch } from "./db";
 import { tenantCompanyId } from "./tenant";
 import { addDays, today } from "./format";
 import { scanConflicts } from "./stock";
+import { operacaoDaEmpresa } from "./operacao-db";
+import { nomeOperacao } from "./operacao";
 
 type Alert = {
   dedupe_key: string;
@@ -35,6 +37,8 @@ export async function rebuildNotifications({ force = false } = {}) {
   // Alertas sao da empresa autenticada (ou da padrao, no cron): nenhuma
   // consulta abaixo cruza empresas.
   const cid = await tenantCompanyId();
+  // nomenclatura das operações da própria empresa (alertas do dia)
+  const operacaoCfg = await operacaoDaEmpresa(cid);
 
   const d0 = today();
   const d3 = addDays(d0, 3);
@@ -107,11 +111,14 @@ export async function rebuildNotifications({ force = false } = {}) {
 
   for (const o of ops) {
     const late = o.scheduled_at.slice(0, 10) < d0;
+    /* nome exibido da operação conforme a configuração da empresa; o tipo
+       interno (o.kind) segue alimentando filtros e regras */
+    const nomeOp = (nomeOperacao(operacaoCfg, o.kind) ?? o.kind).toLowerCase();
     push({
       dedupe_key: `op-${o.id}`,
       type: o.kind,
       severity: late ? "critico" : "aviso",
-      title: `${late ? "Atrasada" : "Hoje"}: ${o.kind} · ${o.customer ?? "sem cliente"}`,
+      title: `${late ? "Atrasada" : "Hoje"}: ${nomeOp} · ${o.customer ?? "sem cliente"}`,
       body: `${o.number ?? ""} agendada para ${o.scheduled_at.replace("T", " ")}`,
       link: o.reservation_id ? `/reservas/${o.reservation_id}` : "/operacao",
     });

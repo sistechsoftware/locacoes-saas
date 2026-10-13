@@ -4,6 +4,7 @@ import { agendaEvents } from "@/lib/queries";
 import { addDays, dateBR, endOfMonth, startOfMonth, startOfWeek, today, weekdayBR } from "@/lib/format";
 import { Card, Empty, LinkButton, PageHeader } from "@/components/ui";
 import { Tabs } from "@/components/List";
+import { getOperacao } from "@/lib/operacao-db";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,14 @@ export default async function AgendaPage({
   searchParams: Promise<{ view?: string; data?: string; tipo?: string }>;
 }) {
   await requireModule("agenda");
+  // nomes das operações de início/fim conforme a configuração da empresa;
+  // as cores e os tipos continuam os mesmos do domínio
+  const operacaoCfg = await getOperacao();
+  const CORES_EMPRESA: typeof CORES = {
+    ...CORES,
+    entrega: { ...CORES.entrega, label: operacaoCfg.rotulos.operacao_inicio },
+    retirada: { ...CORES.retirada, label: operacaoCfg.rotulos.operacao_fim },
+  };
   const sp = await searchParams;
   const view = sp.view ?? "dia";
   const data = sp.data || today();
@@ -109,7 +118,7 @@ export default async function AgendaPage({
         >
           Tudo
         </Link>
-        {Object.entries(CORES).map(([k, c]) => (
+        {Object.entries(CORES_EMPRESA).map(([k, c]) => (
           <Link
             key={k}
             href={`/agenda?view=${view}&data=${data}&tipo=${k}`}
@@ -138,7 +147,7 @@ export default async function AgendaPage({
               </h2>
               <div className="space-y-1.5">
                 {lista.map((e) => {
-                  const c = CORES[e.kind] ?? CORES.evento;
+                  const c = CORES_EMPRESA[e.kind] ?? CORES.evento;
                   return (
                     <Link key={e.id} href={e.href} className="cartao flex items-center gap-3 p-3">
                       <span className="w-12 shrink-0 text-sm font-bold text-tinta-900">{e.time || "--:--"}</span>

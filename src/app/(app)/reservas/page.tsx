@@ -2,6 +2,8 @@ import { all, scalar } from "@/lib/db";
 import { requireModule } from "@/lib/auth";
 import { RESERVATION_SELECT, itemsForReservations } from "@/lib/reservations";
 import { RESERVATION_STATUS } from "@/lib/domain";
+import { getOperacao } from "@/lib/operacao-db";
+import { statusReserva } from "@/lib/operacao";
 import { addDays, dateBR, money, startOfWeek, today } from "@/lib/format";
 import { Badge, Empty, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
 import { ListRow, Pagination, SearchForm, Tabs } from "@/components/List";
@@ -27,6 +29,9 @@ export default async function ReservasPage({
      do `where` dinamico, para o filtro de empresa nunca ficar de fora. */
   const ctx = await requireModule("reservas");
   const cid = ctx.companyId;
+  // status com a nomenclatura da empresa (fim da locação = retirada/devolução)
+  const operacaoCfg = await getOperacao();
+  const STATUS_RESERVA = statusReserva(operacaoCfg, RESERVATION_STATUS);
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const status = sp.status ?? "";
@@ -88,7 +93,7 @@ export default async function ReservasPage({
             celular sem empurrar o campo de busca para fora da tela */}
         <select name="status" defaultValue={status} className="campo min-w-[9rem] basis-36 sm:w-auto">
           <option value="">Todos os status</option>
-          {RESERVATION_STATUS.map((s) => (
+          {STATUS_RESERVA.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
             </option>
@@ -110,7 +115,7 @@ export default async function ReservasPage({
                 href={`/reservas/${r.id}`}
                 badges={
                   <>
-                    <StatusBadge defs={RESERVATION_STATUS} value={r.status} />
+                    <StatusBadge defs={STATUS_RESERVA} value={r.status} />
                     {saldo > 0 && r.status !== "cancelada" && <Badge tone="vermelho">Saldo {money(saldo)}</Badge>}
                     {saldo <= 0 && r.total_cents > 0 && <Badge tone="verde">Pago</Badge>}
                   </>

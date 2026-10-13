@@ -6,6 +6,7 @@ import { obterRecibo } from "@/lib/recibos";
 import { dateBR, dateUtcBR, docBR, money, phoneBR } from "@/lib/format";
 import { formaLabel, sanitizarNomeArquivo, tamanhoRecibo, valorPorExtenso } from "@/lib/recibo-visual";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
+import { getOperacao } from "@/lib/operacao-db";
 import PrintButton from "@/app/(app)/contratos/[id]/PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,8 @@ export default async function ReciboPage({
   const { aviso } = await searchParams;
   const data = await obterRecibo(Number(id), ctx.companyId);
   if (!data) notFound();
+  // nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação)
+  const operacao = await getOperacao();
 
   const { recibo, company, cliente, reserva, frete, lancamentoExiste, composicao } = data;
   const s = company as Record<string, string>;
@@ -290,14 +293,16 @@ export default async function ReciboPage({
                   <p>
                     Número: <b className="text-tinta-900">{referencia}</b>
                   </p>
-                  {reserva?.event_date && (
+                  {operacao.vis.evento && reserva?.event_date && (
                     <p>
-                      Data do evento: {dateBR(reserva.event_date)}
+                      {operacao.rotulos.evento}: {dateBR(reserva.event_date)}
                       {reserva.event_time ? ` às ${reserva.event_time}` : ""}
                     </p>
                   )}
                   {frete?.freight_date && <p>Data do frete: {dateBR(frete.freight_date)}</p>}
-                  {enderecoEvento && <p>Local / trajeto: {enderecoEvento}</p>}
+                  {/* endereço do evento oculto some só na reserva; o trajeto
+                      do frete é informação do frete, não do evento */}
+                  {(operacao.vis.endereco || ehFrete) && enderecoEvento && <p>Local / trajeto: {enderecoEvento}</p>}
                 </div>
               </section>
             )}
