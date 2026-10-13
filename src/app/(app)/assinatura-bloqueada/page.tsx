@@ -13,7 +13,8 @@ function dataBR(iso: string | null) {
  *
  * O gate no layout manda TODA a área autenticada para cá — o usuário enxerga
  * apenas esta página até a assinatura voltar. O owner ainda pode gerar a
- * cobrança PIX daqui; os demais papéis veem a orientação de falar com ele.
+ * cobrança daqui (Pix, cartão ou boleto); os demais papéis veem a orientação
+ * de falar com ele.
  */
 export default async function AssinaturaBloqueadaPage() {
   // Esta tela É o bloqueio: é o segundo (e último) ponto autorizado a ignorar

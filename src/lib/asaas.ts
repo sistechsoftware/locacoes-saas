@@ -40,9 +40,30 @@ export type AsaasPayment = {
   value: number;
   billingType: string;
   dueDate: string;
+  externalReference?: string | null;
   invoiceUrl?: string | null;
+  /** Boleto em PDF (só para cobranças BOLETO). */
+  bankSlipUrl?: string | null;
   invoiceNumber?: string | null;
 };
+
+/**
+ * Meios de pagamento aceitos pelo POST /v3/payments (API v3 do Asaas).
+ *
+ *  * UNDEFINED — a fatura do Asaas deixa o PAGADOR escolher entre os meios
+ *    habilitados na conta (Pix, cartão, boleto). Não é "vários billingType na
+ *    mesma cobrança": é uma cobrança cuja forma é decidida na fatura.
+ *  * PIX | BOLETO | CREDIT_CARD — forma fixada na criação (Alternativa A).
+ *
+ * Cartão sem dados do cartão aqui: o pagador informa o cartão na fatura
+ * hospedada pelo Asaas — o Locô nunca vê número, bandeira ou CVV.
+ */
+export const MEIOS_COBRANCA = ["UNDEFINED", "PIX", "BOLETO", "CREDIT_CARD"] as const;
+export type MeioCobranca = (typeof MEIOS_COBRANCA)[number];
+
+export function ehMeioCobranca(valor: unknown): valor is MeioCobranca {
+  return typeof valor === "string" && (MEIOS_COBRANCA as readonly string[]).includes(valor);
+}
 
 export const ASAAS_SANDBOX = "https://api-sandbox.asaas.com";
 export const ASAAS_PRODUCAO = "https://api.asaas.com";
@@ -133,9 +154,16 @@ export function asaasClient(cfg: AsaasConfig) {
       });
     },
 
-    /** Cria cobrança PIX (billingType=PIX). Value em reais (Asaas v3). */
-    async createPixPayment(input: {
+    /**
+     * Cria uma cobrança (API v3). Value em reais.
+     *
+     * `billingType` define a forma: UNDEFINED (pagador escolhe na fatura),
+     * PIX, BOLETO ou CREDIT_CARD. NUNCA enviamos dados de cartão — para
+     * CREDIT_CARD o pagador paga na fatura hospedada pelo Asaas.
+     */
+    async createPayment(input: {
       customer: string;
+      billingType: MeioCobranca;
       value: number;
       dueDate: string; // YYYY-MM-DD
       description?: string;
@@ -143,12 +171,48 @@ export function asaasClient(cfg: AsaasConfig) {
     }): Promise<AsaasPayment> {
       return await request<AsaasPayment>("POST", "/v3/payments", {
         customer: input.customer,
-        billingType: "PIX",
+        billingType: input.billingType,
         value: input.value,
         dueDate: input.dueDate,
         description: input.description,
         externalReference: input.externalReference,
       });
+    },
+
+    /**
+     * Cobranças de uma externalReference (idempotência): se uma criação
+     * anterior falhou DEPOIS de o Asaas gravar (timeout na resposta), a
+     * retentativa encontra a cobrança existente em vez de duplicar.
+     */
+    async listPaymentsByExternalReference(externalReference: string): Promise<AsaasPayment[]> {
+      const r = await request<{ data?: AsaasPayment[] }>(
+        "GET",
+        `/v3/payments?externalReference=${encodeURIComponent(externalReference)}&limit=100`,
+      );
+      return Array.isArray(r.data) ? r.data : [];
+    },
+
+    /**
+     * Linha digitável + código de barras de um boleto
+     * (GET /v3/payments/{id}/identificationField — guia oficial de boleto).
+     */
+    async getBankSlipLine(paymentId: string): Promise<{
+      identificationField?: string | null;
+      barCode?: string | null;
+    }> {
+      return await request("GET", `/v3/payments/${paymentId}/identificationField`);
+    },
+
+    /**
+     * QR Code Pix de uma cobrança (GET /v3/payments/{id}/pixQrCode):
+     * encodedImage (base64), payload (copia e cola) e expirationDate.
+     */
+    async getPixQrCode(paymentId: string): Promise<{
+      encodedImage?: string | null;
+      payload?: string | null;
+      expirationDate?: string | null;
+    }> {
+      return await request("GET", `/v3/payments/${paymentId}/pixQrCode`);
     },
 
     /** Busca a cobrança por id (conciliação de status). */

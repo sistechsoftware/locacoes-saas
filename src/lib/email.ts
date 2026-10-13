@@ -294,13 +294,30 @@ export function emailTrialExpirado(empresa: string, baseUrl: string): string {
   );
 }
 
-export function emailCobrancaGerada(empresa: string, plano: string, valorFmt: string, vencimento: string, invoiceUrl: string | null): string {
+export function emailCobrancaGerada(
+  empresa: string,
+  plano: string,
+  valorFmt: string,
+  vencimento: string,
+  invoiceUrl: string | null,
+  meio: string = "UNDEFINED",
+): string {
+  // Rótulo conforme o meio da cobrança: fatura com escolha do pagador,
+  // Pix fixo, boleto ou cartão — o botão sempre aponta a fatura do Asaas.
+  const rotuloMeio =
+    meio === "PIX"
+      ? "pagar via PIX"
+      : meio === "BOLETO"
+        ? "pagar com boleto"
+        : meio === "CREDIT_CARD"
+          ? "pagar com cartão de crédito"
+          : "escolher a forma de pagamento";
   return layout(
     "Cobrança gerada",
     `<p>Geramos a cobrança do plano <b>${plano}</b> da empresa <b>${empresa}</b>:</p>
      <p><b>${valorFmt}</b> · vencimento <b>${dataBR(vencimento)}</b></p>
-     ${invoiceUrl ? `<p>Abra a fatura para pagar via PIX:</p>` : "<p>O pagamento confirma automaticamente e o acesso renova por 30 dias.</p>"}`,
-    invoiceUrl ? { href: invoiceUrl, label: "Pagar com PIX" } : undefined,
+     ${invoiceUrl ? `<p>Abra a fatura para ${rotuloMeio}:</p>` : "<p>O pagamento confirma automaticamente e o acesso renova por 30 dias.</p>"}`,
+    invoiceUrl ? { href: invoiceUrl, label: "Abrir fatura" } : undefined,
   );
 }
 
