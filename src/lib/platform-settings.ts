@@ -1,5 +1,6 @@
 import "server-only";
 import { one, run } from "./db";
+import { lerVarWorker } from "./worker-env";
 
 /**
  * Configurações da PLATAFORMA persistidas pelo painel /saas (tabela
@@ -58,15 +59,16 @@ export function __definirChavePainelTeste(chave: string | null) {
   chavePainelTeste = chave;
 }
 
-/** Lê PAINEL_CHAVE do secret do Worker. Null quando ausente/inacessível. */
+/**
+ * Lê PAINEL_CHAVE do secret do Worker. Null quando ausente/inacessível.
+ *
+ * Importa o env do agendador como fallback (auditoria 2026-10-13): sem isto,
+ * a rotina diária do cron não conseguia DECIFRAR as credenciais cadastradas no
+ * painel — a cobrança de períodos vencidos nunca saía de lá.
+ */
 async function lerChaveCifra(): Promise<string | null> {
   if (chavePainelTeste !== null) return chavePainelTeste;
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    return getCloudflareContext().env.PAINEL_CHAVE ?? null;
-  } catch {
-    return null;
-  }
+  return await lerVarWorker("PAINEL_CHAVE");
 }
 
 function base64(bytes: Uint8Array): string {
@@ -187,17 +189,14 @@ export type CredenciaisAsaas = {
   };
 };
 
-/** Lê um valor do secret do Worker sem lançar (fora do Worker = null). */
+/**
+ * Lê um valor do secret do Worker sem lançar (fora do Worker = null).
+ * Contexto da request > env do agendador (cron) — mesma regra do lerChaveCifra.
+ */
 async function segredoWorker(
   nome: "ASAAS_API_KEY" | "ASAAS_ENVIRONMENT" | "ASAAS_WEBHOOK_TOKEN",
 ): Promise<string | null> {
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    const env = getCloudflareContext().env;
-    return env[nome] ?? null;
-  } catch {
-    return null;
-  }
+  return await lerVarWorker(nome);
 }
 
 export async function credenciaisAsaas(): Promise<CredenciaisAsaas> {

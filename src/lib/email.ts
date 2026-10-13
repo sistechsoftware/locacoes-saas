@@ -1,3 +1,5 @@
+import { envDoAgendador, varDoAgendador } from "./worker-env";
+
 /**
  * E-mail transacional via Resend (Etapa 5).
  *
@@ -22,7 +24,10 @@
  *  * Sem RESEND_API_KEY configurado, tudo funciona e apenas NÃO envia —
  *    mesmo contrato do Asaas (billing segue sem integração).
  *  * Sem next/*: o cron do Worker importa billing.ts, que importa este
- *    módulo. Config lida via getCloudflareContext sob demanda.
+ *    módulo. Config lida via getCloudflareContext sob demanda; fora de uma
+ *    request (cron sem runWithCloudflareRequestContext) o env entregue ao
+ *    handler scheduled serve de fallback (src/lib/worker-env.ts) — sem ele
+ *    todo e-mail do cron caía em sem_contexto.
  *  * Gancho de teste __definirEmailTeste (mesmo padrão do billing/Asaas).
  */
 
@@ -70,6 +75,13 @@ export type MotivoEmail = "sem_contexto" | "sem_api_key" | "sem_remetente" | "re
 
 export type ConfigEmail = { config: EmailConfig | null; motivo: MotivoEmail | null };
 
+/** Só o que este módulo lê do env (nenhum outro segredo passa por aqui). */
+type EnvEmail = {
+  RESEND_API_KEY?: string | null;
+  RESEND_FROM?: string | null;
+  PUBLIC_URL?: string | null;
+};
+
 /**
  * Valida o par RESEND_* puro (sem rede, sem contexto Cloudflare) — testável.
  * Ordem importa: sem chave não há como remeter; com chave e sem remetente (ou
@@ -93,17 +105,36 @@ export function __esquecerAvisosEmail() {
   avisosEnviados.clear();
 }
 
+/**
+ * Env com RESEND_* e PUBLIC_URL: contexto da request quando existe; fora dele
+ * (cron do Worker), o env entregue ao handler `scheduled`. Só devolve null
+ * quando NÃO há contexto NEM agendador — aí o motivo sem_contexto continua * verdadeiro (fora do Worker, ex.: build/teste).
+ */
+async function envDosSecrets(): Promise<EnvEmail | null> {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const env = getCloudflareContext().env;
+    return { RESEND_API_KEY: env.RESEND_API_KEY, RESEND_FROM: env.RESEND_FROM, PUBLIC_URL: env.PUBLIC_URL };
+  } catch {
+    if (!envDoAgendador()) return null;
+    return {
+      RESEND_API_KEY: varDoAgendador("RESEND_API_KEY"),
+      RESEND_FROM: varDoAgendador("RESEND_FROM"),
+      PUBLIC_URL: varDoAgendador("PUBLIC_URL"),
+    };
+  }
+}
+
 async function lerConfig(): Promise<ConfigEmail> {
   if (emailTeste) return { config: emailTeste, motivo: null };
   if (envEmailTeste) return montarConfigEmail(envEmailTeste);
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    return montarConfigEmail(getCloudflareContext().env);
-  } catch {
-    // fora de request (cron do Worker roda sem runWithCloudflareRequestContext):
-    // não existe contexto para ler os secrets — motivo explícito, não silêncio.
+  const env = await envDosSecrets();
+  if (!env) {
+    // sem contexto Cloudflare e sem env de agendador: não há como ler os
+    // secrets — motivo explícito, não silêncio.
     return { config: null, motivo: "sem_contexto" };
   }
+  return montarConfigEmail(env);
 }
 
 export async function emailConfigurado(): Promise<boolean> {
@@ -123,12 +154,8 @@ export async function emailEstado(): Promise<"ok" | MotivoEmail> {
  * domínio que o usuário acessou).
  */
 export async function publicUrlDaPlataforma(): Promise<string> {
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    return getCloudflareContext().env.PUBLIC_URL || "";
-  } catch {
-    return "";
-  }
+  const env = await envDosSecrets();
+  return env?.PUBLIC_URL || "";
 }
 
 /**
@@ -264,6 +291,47 @@ export function emailBoasVindasSetup(nome: string, empresa: string, baseUrl: str
      envia o link para <b>este e-mail</b>.</p>`,
     { href: `${baseUrl}/login`, label: "Entrar no sistema" },
   );
+}
+
+/**
+ * Dispara o e-mail de boas-vindas do CHECKOUT (/assinar). Extraído da server
+ * action para ser testável: o destinatário é SEMPRE o e-mail do cadastro * (nunca um endereço fixo) e a falha do provedor devolve false sem lançar —
+ * quem chama segue em frente, o cadastro não é afetado.
+ */
+export async function enviarBoasVindasCheckout(
+  dados: { nome: string; empresa: string; email: string; trialEndsAt: string },
+  baseUrl: string,
+): Promise<boolean> {
+  try {
+    return await enviarEmail({
+      to: dados.email,
+      subject: "Bem-vindo(a) ao Locô",
+      html: emailBoasVindas(dados.nome, dados.empresa, dados.trialEndsAt, baseUrl),
+      text: `Conta criada! Trial até ${dados.trialEndsAt}. Entre em ${baseUrl}/login.`,
+    });
+  } catch {
+    return false; // fail-open: boas-vindas nunca é etapa do cadastro
+  }
+}
+
+/**
+ * Dispara o e-mail de boas-vindas do PRIMEIRO ACESSO (/setup) — mesma regra:
+ * destinatário vem do cadastro e falha não quebra a instalação.
+ */
+export async function enviarBoasVindasSetup(
+  dados: { nome: string; empresa: string; email: string },
+  baseUrl: string,
+): Promise<boolean> {
+  try {
+    return await enviarEmail({
+      to: dados.email,
+      subject: "Bem-vindo(a) ao Locô",
+      html: emailBoasVindasSetup(dados.nome, dados.empresa, baseUrl),
+      text: `Conta criada! Entre em ${baseUrl}/login.`,
+    });
+  } catch {
+    return false;
+  }
 }
 
 export function emailBoasVindas(nome: string, empresa: string, trialEndsAt: string, baseUrl: string): EmailMensagem["html"] {

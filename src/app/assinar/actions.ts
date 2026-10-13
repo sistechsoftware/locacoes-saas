@@ -48,14 +48,18 @@ export async function criarEmpresaAction(_prev: string | null, formData: FormDat
   // Já entra: o trial nasceu, o sistema está utilizável imediatamente.
   await createSession(resultado.userId);
 
-  // Boas-vindas — fail-open: se falhar, o cadastro segue íntegro.
-  const { emailBoasVindas, enviarEmail } = await import("@/lib/email");
-  void enviarEmail({
-    to: resultado.email,
-    subject: "Bem-vindo(a) ao Locô",
-    html: emailBoasVindas(resultado.nome, resultado.empresa, resultado.trialEndsAt, (await baseUrl()) ?? ""),
-    text: `Conta criada! Trial até ${resultado.trialEndsAt}. Entre em ${await baseUrl() ?? ""}/login.`,
-  }).catch(() => false);
+  // Boas-vindas — fail-open: se falhar, o cadastro segue íntegro. O destinatário
+  // é o e-mail informado NO CADASTRO (resultado.email), nunca um endereço fixo.
+  const { enviarBoasVindasCheckout } = await import("@/lib/email");
+  void enviarBoasVindasCheckout(
+    {
+      nome: resultado.nome,
+      empresa: resultado.empresa,
+      email: resultado.email,
+      trialEndsAt: resultado.trialEndsAt,
+    },
+    (await baseUrl()) ?? "",
+  ).catch(() => false);
 
   // Auditoria com company_id da NOVA empresa (null no campo user, porque a
   // sessão do logAction ainda não existe; os dados de rede vêm do headers).

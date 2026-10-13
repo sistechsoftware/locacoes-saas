@@ -71,7 +71,10 @@
         "NOMINATIM_URL": "https://nominatim.openstreetmap.org/",
         "OSRM_URL": "https://routing.openstreetmap.de/routed-car",
         "VAPID_SUBJECT": "mailto:uericlislima@gmail.com",
-        "PUBLIC_URL": "https://limas-saas-staging.limas-locacoes.workers.dev"
+        // Domínio público do Locô (Cloudflare -> Worker). Usado nos links dos
+        // e-mails gerados pelo cron (fim de trial, cobrança gerada) — em request
+        // os links saem do host que o usuário acessou.
+        "PUBLIC_URL": "https://locogestao.com.br"
       },
       "triggers": { "crons": ["* * * * *"] },
       "secrets": {
@@ -114,7 +117,9 @@
         "NOMINATIM_URL": "https://nominatim.openstreetmap.org/",
         "OSRM_URL": "https://routing.openstreetmap.de/routed-car",
         "VAPID_SUBJECT": "mailto:uericlislima@gmail.com",
-        "PUBLIC_URL": "https://limas-saas.limas-locacoes.workers.dev"
+        // Domínio público do Locô (Cloudflare -> Worker): origem dos links dos
+        // e-mails enviados pelo cron.
+        "PUBLIC_URL": "https://locogestao.com.br"
       },
       "triggers": { "crons": ["* * * * *"] },
       "secrets": {
