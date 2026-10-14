@@ -40,12 +40,32 @@ const HEADER_COLUMNS = new Set([
   "disassembly_cents", "other_cents", "discount_cents", "notes", "stock_override", "stock_consider_preparation", "quote_id", "created_by", "company_id",
 ]);
 
+/**
+ * Proximo id livre de uma tabela AUTOINCREMENT.
+ *
+ * A sqlite_sequence pode nao ter a linha da tabela (dump/seed/restauracao sem
+ * ela — era o caso do staging: linha de `reservations` ausente): o COALESCE
+ * (seq,0)+1 virava id=1 e colidia com a reserva ja existente, derrubando TODA
+ * criacao com "UNIQUE constraint failed: reservations.id". max(MAX(id), seq)+1
+ * e correto com a sequence integra, defasada ou ausente, e o INSERT seguinte
+ * recria a linha da sequence sozinho. O tipo restringe `table` aos literais
+ * deste modulo (interpolar fora daqui seria injecao de SQL).
+ */
+async function nextFreeId(table: "reservations" | "reservation_items"): Promise<number> {
+  const row = await one<{ seq: number; maxid: number | null }>(
+    `SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = ?), 0) AS seq,
+            (SELECT MAX(id) FROM ${table}) AS maxid`,
+    [table],
+  );
+  return Math.max(Number(row?.seq ?? 0), Number(row?.maxid ?? 0)) + 1;
+}
+
 /** Preflight MUST happen after capturing version and before this commit.
  * Explicit IDs are safe under the revision guard; no partial header/items are
  * visible and a failed edit leaves the ORIGINAL rental completely intact.
  */
 export async function writeRental(companyId: number, version: number, header: Record<string, any>, items: RentalItem[], existingId?: number, quoteId?: number) {
-  const id = existingId ?? (Number(await scalar("SELECT COALESCE(seq,0) FROM sqlite_sequence WHERE name='reservations'")) + 1);
+  const id = existingId ?? (await nextFreeId("reservations"));
   const { getSettings } = await import("./settings");
   const prefix = (await getSettings()).doc_prefix_reservations || "LIMA";
   const number = existingId ? (await one<any>("SELECT number FROM reservations WHERE id=?", [id]))?.number : await nextNumber("reservations", prefix);
@@ -59,7 +79,8 @@ export async function writeRental(companyId: number, version: number, header: Re
     { sql: `INSERT INTO reservations(id,number,${fields.map(([key]) => key).join(",")}) VALUES(?,?,${fields.map(() => "?").join(",")})`, params: [id, number, ...fields.map(([,v]) => v)] },
   ];
   const specs = await loadSpecs();
-  let itemId = Number(await scalar("SELECT COALESCE(seq,0) FROM sqlite_sequence WHERE name='reservation_items'"));
+  // o laco abaixo incrementa antes de usar, por isso o -1
+  let itemId = (await nextFreeId("reservation_items")) - 1;
   for (const item of items) {
     itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,company_id) VALUES(?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents ?? 0,item.discount_cents ?? 0,companyId] });
     const spec = specs.get(item.product_id);
