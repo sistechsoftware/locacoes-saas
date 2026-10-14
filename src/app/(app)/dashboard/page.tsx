@@ -35,6 +35,9 @@ export default async function DashboardPage({
   // Fretes é item pago (empresarial): sem o plano, o dashboard continua
   // inteiro (é recurso base) mas não exibe nem consulta os blocos de fretes.
   const temFretes = await temRecurso(user, "fretes");
+  // Relatórios também é item pago (profissional+): sem ele, o card de lucro
+  // segue exibido (dado base) mas deixa de ser um atalho para /relatorios.
+  const temRelatorios = await temRecurso(user, "relatorios");
   const sp = await searchParams;
   const { erro } = sp;
   const query = availabilityQuery(sp);
@@ -296,7 +299,7 @@ export default async function DashboardPage({
             label="Lucro estimado"
             value={moneyShort(s.financeiro.lucro)}
             tone={s.financeiro.lucro >= 0 ? "verde" : "vermelho"}
-            href="/relatorios"
+            href={temRelatorios ? "/relatorios" : undefined}
           />
         </div>
       </div>

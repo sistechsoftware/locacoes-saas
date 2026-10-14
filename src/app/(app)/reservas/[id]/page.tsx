@@ -6,6 +6,7 @@ import { HOLDING_STATUSES } from "@/lib/domain";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
 import { requireModule } from "@/lib/auth";
+import { temRecurso } from "@/lib/plano-gate";
 import { ehAdmin } from "@/lib/roles";
 import { logsFor } from "@/lib/audit";
 import {
@@ -68,6 +69,17 @@ export default async function ReservaPage({
      filtro de empresa, inclusive as por id (IDOR por URL). */
   const ctx = await requireModule("reservas");
   const user = ctx.user;
+  /*
+   * Gate de APRESENTAÇÃO (mesma matriz do menu — planos.ts): Contratos é
+   * item pago do Empresarial e Fidelidade do Profissional+. Sem o recurso no
+   * plano, a seção de contrato (e o botão Gerar Contrato) e o bloco de
+   * recompensas não são renderizados — o backend continua negando por igual
+   * (requireModuleEdit), então não existe caminho de escrita sem o plano.
+   */
+  const [contratoLiberado, fidelidadeLiberada] = await Promise.all([
+    temRecurso(user, "contratos"),
+    temRecurso(user, "fidelidade"),
+  ]);
   const cid = ctx.companyId;
   const { id } = await params;
   const sp = await searchParams;
@@ -118,7 +130,7 @@ export default async function ReservaPage({
     recibosDaReserva(r.id),
     one<any>(`SELECT id, status, received_at FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [r.id, cid]),
     all<any>(`SELECT id, name FROM financial_accounts WHERE company_id = ? AND active = 1 ORDER BY name`, [cid]),
-    all<any>(`SELECT * FROM contracts WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC`, [r.id, cid]),
+    contratoLiberado ? all<any>(`SELECT * FROM contracts WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC`, [r.id, cid]) : Promise.resolve([]),
     all<any>(
       `SELECT d.*, p.name AS product_name, p.kind AS product_kind FROM damage_reports d LEFT JOIN products p ON p.id = d.product_id
       WHERE d.reservation_id = ? AND d.company_id = ? ORDER BY d.id DESC`,
@@ -127,7 +139,7 @@ export default async function ReservaPage({
     logsFor("reserva", r.id),
     recebiveisDe({ tipo: "locacao", reservationId: r.id }, cid),
     adiantamentosDaReserva(r.id, cid),
-    r.status === "cancelada" ? Promise.resolve([]) : recompensasDisponiveis(r.customer_id),
+    r.status === "cancelada" || !fidelidadeLiberada ? Promise.resolve([]) : recompensasDisponiveis(r.customer_id),
     reservationPhysicalUsage(r.id),
     r.status === "cancelada" ? Promise.resolve([]) : compositionDrift(r.id),
   ]);
@@ -141,10 +153,14 @@ export default async function ReservaPage({
   // consulta dedicada é a leitura canônica — devolve o documento por obrigação
   // (locação e caução) ou null quando ainda não existe.
   const quitacao = await reciboQuitacaoDaReserva(r.id);
-  const recompensaUsada = await one<any>(
-    `SELECT * FROM fidelity_rewards WHERE used_reservation_id = ? AND company_id = ? LIMIT 1`,
-    [r.id, cid],
-  );
+  // Recompensa aplicada: exibição também é do Profissional+ — fora do plano
+  // a tela não mostra o bloco (o dado histórico permanece no banco).
+  const recompensaUsada = fidelidadeLiberada
+    ? await one<any>(
+        `SELECT * FROM fidelity_rewards WHERE used_reservation_id = ? AND company_id = ? LIMIT 1`,
+        [r.id, cid],
+      )
+    : null;
   // quanto cada recompensa cobriria desta reserva, para o operador decidir vendo o valor
   const previaRecompensas = await Promise.all(
     recompensas.map(async (rec: any) => ({ rec, previa: await simularUso(rec.id, r.id) })),
@@ -956,8 +972,10 @@ export default async function ReservaPage({
         </Section>
       </div>
 
-      {/* contrato e whatsapp */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* contrato e whatsapp — fora do plano Empresarial a seção some (com o
+          botão Gerar Contrato); o WhatsApp é base e segue sempre. */}
+      <div className={`grid gap-4 ${contratoLiberado ? "lg:grid-cols-2" : ""}`}>
+        {contratoLiberado && (
         <Section title="Contrato / Termo de Responsabilidade">
           {contracts.length === 0 ? (
             <>
@@ -987,6 +1005,7 @@ export default async function ReservaPage({
             </div>
           )}
         </Section>
+        )}
 
         <Section title="Mensagens de WhatsApp">
           {r.customer_whatsapp || r.customer_phone ? (

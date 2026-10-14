@@ -638,4 +638,39 @@ describe("8) cobertura estática dos gates de plano", () => {
     const portal = fs.readFileSync(path.join(ROOT, "src/lib/portal-auth.ts"), "utf8");
     assert.ok(portal.includes('temRecurso(') && portal.includes('"portal"'), "o portal precisa checar o plano");
   });
+
+  it("entradas de módulos pagos FORA do menu são filtradas por temRecurso (relatório da UI)", () => {
+    // Regressão dos dois apontamentos em testes práticos em staging:
+    //  1) botão "Gerar Contrato" na reserva aparecia no Essencial/Profissional
+    //     (o clique estourava o error boundary genérico em vez de tratar);
+    //  2) Configurações mostrava as abas Frete/Fidelidade e os modelos de
+    //     contrato para planos que não os contrataram.
+    // O gate de BACKEND já existia (requireModuleEdit); o que faltava era a
+    // apresentação seguir a MESMA matriz — este teste impede o retorno.
+    const ler = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
+
+    const reserva = ler("src/app/(app)/reservas/[id]/page.tsx");
+    assert.ok(reserva.includes('temRecurso(user, "contratos")'), "reserva precisa consultar contratos antes de exibir a seção");
+    assert.ok(reserva.includes("{contratoLiberado && ("), "a seção Contrato (e o botão Gerar Contrato) precisa estar condicionada ao plano");
+    assert.ok(reserva.includes('temRecurso(user, "fidelidade")'), "reserva precisa consultar fidelidade antes de exibir recompensas");
+
+    const config = ler("src/app/(app)/configuracoes/page.tsx");
+    assert.ok(config.includes('temRecurso(user, "fretes")'), "configurações precisa consultar fretes");
+    assert.ok(config.includes('temRecurso(user, "fidelidade")'), "configurações precisa consultar fidelidade");
+    assert.ok(config.includes('temRecurso(user, "contratos")'), "configurações precisa consultar contratos");
+    assert.ok(config.includes('bloquearRecurso("fretes"'), "URL direta ?aba=frete fora do plano deve cair em /plano-restrito");
+    assert.ok(config.includes('bloquearRecurso("fidelidade"'), "URL direta ?aba=fidelidade fora do plano deve cair em /plano-restrito");
+    assert.ok(config.includes('...(temFretes ? [{ value: "frete"'), "aba Frete precisa sumir do menu fora do plano");
+    assert.ok(config.includes('...(temFidelidade ? [{ value: "fidelidade"'), "aba Fidelidade precisa sumir do menu fora do plano");
+
+    // Ocultar os campos de contrato não pode APAGAR o modelo gravado: o
+    // saveTemplates só escreve as chaves que vieram no FormData.
+    const acoes = ler("src/app/(app)/configuracoes/actions.ts");
+    assert.ok(acoes.includes('fd.has("contract_template")'), "saveTemplates deve ignorar modelos de contrato ausentes (nunca gravar \"\")");
+
+    // Mesma classe: o atalho do lucro no dashboard não pode linkar /relatorios
+    // para planos sem relatórios (o card permanece — só o link some).
+    const dash = ler("src/app/(app)/dashboard/page.tsx");
+    assert.ok(dash.includes('temRecurso(user, "relatorios")'), "dashboard precisa consultar relatorios antes de linkar o card de lucro");
+  });
 });

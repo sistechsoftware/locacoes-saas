@@ -103,15 +103,23 @@ export async function saveTemplates(fd: FormData) {
   const contract_template_digital = contractUsesHtml(modeloBrutoDigital)
     ? sanitizeContractHtml(modeloBrutoDigital)
     : modeloBrutoDigital;
-  await setSettings({
-    contract_template,
-    contract_template_digital,
+  const values: Record<string, string> = {
     wa_confirm: String(fd.get("wa_confirm") ?? ""),
     wa_delivery: String(fd.get("wa_delivery") ?? ""),
     wa_pickup: String(fd.get("wa_pickup") ?? ""),
     wa_payment: String(fd.get("wa_payment") ?? ""),
     wa_quote: String(fd.get("wa_quote") ?? ""),
-  });
+  };
+  /*
+   * Modelos de contrato so vêm no FormData quando a aba exibiu os campos
+   * (contratos e item pago — essencial/profissional ficam sem eles na tela).
+   * Ausencia = NÃO TOCAR no valor gravado; gravar "" apagaria o modelo da
+   * empresa sem que ninguem tenha editado. Preservar dados e estado
+   * preexistentes e regra da correcao.
+   */
+  if (fd.has("contract_template")) values.contract_template = contract_template;
+  if (fd.has("contract_template_digital")) values.contract_template_digital = contract_template_digital;
+  await setSettings(values);
   await logAction(user, "editar", "configuracao", null, `${user.name} atualizou os modelos de contrato e WhatsApp`);
   revalidatePath("/configuracoes");
 }

@@ -6,6 +6,7 @@ import FidelitySettings from "./FidelitySettings";
 import BirthdaySettings from "./BirthdaySettings";
 import { createPurpose, renamePurpose, todasFinalidades, togglePurpose } from "../financeiro/actions";
 import { requireModule } from "@/lib/auth";
+import { bloquearRecurso, temRecurso } from "@/lib/plano-gate";
 import { listUsers } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { limiteUsuarios, usuariosAtivos } from "@/lib/billing";
@@ -54,6 +55,25 @@ export default async function ConfiguracoesPage({
    */
   const admin = ehAdmin(user.role);
   const { aba = "empresa", erro } = await searchParams;
+  /*
+   * Gate de APRESENTAÇÃO (mesma matriz do menu — planos.ts): abas de módulos
+   * pagos fora do plano não existem nesta tela — Essencial fica sem Frete e
+   * Fidelidade, Profissional sem Frete, e os modelos de contrato (aba Modelos)
+   * aparecem só no Empresarial. URL direta (?aba=frete) cai na tela
+   * explicativa /plano-restrito, como as páginas de módulo — em vez de exibir
+   * configurações de um recurso que a empresa não contratou. A porta de
+   * verdade continua no backend: o módulo em si é barrado por
+   * requireModule/requireModuleEdit/apiUser, e a personalização administrativa
+   * (liberação/cortesia) é respeitada porque temRecurso aplica a precedência
+   * central — plataforma_admin segue sem restrição de plano.
+   */
+  const [temContratos, temFretes, temFidelidade] = await Promise.all([
+    temRecurso(user, "contratos"),
+    temRecurso(user, "fretes"),
+    temRecurso(user, "fidelidade"),
+  ]);
+  if (aba === "frete" && !temFretes) bloquearRecurso("fretes", user, "configuracoes");
+  if (aba === "fidelidade" && !temFidelidade) bloquearRecurso("fidelidade", user, "configuracoes");
   const s = await getSettings();
   /* Configuração operacional (rótulos/visibilidade) — só a aba Operação usa. */
   const operacaoOperacional = aba === "operacao" ? await getOperacao() : null;
@@ -103,10 +123,10 @@ export default async function ConfiguracoesPage({
     { value: "fornecedores", label: "Fornecedores" },
     ...(admin ? [{ value: "contas", label: "Contas" }] : []),
     { value: "operacao", label: "Operação" },
-    { value: "frete", label: "Frete" },
+    ...(temFretes ? [{ value: "frete", label: "Frete" }] : []),
     { value: "recibos", label: "Recibos" },
     { value: "disponibilidade", label: "Disponibilidade" },
-    { value: "fidelidade", label: "Fidelidade" },
+    ...(temFidelidade ? [{ value: "fidelidade", label: "Fidelidade" }] : []),
     ...(admin ? [{ value: "assinatura", label: "Assinatura" }] : []),
     { value: "aniversarios", label: "Aniversários" },
     ...(admin ? [{ value: "finalidades", label: "Finalidades" }] : []),
@@ -199,8 +219,13 @@ export default async function ConfiguracoesPage({
       )}
 
       {aba === "modelos" && (
-        <Section title="Modelos de contrato e WhatsApp">
+        <Section title={temContratos ? "Modelos de contrato e WhatsApp" : "Modelos de WhatsApp"}>
           <form action={saveTemplates} className="space-y-4">
+            {/* Contratos é item pago (empresarial+): fora do plano estes
+                campos não existem na tela — e como o FormData vai sem eles,
+                saveTemplates ignora os ausentes (nunca apaga o gravado). */}
+            {temContratos && (
+              <>
             <Field
               label="Modelo do contrato para impressão / termo de responsabilidade"
               hint="Usado apenas nos contratos impressos e assinados à mão. Use {{campo}} para inserir dados automaticamente e a barra acima para formatar (negrito, listas, alinhamento…)."
@@ -229,6 +254,8 @@ export default async function ConfiguracoesPage({
               na data em que o cliente abrir o contrato para assinar. A partir dessa abertura o texto fica congelado,
               exatamente como o cliente leu.
             </p>
+              </>
+            )}
             <Grid>
               <Field label="Mensagem de confirmação">
                 <textarea name="wa_confirm" defaultValue={s.wa_confirm} rows={3} className="campo" disabled={!admin} />
