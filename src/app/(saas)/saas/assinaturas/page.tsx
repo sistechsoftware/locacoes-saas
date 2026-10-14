@@ -1,6 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/auth";
 import { listarEmpresasPainel, STATUS_ROTULO, type SubscriptionStatus } from "@/lib/billing";
 import { Card, Badge, Empty } from "@/components/ui";
+import Link from "next/link";
 import DefinirPlanoEmpresa from "../DefinirPlanoEmpresa";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,12 @@ export default async function SaasAssinaturasPage() {
                 <div className="min-w-48">
                   <div className="font-semibold text-tinta-900">{e.name}</div>
                   <div className="text-xs text-stone-500">{e.plano ?? "sem plano"}</div>
+                  <Link
+                    href={`/saas/empresas/${e.company_id}`}
+                    className="text-xs font-semibold text-marca-600 hover:underline"
+                  >
+                    Gestão de plano e cortesias →
+                  </Link>
                 </div>
                 <div className="text-xs text-stone-500">
                   {e.status === "trial" && <>trial até {dataBR(e.trial_ends_at)}</>}

@@ -1,7 +1,8 @@
 import "server-only";
 import { redirect } from "next/navigation";
 import { estadoAssinaturaSeguro } from "./assinatura-gate";
-import { planoInclui, RECURSOS, type PlanoSlug, type Recurso } from "./planos";
+import { RECURSOS, type PlanoSlug, type Recurso } from "./planos";
+import { recursoLiberado } from "./plano-personalizado";
 import type { Module } from "./roles";
 
 /**
@@ -75,13 +76,20 @@ export async function planoDaEmpresa(companyId: number): Promise<PlanoSlug | nul
   return typeof slug === "string" ? (slug as PlanoSlug) : null;
 }
 
-/** A empresa (ou o operador da plataforma) pode usar o recurso agora? */
+/**
+ * A empresa (ou o operador da plataforma) pode usar o recurso agora?
+ *
+ * Personalização por empresa (painel /saas, migration 0039): a resolução
+ * passou a considerar as camadas administrativas — bloqueio individual
+ * (prevalece até sobre fundamental), liberação permanente e cortesia vigente
+ * — pela precedência central de planos.ts (resolverPermissao). O plano vem
+ * sempre da assinatura gravada no servidor; nenhuma personalização troca
+ * plano, preço ou período. Sem personalização, o resultado é EXATAMENTE o
+ * antigo (planoInclui fail-closed).
+ */
 export async function temRecurso(sujeto: SujetoDoPlano, recurso: Recurso): Promise<boolean> {
   if (sujeto.platform_admin) return true;
-  if (RECURSOS[recurso].fundamental) return true;
-  const slug = await planoDaEmpresa(sujeto.company_id);
-  // planoInclui é fail-closed para slug desconhecido em recurso pago.
-  return planoInclui(slug, recurso);
+  return await recursoLiberado(sujeto.company_id, recurso);
 }
 
 /**

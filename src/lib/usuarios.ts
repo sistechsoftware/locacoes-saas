@@ -156,13 +156,16 @@ export async function criarUsuario(
   // ...e guarda ATÔMICA dentro da própria escrita: o COUNT do limite roda
   // no mesmo INSERT (SQLite/D1 serializa statements), então duas
   // solicitações simultâneas com UMA vaga restante não furam o limite — uma
-  // delas encontra a vaga ocupada e o INSERT não acontece. O fallback 3 é o
-  // mesmo do limiteUsuarios para empresa sem plano configurado.
+  // delas encontra a vaga ocupada e o INSERT não acontece. O limite é o
+  // AJUSTE INDIVIDUAL da empresa (migration 0039, quando existir) ou o do
+  // plano; o fallback 3 é o mesmo do limiteUsuarios para empresa sem plano.
   const criado = await run(
     `INSERT INTO users (name, username, email, phone, password_hash, role, company_id, person_type, document)
      SELECT ?,?,?,?,?,?,?,?,?
       WHERE (SELECT COUNT(*) FROM users WHERE company_id = ? AND active = 1)
-          < (SELECT COALESCE((SELECT MAX(p.max_users)
+          < (SELECT COALESCE((SELECT o.max_users FROM company_limit_overrides o
+                               WHERE o.company_id = ?),
+                             (SELECT MAX(p.max_users)
                                 FROM plans p JOIN subscriptions s ON s.plan_id = p.id
                                WHERE s.company_id = ?), 3))`,
     [
@@ -175,6 +178,7 @@ export async function criarUsuario(
       ator.company_id,
       tipo,
       documento,
+      ator.company_id,
       ator.company_id,
       ator.company_id,
     ],
@@ -271,10 +275,12 @@ export async function alternarStatusUsuario(
       `UPDATE users SET active = 1
         WHERE id = ? AND company_id = ? AND active = 0
           AND (SELECT COUNT(*) FROM users WHERE company_id = ? AND active = 1)
-            < (SELECT COALESCE((SELECT MAX(p.max_users)
+            < (SELECT COALESCE((SELECT o.max_users FROM company_limit_overrides o
+                                 WHERE o.company_id = ?),
+                               (SELECT MAX(p.max_users)
                                   FROM plans p JOIN subscriptions s ON s.plan_id = p.id
                                  WHERE s.company_id = ?), 3))`,
-      [id, ator.company_id, ator.company_id, ator.company_id],
+      [id, ator.company_id, ator.company_id, ator.company_id, ator.company_id],
     );
     if (!Number(reativado.meta.changes)) {
       return {

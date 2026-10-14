@@ -1,6 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/auth";
 import { listarEmpresasPainel, STATUS_ROTULO, type SubscriptionStatus } from "@/lib/billing";
 import { Card, Badge, Empty } from "@/components/ui";
+import Link from "next/link";
 import AcoesEmpresa from "../AcoesEmpresa";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,12 @@ export default async function SaasEmpresasPage() {
                     {e.usuarios} usuário{e.usuarios === 1 ? "" : "s"}
                     {e.owner_email && <> · {e.owner_email}</>}
                   </div>
+                  <Link
+                    href={`/saas/empresas/${e.company_id}`}
+                    className="text-xs font-semibold text-marca-600 hover:underline"
+                  >
+                    Gestão de plano e cortesias →
+                  </Link>
                 </div>
                 <div className="text-xs text-stone-500">
                   {e.status === "trial" && <>trial até {dataBR(e.trial_ends_at)}</>}

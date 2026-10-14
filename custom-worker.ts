@@ -138,7 +138,12 @@ export default {
         // Etapa 5: tokens de recuperação vencidos saem do banco junto.
         const { limparTokensExpirados } = await import("./src/lib/recuperacao");
         const tokensApagados = await limparTokensExpirados().catch(() => -1);
-        console.log(JSON.stringify({ event: "billing_cron", ...r, tokensApagados }));
+        // Cortesias (0039): registra início/término no audit_logs. A VIGÊNCIA
+        // em si é derivada do tempo em cada autorização de acesso — se esta
+        // rotina falhar, nenhuma cortesia expirada continua liberando nada.
+        const { rotinaCortesias } = await import("./src/lib/plano-personalizado");
+        const cortesias = await rotinaCortesias().catch(() => ({ iniciadas: -1, encerradas: -1 }));
+        console.log(JSON.stringify({ event: "billing_cron", ...r, tokensApagados, cortesias }));
       })
         .catch((e) => {
           console.error("billing_cron_error:", e);

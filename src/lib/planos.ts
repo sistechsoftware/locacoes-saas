@@ -50,6 +50,19 @@ export const NOME_DO_PLANO: Record<PlanoSlug, string> = {
   empresarial: "Empresarial",
 };
 
+/**
+ * Categorias do catálogo — agrupamento da UI do painel /saas e da oferta
+ * pública. São rótulos de apresentação; a autorização continua decidida pela
+ * matriz RECURSOS + precedência abaixo.
+ */
+export type CategoriaRecurso = "operacao" | "relacionamento" | "gestao";
+
+export const NOME_DA_CATEGORIA: Record<CategoriaRecurso, string> = {
+  operacao: "Operação do dia",
+  relacionamento: "Relacionamento com o cliente",
+  gestao: "Gestão e expansão",
+};
+
 export type DefinicaoRecurso = {
   /** Nome exibido nas mensagens de bloqueio. */
   nome: string;
@@ -58,6 +71,10 @@ export type DefinicaoRecurso = {
   /** true = recurso fundamental, incluído em qualquer plano (inclusive
    *  quando o sistema não tem plano conhecido para a empresa). */
   fundamental: boolean;
+  /** Categoria de apresentação (UI do painel e da oferta). */
+  categoria: CategoriaRecurso;
+  /** Texto curto para o painel administrativo explicar o que é. */
+  descricao: string;
 };
 
 /**
@@ -65,21 +82,23 @@ export type DefinicaoRecurso = {
  * qualquer plano; os demais entram conforme o plano cresce.
  */
 export const RECURSOS: Record<Recurso, DefinicaoRecurso> = {
-  reservas: { nome: "Reservas", minimo: "essencial", fundamental: true },
-  orcamentos: { nome: "Orçamentos", minimo: "essencial", fundamental: true },
-  clientes: { nome: "Clientes", minimo: "essencial", fundamental: true },
-  estoque: { nome: "Estoque", minimo: "essencial", fundamental: true },
-  financeiro: { nome: "Financeiro", minimo: "essencial", fundamental: true },
-  portal: { nome: "Portal do Cliente", minimo: "profissional", fundamental: false },
-  chat: { nome: "Mensagens (chat)", minimo: "profissional", fundamental: false },
-  relatorios: { nome: "Relatórios", minimo: "profissional", fundamental: false },
-  fidelidade: { nome: "Fidelidade", minimo: "profissional", fundamental: false },
-  fretes: { nome: "Fretes", minimo: "empresarial", fundamental: false },
-  contratos: { nome: "Contratos", minimo: "empresarial", fundamental: false },
+  reservas: { nome: "Reservas", minimo: "essencial", fundamental: true, categoria: "operacao", descricao: "Agendamento de itens, disponibilidade e operação do dia." },
+  orcamentos: { nome: "Orçamentos", minimo: "essencial", fundamental: true, categoria: "operacao", descricao: "Propostas comerciais para clientes." },
+  clientes: { nome: "Clientes", minimo: "essencial", fundamental: true, categoria: "operacao", descricao: "Cadastro e histórico de clientes." },
+  estoque: { nome: "Estoque", minimo: "essencial", fundamental: true, categoria: "operacao", descricao: "Produtos, kits e controle de entrada e saída." },
+  financeiro: { nome: "Financeiro", minimo: "essencial", fundamental: true, categoria: "operacao", descricao: "Contas a pagar e receber, fluxo de caixa." },
+  portal: { nome: "Portal do Cliente", minimo: "profissional", fundamental: false, categoria: "relacionamento", descricao: "Área do cliente para acompanhar reservas e documentos." },
+  chat: { nome: "Mensagens (chat)", minimo: "profissional", fundamental: false, categoria: "relacionamento", descricao: "Mensagens internas da equipe com arquivos." },
+  relatorios: { nome: "Relatórios", minimo: "profissional", fundamental: false, categoria: "gestao", descricao: "Relatórios de desempenho e financeiros." },
+  fidelidade: { nome: "Fidelidade", minimo: "profissional", fundamental: false, categoria: "relacionamento", descricao: "Programa de pontos e recompensas." },
+  fretes: { nome: "Fretes", minimo: "empresarial", fundamental: false, categoria: "operacao", descricao: "Gestão e cálculo de fretes com rota." },
+  contratos: { nome: "Contratos", minimo: "empresarial", fundamental: false, categoria: "gestao", descricao: "Contratos com assinatura digital." },
   // Sem módulo próprio no sistema hoje: registrado para a oferta não se
   // perder da matriz; quando a tela existir, a autorização já sai daqui.
-  suporte: { nome: "Suporte prioritário", minimo: "empresarial", fundamental: false },
+  suporte: { nome: "Suporte prioritário", minimo: "empresarial", fundamental: false, categoria: "gestao", descricao: "Atendimento com prioridade na fila de suporte." },
 };
+
+export const LISTA_RECURSOS: Recurso[] = Object.keys(RECURSOS) as Recurso[];
 
 export function ehPlanoValido(slug: unknown): slug is PlanoSlug {
   return typeof slug === "string" && (ORDEM_PLANOS as readonly string[]).includes(slug);
@@ -100,6 +119,70 @@ export function planoMinimoPara(recurso: Recurso): PlanoSlug {
 /** Nome de exibição do plano (para mensagens). */
 export function nomeDoPlano(slug: string | null | undefined): string {
   return ehPlanoValido(slug) ? NOME_DO_PLANO[slug] : "não identificado";
+}
+
+/* ------------------------------------------------------------------ */
+/* Personalização por empresa (painel /saas) — precedência central      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ajuste administrativo permanente de UMA funcionalidade para UMA empresa
+ * (company_feature_overrides, migration 0039).
+ *  * "allow" — libera além do plano contratado;
+ *  * "block" — excepciona uma funcionalidade que o plano inclui.
+ */
+export type AjusteRecurso = "allow" | "block";
+
+/** De onde veio a permissão efetiva — exibido no painel e nos testes. */
+export type OrigemPermissao =
+  | "fundamental"
+  | "bloqueio_admin"
+  | "plano"
+  | "liberacao_admin"
+  | "cortesia"
+  | "nao_incluido";
+
+export type ResolucaoRecurso = { liberado: boolean; origem: OrigemPermissao };
+
+/**
+ * PRECEDÊNCIA ÚNICA e central de toda permissão de funcionalidade. Toda
+ * decisão — gate do backend, estado exibido no painel e filtro do menu —
+ * passa por aqui, para nunca divergir.
+ *
+ * Ordem (documentada como regra de negócio):
+ *  1. BLOQUEIO administrativo individual — prevalece sobre tudo (plano,
+ *     cortesia e até recurso fundamental): é uma exceção explícita,
+ *     auditada, que o operador da plataforma assumiu ao bloquear;
+ *  2. RECURSO FUNDAMENTAL — base de qualquer plano, sempre aberto;
+ *  3. PLANO CONTRATADO — a matriz herança comercial (planos.ts);
+ *  4. LIBERAÇÃO administrativa permanente — benefício concedido sem troca
+ *     de plano e sem cobrança nova; sobrevive a renovações e trocas de plano
+ *     porque mora nesta tabela, não na assinatura;
+ *  5. CORTESIA ativa — libera os recursos do plano-referência enquanto a
+ *     vigência durar; ao expirar, esta camada some sozinha (o estado é
+ *     derivado do tempo) e o que resta é 1–4;
+ *  6. caso contrário, NÃO INCLUÍDO (fail-closed para recursos pagos).
+ *
+ * Nota de segurança: uma cortesia NÃO contorna o gate de ASSINATURA
+ * (suspensa/cancelada/trial expirado) — esse bloqueio é aplicado nos pontos
+ * de entrada (requireUser/apiUser) antes de qualquer recurso ser resolvido.
+ */
+export function resolverPermissao(entrada: {
+  recurso: Recurso;
+  /** Ajuste administrativo permanente desta empresa, se houver. */
+  ajuste?: AjusteRecurso | null;
+  /** O plano contratado inclui o recurso (herança comercial). */
+  planoInclui: boolean;
+  /** Uma cortesia ATIVA cobre o recurso no momento. */
+  cortesiaInclui?: boolean;
+}): ResolucaoRecurso {
+  const def = RECURSOS[entrada.recurso];
+  if (entrada.ajuste === "block") return { liberado: false, origem: "bloqueio_admin" };
+  if (def.fundamental) return { liberado: true, origem: "fundamental" };
+  if (entrada.planoInclui) return { liberado: true, origem: "plano" };
+  if (entrada.ajuste === "allow") return { liberado: true, origem: "liberacao_admin" };
+  if (entrada.cortesiaInclui) return { liberado: true, origem: "cortesia" };
+  return { liberado: false, origem: "nao_incluido" };
 }
 
 /**
@@ -139,13 +222,34 @@ export function recursoDaApi(caminho: string): Recurso | null {
 }
 
 /**
+ * Ajustes de menu vindos do servidor (overrides + cortesia ativa da empresa).
+ * Só apresentação: a porta de verdade é o backend.
+ */
+export type AjustesMenu = {
+  /** Recursos liberados além do plano (allow ou cortesia vigente). */
+  extras: Recurso[];
+  /** Recursos excepcionalmente bloqueados para a empresa. */
+  bloqueados: Recurso[];
+};
+
+/**
  * Um item de menu/atalho fica visível para o plano?
  * `undefined` = sem restrição (operador da plataforma); `null` = plano
  * desconhecido → só o que for fundamental.
+ *
+ * `ajustes` opcional aplica as personalizações da empresa (liberações e
+ * bloqueios administrativos, cortesia vigente) — sem ele o filtro é
+ * exatamente o antigo, por plano.
  */
-export function visivelParaPlano(caminho: string, planoSlug: string | null | undefined): boolean {
+export function visivelParaPlano(
+  caminho: string,
+  planoSlug: string | null | undefined,
+  ajustes?: AjustesMenu | null,
+): boolean {
   const recurso = recursoDoCaminho(caminho);
   if (!recurso) return true;
   if (planoSlug === undefined) return true;
+  if (ajustes?.bloqueados?.includes(recurso)) return false;
+  if (ajustes?.extras?.includes(recurso)) return true;
   return planoInclui(planoSlug, recurso);
 }
