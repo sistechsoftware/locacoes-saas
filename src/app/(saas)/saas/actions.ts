@@ -1,12 +1,48 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { assertPlatformAdmin } from "@/lib/auth";
-import { acaoPlataforma } from "@/lib/billing";
+import { acaoPlataforma, assinaturaDaEmpresa, listarPlanos, trocarPlano } from "@/lib/billing";
 import { asaasClient, ASAAS_PRODUCAO, ASAAS_SANDBOX } from "@/lib/asaas";
 import { credenciaisAsaas, gravarConfig, type ChavePlataforma } from "@/lib/platform-settings";
 import { logAction } from "@/lib/audit";
 
 export type AcaoResultado = { ok: boolean; mensagem: string };
+
+/**
+ * Define o plano de uma empresa (reconciliação do painel — decisão da
+ * correção de planos). Empresas criadas antes do checkout público nasceram
+ * com o primeiro plano do catálogo sem que ninguém escolhesse nada; aqui o
+ * operador da plataforma corrige o plano registro a registro.
+ *
+ * Segurança: só platform_admin; o valor passa pela MESMA função de troca do
+ * fluxo do cliente (trocarPlano valida slug ativo, recusa assinatura
+ * cancelada e recalcula o período) — nenhum caminho paralelo de escrita — e
+ * a mudança fica registrada em audit_logs.
+ */
+export async function definirPlanoAction(companyId: number, planSlug: string): Promise<AcaoResultado> {
+  const admin = await assertPlatformAdmin();
+  try {
+    const antes = await assinaturaDaEmpresa(companyId);
+    if (!antes) return { ok: false, mensagem: "Empresa sem assinatura registrada." };
+    const planos = await listarPlanos();
+    const destino = planos.find((p) => p.slug === planSlug);
+    if (!destino) return { ok: false, mensagem: "Plano inexistente ou inativo." };
+    await trocarPlano(companyId, planSlug);
+    const origem = planos.find((p) => p.id === antes.plan_id)?.slug ?? "desconhecido";
+    await logAction(
+      admin,
+      "plataforma.definir_plano",
+      "subscription",
+      companyId,
+      `Plano da empresa ${companyId} definido como ${destino.name} (antes: ${origem})`,
+    );
+    revalidatePath("/saas/assinaturas");
+    revalidatePath("/saas");
+    return { ok: true, mensagem: `Plano definido como ${destino.name}.` };
+  } catch (e: any) {
+    return { ok: false, mensagem: e?.message ?? "Falha ao definir o plano." };
+  }
+}
 
 export async function acaoPlataformaAction(
   companyId: number,

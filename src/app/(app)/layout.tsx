@@ -31,6 +31,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     return <AssinaturaBloqueada />;
   }
 
+  /*
+   * Recursos contratados (correção de planos): o slug vem da ASSINATURA da
+   * empresa (banco), nunca do navegador, e só serve para filtrar o MENU   * (itens pagos fora do plano não aparecem). A porta de verdade é o backend:
+   * requireModule/requireModuleEdit/apiUser barram página, action e API.
+   * platform_admin opera sem restrição de plano (mesma exceção do gate).
+   */
+  const planoSlug: string | null | undefined = user.platform_admin ? undefined : (estado?.plano?.slug ?? null);
+
   // Os alertas sao recalculados no dashboard e na tela de notificacoes, e nao
   // aqui: rodar a varredura em toda navegacao deixava cada clique lento.
   const [settings, unread, chat, operacao] = await Promise.all([
@@ -55,13 +63,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         company={settings.company_name}
         logo={settings.company_logo}
         operacaoLabel={tituloOperacoes(operacao)}
+        planoSlug={planoSlug}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar user={user} company={settings.company_name} logo={settings.company_logo} />
+        <TopBar user={user} company={settings.company_name} logo={settings.company_logo} planoSlug={planoSlug} />
         <main className="com-barra-inferior mx-auto w-full max-w-6xl flex-1 p-3 sm:p-5">{children}</main>
       </div>
-      <BottomNav operacaoLabel={tituloOperacoes(operacao)} />
-      <FloatingAction novaOperacaoLabel={`Nova ${pluralizar(operacao.rotulos.operacao_inicio)}`} />
+      <BottomNav operacaoLabel={tituloOperacoes(operacao)} planoSlug={planoSlug} />
+      <FloatingAction novaOperacaoLabel={`Nova ${pluralizar(operacao.rotulos.operacao_inicio)}`} planoSlug={planoSlug} />
       {estado?.avisoVencimento && <AvisoVencimento dias={estado.diasRestantes} />}
     </div>
   );

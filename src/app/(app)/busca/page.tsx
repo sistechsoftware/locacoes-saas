@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
+import { temRecurso } from "@/lib/plano-gate";
 import { globalSearch } from "@/lib/queries";
 import { CONTRACT_STATUS, FREIGHT_STATUS, QUOTE_STATUS, RESERVATION_STATUS, UNIT_STATUS } from "@/lib/domain";
 import { dateBR, money, phoneBR } from "@/lib/format";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export default async function BuscaPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   // Página: assinatura bloqueada redireciona para a tela explicativa.
-  await requireUser({ bloqueio: "redirecionar" });
+  const user = await requireUser({ bloqueio: "redirecionar" });
   // status de reserva com a nomenclatura operacional da empresa
   const STATUS_RESERVA = statusReserva(await getOperacao(), RESERVATION_STATUS);
   const { q = "" } = await searchParams;
@@ -20,6 +21,16 @@ export default async function BuscaPage({ searchParams }: { searchParams: Promis
   if (!termo) redirect("/dashboard");
 
   const r = await globalSearch(termo);
+
+  // Recursos contratados (correção de planos): a busca global não pode ser a
+  // porta de trás de módulos pagos — resultados de Fretes e Contratos só
+  // aparecem para quem os contratou (os dados não chegam ao cliente).
+  const [temFretes, temContratos] = await Promise.all([
+    temRecurso(user, "fretes"),
+    temRecurso(user, "contratos"),
+  ]);
+  const freights = temFretes ? r.freights : [];
+  const contracts = temContratos ? r.contracts : [];
 
   // atalho: numero exato de reserva abre direto
   const exata = r.reservations.find((x: any) => x.number.toLowerCase() === termo.toLowerCase());
@@ -29,10 +40,10 @@ export default async function BuscaPage({ searchParams }: { searchParams: Promis
     r.customers.length +
     r.reservations.length +
     r.quotes.length +
-    r.freights.length +
+    freights.length +
     r.products.length +
     r.units.length +
-    r.contracts.length;
+    contracts.length;
 
   return (
     <div className="space-y-4">
@@ -92,10 +103,10 @@ export default async function BuscaPage({ searchParams }: { searchParams: Promis
         </Section>
       )}
 
-      {r.freights.length > 0 && (
-        <Section title={`Fretes (${r.freights.length})`}>
+      {freights.length > 0 && (
+        <Section title={`Fretes (${freights.length})`}>
           <div className="space-y-2">
-            {r.freights.map((x: any) => (
+            {freights.map((x: any) => (
               <ListRow
                 key={x.id}
                 href={`/fretes/${x.id}`}
@@ -109,10 +120,10 @@ export default async function BuscaPage({ searchParams }: { searchParams: Promis
         </Section>
       )}
 
-      {r.contracts.length > 0 && (
-        <Section title={`Contratos (${r.contracts.length})`}>
+      {contracts.length > 0 && (
+        <Section title={`Contratos (${contracts.length})`}>
           <div className="space-y-2">
-            {r.contracts.map((x: any) => (
+            {contracts.map((x: any) => (
               <ListRow
                 key={x.id}
                 href={`/contratos/${x.id}`}

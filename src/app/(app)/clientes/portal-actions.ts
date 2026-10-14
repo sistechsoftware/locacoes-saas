@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { requireModuleEdit } from "@/lib/auth";
+import { temRecurso } from "@/lib/plano-gate";
 import { gerarConviteAcesso } from "@/lib/portal-auth";
 import { one } from "@/lib/db";
 import { origemDaRequisicao } from "@/lib/portal-core";
@@ -25,6 +26,14 @@ import { waLink } from "@/lib/format";
 export async function gerarAcessoPortal(fd: FormData) {
   const { user } = await requireModuleEdit("clientes");
   const id = Number(fd.get("id"));
+  // Portal do Cliente é item pago (profissional+): sem o plano, não existe
+  // convite — gerar um link que o cliente não consegue abrir é pior UX do que
+  // explicar aqui, no ponto em que a equipe tenta liberar o acesso.
+  if (!(await temRecurso(user, "portal"))) {
+    redirect(
+      `/clientes/${id}?aviso=${encodeURIComponent("O Portal do Cliente não está incluído no plano atual. Faça upgrade em Assinatura para liberar o acesso.")}`,
+    );
+  }
   // Isolamento: só é possível convidar cliente da PRÓPRIA empresa.
   const meu = await one(`SELECT id FROM customers WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   if (!meu) redirect("/clientes");

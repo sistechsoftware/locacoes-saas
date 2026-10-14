@@ -3,6 +3,7 @@ import AvailabilityFilter from "@/components/AvailabilityFilter";
 import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-time";
 import { stockOptions } from "@/lib/availability-settings";
 import { requireModule } from "@/lib/auth";
+import { temRecurso } from "@/lib/plano-gate";
 import { agendaEvents, dashboardStats, freightsOn, lateFreights, lateOperations, operationsOn, ordenarOperacoesMistas } from "@/lib/queries";
 import { listNotifications, rebuildNotifications } from "@/lib/notifications";
 import { dateBR, money, moneyShort, today } from "@/lib/format";
@@ -31,6 +32,9 @@ export default async function DashboardPage({
   searchParams: Promise<AvailabilityParams & { erro?: string }>;
 }) {
   const { user } = await requireModule("dashboard");
+  // Fretes é item pago (empresarial): sem o plano, o dashboard continua
+  // inteiro (é recurso base) mas não exibe nem consulta os blocos de fretes.
+  const temFretes = await temRecurso(user, "fretes");
   const sp = await searchParams;
   const { erro } = sp;
   const query = availabilityQuery(sp);
@@ -43,14 +47,14 @@ export default async function DashboardPage({
   const [, operacoesHoje, fretesHoje, atrasadas, fretesAtrasados, agenda] = await Promise.all([
     rebuildNotifications(),
     operationsOn(d0),
-    freightsOn(d0),
+    temFretes ? freightsOn(d0) : Promise.resolve([]),
     lateOperations(),
-    lateFreights(),
+    temFretes ? lateFreights() : Promise.resolve([]),
     agendaEvents(d0, d0),
   ]);
   // O alerta de atraso passa a representar tudo que atrasou: operacoes de
   // locacao e fretes em aberto de dias anteriores, na mesma linha do tempo.
-  const atrasoMisto = ordenarOperacoesMistas([...atrasadas, ...fretesAtrasados]);
+  const atrasoMisto = ordenarOperacoesMistas([...atrasadas, ...(temFretes ? fretesAtrasados : [])]);
   // os indicadores contam alertas, entao so podem ser lidos depois do recalculo
   const [s, todosAlertas, aniversarios, adiantamentos, operacaoCfg] = await Promise.all([
     dashboardStats(query, options),
@@ -87,7 +91,7 @@ export default async function DashboardPage({
 
       {/* atalhos rapidos */}
       <div className="scroll-x -mx-3 flex gap-2 px-3 sm:mx-0 sm:px-0">
-        {ATALHOS.map((a) =>
+        {ATALHOS.filter((a) => a.href !== "/fretes/novo" || temFretes).map((a) =>
           a.href === "/operacao/nova" ? { ...a, label: operacaoCfg.rotulos.operacao_inicio } : a,
         ).map((a) => (
           <Link
@@ -167,7 +171,7 @@ export default async function DashboardPage({
           <BlocoOperacao titulo={pluralizar(operacaoCfg.rotulos.operacao_fim)} icone="🔄" ops={retiradas} nomes={nomesOperacao} />
           <BlocoOperacao titulo="Montagens" icone="🛠️" ops={montagens} />
           <BlocoOperacao titulo="Desmontagens" icone="🧰" ops={desmontagens} />
-          <BlocoFrete ops={fretesHoje} />
+          {temFretes && <BlocoFrete ops={fretesHoje} />}
 
           <div>
             <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-tinta-900">

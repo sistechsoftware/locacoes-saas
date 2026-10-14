@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "./Icons";
 import ChatBell from "./ChatBell";
 import Avatar from "./Avatar";
-import { EXTRA_NAV, MOBILE_NAV, NAV, comRotuloOperacoes } from "@/lib/nav";
+import { EXTRA_NAV, MOBILE_NAV, NAV, comRotuloOperacoes, itensParaPlano, visivelParaPlano } from "@/lib/nav";
 import { pokeUnread } from "@/lib/chat-unread";
 import { useUnread } from "@/lib/use-unread";
 
@@ -20,11 +20,14 @@ export function Sidebar({
   company,
   logo,
   operacaoLabel,
+  planoSlug,
 }: {
   company: string;
   logo?: string;
   /** Nome das operações vindo da configuração da empresa (menu /operacao). */
   operacaoLabel?: string;
+  /** Plano contratado: itens pagos fora do plano não aparecem (matriz em planos.ts). */
+  planoSlug?: string | null;
 }) {
   const pathname = usePathname();
   // No desktop a lateral fica fixa (sticky) com a altura da viewport: quando os
@@ -49,7 +52,7 @@ export function Sidebar({
       {/* min-h-0: dentro do flex, permite a navegacao encolher ate a altura
           disponivel — sem isso o overflow-y-auto nunca ativa. */}
       <nav className="navegacao-lateral min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
-        {comRotuloOperacoes(NAV, operacaoLabel).map((n) => (
+        {itensParaPlano(comRotuloOperacoes(NAV, operacaoLabel), planoSlug).map((n) => (
           <Link
             key={n.href}
             href={n.href}
@@ -87,10 +90,22 @@ export function Sidebar({
 
 /* ------------------------------- barra superior ------------------------------- */
 
-export function TopBar({ user, company, logo }: { user: User; company: string; logo?: string }) {
+export function TopBar({
+  user,
+  company,
+  logo,
+  planoSlug,
+}: {
+  user: User;
+  company: string;
+  logo?: string;
+  /** Plano contratado: o chat é item pago (profissional+). */
+  planoSlug?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   // Mesma fonte do badge do menu inferior: o estado compartilhado do chat.
   const { unread } = useUnread();
+  const chatLiberado = visivelParaPlano("/chat", planoSlug);
   return (
     <header className="nao-imprimir sticky top-0 z-30 border-b border-nuvem-300 bg-white/95 backdrop-blur">
       <div className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
@@ -108,7 +123,8 @@ export function TopBar({ user, company, logo }: { user: User; company: string; l
 
         <GlobalSearch />
 
-        <ChatBell />
+        {/* Sino do chat: só existe para quem contratou Mensagens. */}
+        {chatLiberado && <ChatBell />}
 
         <Link
           href="/notificacoes"
@@ -116,7 +132,7 @@ export function TopBar({ user, company, logo }: { user: User; company: string; l
           className="relative shrink-0 rounded-xl p-2 text-tinta-700 hover:bg-nuvem-100"
         >
           <Icon name="sino" />
-          {unread > 0 && (
+          {unread > 0 && chatLiberado && (
             <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[0.6rem] font-bold text-white">
               {unread > 99 ? "99+" : unread}
             </span>
@@ -184,9 +200,17 @@ function GlobalSearch() {
 
 /* ------------------------------ barra inferior -------------------------------- */
 
-export function BottomNav({ operacaoLabel }: { operacaoLabel?: string }) {
+export function BottomNav({
+  operacaoLabel,
+  planoSlug,
+}: {
+  operacaoLabel?: string;
+  /** Plano contratado: itens pagos (Mensagens, Fretes...) ficam fora do "Mais". */
+  planoSlug?: string | null;
+}) {
   const pathname = usePathname();
   const [sheet, setSheet] = useState(false);
+  const chatLiberado = visivelParaPlano("/chat", planoSlug);
   // Mesmo estado do sino do topo: uma unica fonte de verdade para o badge.
   // Mensagens saiu da barra, mas o contador continua visivel: o sino do topo,
   // o botao "Mais" (onde o chat agora vive) e o atalho no botao + leem tudo
@@ -195,7 +219,11 @@ export function BottomNav({ operacaoLabel }: { operacaoLabel?: string }) {
 
   useEffect(() => setSheet(false), [pathname]);
 
-  const noMais = comRotuloOperacoes(EXTRA_NAV, operacaoLabel).some((n) => active(pathname, n.href));
+  // A barra inferior é invariantemente "4 itens + Mais": os 4 itens diretos
+  // são recursos fundamentais (Dashboard, Agenda, Reservas, Operação) e nunca
+  // caem por plano. O filtro de plano vale para os itens do menu "Mais".
+  const extras = itensParaPlano(comRotuloOperacoes(EXTRA_NAV, operacaoLabel), planoSlug);
+  const noMais = extras.some((n) => active(pathname, n.href));
 
   return (
     <>
@@ -210,7 +238,7 @@ export function BottomNav({ operacaoLabel }: { operacaoLabel?: string }) {
           >
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-nuvem-300" />
             <div className="grid grid-cols-3 gap-2">
-              {comRotuloOperacoes(EXTRA_NAV, operacaoLabel).map((n) => (
+              {extras.map((n) => (
                 <Link
                   key={n.href}
                   href={n.href}
@@ -275,8 +303,8 @@ export function BottomNav({ operacaoLabel }: { operacaoLabel?: string }) {
             >
               <Icon name="menu" className="h-[22px] w-[22px]" />
               {/* Mensagens mora no "Mais" agora: o contador de nao lidas
-                  acompanhou, no mesmo padrao de antes da barra. */}
-              {unread > 0 && (
+                  acompanhou — mas só existe para quem contratou o chat. */}
+              {unread > 0 && chatLiberado && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[0.58rem] font-bold leading-none text-white ring-2 ring-white">
                   {unread > 99 ? "99+" : unread}
                 </span>
@@ -307,11 +335,19 @@ const ACOES = [
   { href: "/fretes/calculadora", label: "Calcular Frete", icon: "financeiro" },
 ];
 
-export function FloatingAction({ novaOperacaoLabel }: { novaOperacaoLabel?: string }) {
+export function FloatingAction({
+  novaOperacaoLabel,
+  planoSlug,
+}: {
+  novaOperacaoLabel?: string;
+  /** Plano contratado: atalhos de recursos pagos (Mensagens, Fretes...) saem do +. */
+  planoSlug?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   // Mesmo estado do sino do topo: badge de nao lidas do atalho Mensagens.
   const { unread } = useUnread();
+  const chatLiberado = visivelParaPlano("/chat", planoSlug);
   useEffect(() => setOpen(false), [pathname]);
 
   /* No chat a tela usa a altura inteira e o composer (anexo/mic/enviar) ocupa a
@@ -326,7 +362,7 @@ export function FloatingAction({ novaOperacaoLabel }: { novaOperacaoLabel?: stri
       {/* Acima da barra inferior (cartao + margem), em qualquer aparelho. */}
       <div className="nao-imprimir fixed bottom-28 right-4 z-40 flex flex-col items-end gap-2 md:bottom-6">
         {open &&
-          ACOES.map((a) =>
+          itensParaPlano(ACOES, planoSlug).map((a) =>
             a.href === "/operacao/nova" && novaOperacaoLabel ? { ...a, label: novaOperacaoLabel } : a,
           ).map((a) => (
             <Link
@@ -336,7 +372,7 @@ export function FloatingAction({ novaOperacaoLabel }: { novaOperacaoLabel?: stri
             >
               <Icon name={a.icon} className="h-4 w-4 text-marca-600" />
               {a.label}
-              {a.href === "/chat" && unread > 0 && (
+              {a.href === "/chat" && unread > 0 && chatLiberado && (
                 <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[0.6rem] font-bold leading-none text-white">
                   {unread > 99 ? "99+" : unread}
                 </span>
@@ -350,7 +386,7 @@ export function FloatingAction({ novaOperacaoLabel }: { novaOperacaoLabel?: stri
         >
           <Icon name={open ? "fechar" : "mais"} className="h-7 w-7" />
           {/* Ponto discreto de nao lidas: da pra saber sem abrir o menu. */}
-          {!open && unread > 0 && (
+          {!open && unread > 0 && chatLiberado && (
             <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
           )}
         </button>

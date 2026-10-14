@@ -16,6 +16,7 @@ import { FidelidadeCliente } from "@/components/FidelidadeCliente";
 import { DocumentosCliente } from "@/components/DocumentosCliente";
 import { documentosDoCliente } from "@/lib/assinatura-db";
 import { painelDoCliente, historicoDe, mensagensDoCliente } from "@/lib/fidelidade-db";
+import { temRecurso } from "@/lib/plano-gate";
 import { today } from "@/lib/format";
 import { getSettings } from "@/lib/settings";
 import { deleteCustomer, toggleCustomer } from "../actions";
@@ -39,6 +40,11 @@ export default async function ClientePage({
   const STATUS_RESERVA = statusReserva(await getOperacao(), RESERVATION_STATUS);
   const user = ctx.user;
   const cid = ctx.companyId;
+  // Recursos contratados (correção de planos): sem fidelidade/portal no
+  // plano, as seções não renderizam E as consultas nem rodam — o painel do
+  // cliente (módulo base) não pode ser a porta de trás de um recurso pago.
+  const temFidelidade = await temRecurso(user, "fidelidade");
+  const temPortal = await temRecurso(user, "portal");
   const { id } = await params;
   const { aviso, portal_link, portal_wa } = await searchParams;
   const c = await getCustomer(Number(id), cid);
@@ -66,9 +72,15 @@ export default async function ClientePage({
       [c.id, cid],
     ),
     logsFor("cliente", c.id),
-    painelDoCliente(c.id),
-    historicoDe(c.id),
-    mensagensDoCliente(c.id),
+    temFidelidade
+      ? painelDoCliente(c.id)
+      : Promise.resolve({ regra: null, progresso: null, recompensas: [], disponiveis: [] } as unknown as Awaited<ReturnType<typeof painelDoCliente>>),
+    temFidelidade
+      ? historicoDe(c.id)
+      : Promise.resolve([] as Awaited<ReturnType<typeof historicoDe>>),
+    temFidelidade
+      ? mensagensDoCliente(c.id)
+      : Promise.resolve([] as Awaited<ReturnType<typeof mensagensDoCliente>>),
     documentosDoCliente(c.id),
   ]);
   historico.length = Math.min(historico.length, 10);
@@ -176,15 +188,17 @@ export default async function ClientePage({
           </div>
         </Section>
 
-        <FidelidadeCliente
-          regra={fidelidade.regra}
-          progresso={fidelidade.progresso}
-          recompensas={fidelidade.recompensas}
-          mensagens={fidelidadeMensagens}
-          historico={fidelidadeHistorico}
-          telefone={c.whatsapp || c.phone}
-          hoje={today()}
-        />
+        {temFidelidade && (
+          <FidelidadeCliente
+            regra={fidelidade.regra}
+            progresso={fidelidade.progresso}
+            recompensas={fidelidade.recompensas}
+            mensagens={fidelidadeMensagens}
+            historico={fidelidadeHistorico}
+            telefone={c.whatsapp || c.phone}
+            hoje={today()}
+          />
+        )}
 
         <DocumentosCliente customerId={c.id} documentos={documentos} admin={ehAdmin(user.role)} />
 
@@ -266,24 +280,26 @@ export default async function ClientePage({
         </Section>
       )}
 
-      <Card className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-tinta-900">Portal do Cliente</p>
-          <p className="text-xs text-stone-500">
-            {acessoPortal?.portal_password_hash
-              ? "Cliente com acesso ativo ao portal (CPF + senha)."
-              : acessoPortal?.portal_setup_token_hash
-                ? "Convite gerado e aguardando o cliente criar a senha."
-                : "Cliente sem acesso ao portal. Gere um convite para liberar."}
-          </p>
-        </div>
-        <form action={gerarAcessoPortal}>
-          <input type="hidden" name="id" value={c.id} />
-          <SubmitButton variant="secundario">
-            {acessoPortal?.portal_password_hash ? "Redefinir acesso" : "Gerar convite de acesso"}
-          </SubmitButton>
-        </form>
-      </Card>
+      {temPortal && (
+        <Card className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-tinta-900">Portal do Cliente</p>
+            <p className="text-xs text-stone-500">
+              {acessoPortal?.portal_password_hash
+                ? "Cliente com acesso ativo ao portal (CPF + senha)."
+                : acessoPortal?.portal_setup_token_hash
+                  ? "Convite gerado e aguardando o cliente criar a senha."
+                  : "Cliente sem acesso ao portal. Gere um convite para liberar."}
+            </p>
+          </div>
+          <form action={gerarAcessoPortal}>
+            <input type="hidden" name="id" value={c.id} />
+            <SubmitButton variant="secundario">
+              {acessoPortal?.portal_password_hash ? "Redefinir acesso" : "Gerar convite de acesso"}
+            </SubmitButton>
+          </form>
+        </Card>
+      )}
 
       {ehAdmin(user.role) && (
         <Card className="flex flex-wrap items-center justify-between gap-3">

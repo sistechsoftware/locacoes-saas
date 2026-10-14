@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AssinaturaBloqueadaError, exigirAssinaturaAtiva } from "./assinatura-gate";
+import { bloquearRecurso, exigirRecurso, recursoDoModulo, temRecurso } from "./plano-gate";
 import { all, one, run } from "./db";
 import { canEdit, canView, type Module, type Role } from "./roles";
 import { hashPassword, verifyPassword } from "./password";
@@ -252,10 +253,19 @@ export async function requireCompanyContext(opcoes?: OpcoesDeBloqueio): Promise<
 /**
  * Exige contexto de empresa COM direito de visualizar o módulo.
  * Uso nas páginas (server components) de cada módulo.
+ *
+ * Gate de RECURSOS CONTRATADOS (correção de planos): módulos que são itens
+ * pagos da oferta (chat, fidelidade, relatórios, fretes, contratos) também
+ * exigem o plano correspondente — a checagem acontece DEPOIS do papel, para
+ * não revelar que o módulo existe a quem não tem nem papel. Sem o recurso no
+ * plano, a página redireciona para /plano-restrito (tela explicativa com
+ * caminho de upgrade), em vez de renderizar ou devolver 500.
  */
 export async function requireModule(module: Module): Promise<CompanyContext> {
   const ctx = await requireCompanyContext();
   if (!canView(ctx.role, module)) redirect("/dashboard?erro=permissao");
+  const recurso = recursoDoModulo(module);
+  if (recurso && !(await temRecurso(ctx.user, recurso))) bloquearRecurso(recurso, ctx.user, "pagina");
   return ctx;
 }
 
@@ -284,6 +294,11 @@ export async function requireModuleEdit(
   const ctx = await requireCompanyContext({ bloqueio: opcoes?.bloqueio ?? "lançar" });
   const permitido = [module, ...alternativas].some((m) => canEdit(ctx.role, m));
   if (!permitido) throw new PermissionError();
+  // Gate de recursos contratados: o PRIMEIRO módulo é o da operação (as
+  // alternativas existem só para permissão de papel — ex.: baixa de dinheiro
+  // no módulo de origem + financeiro). A action não grava nada sem o plano.
+  const recurso = recursoDoModulo(module);
+  if (recurso) await exigirRecurso(ctx.user, recurso, "action");
   return ctx;
 }
 

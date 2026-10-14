@@ -1,6 +1,8 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { one } from "./db";
+import { registrarNegacao, temRecurso } from "./plano-gate";
 import {
   abrirSessaoCliente,
   apagarSessao,
@@ -87,6 +89,15 @@ export async function clienteAtual(): Promise<ClienteSessao | null> {
 export async function requireCliente(): Promise<ClienteSessao> {
   const c = await clienteAtual();
   if (!c) redirect("/portal/login");
+  // GATE DE RECURSOS CONTRATADOS: o Portal do Cliente é um item pago
+  // (profissional+). A sessão do cliente não depende do plano, mas o
+  // CONTEÚDO do portal sim — uma empresa que não contratou o portal não
+  // pode exibir histórico, contratos e documentos pelo portal. A mensagem
+  // é discreta e não expõe o plano (o cliente não é quem negocia upgrade).
+  if (!(await temRecurso({ company_id: c.company_id, platform_admin: false }, "portal"))) {
+    registrarNegacao(c.company_id, "portal", "portal-pagina");
+    redirect("/portal/login?bloqueio=plano");
+  }
   return c;
 }
 
@@ -102,6 +113,16 @@ export async function sessaoClienteAtual(): Promise<ClienteSessao | null> {
 export async function entrarPortal(cpf: string, password: string): Promise<string | null> {
   const { erro, customerId } = await tentarLogin(cpf, password);
   if (erro || !customerId) return erro ?? "Não foi possível entrar.";
+  // Portal fora do plano contratado: nem abre sessão. Mensagem discreta —
+  // quem decide o upgrade é a equipe da empresa, não o cliente final.
+  const empresa = await one<{ company_id: number }>(`SELECT company_id FROM customers WHERE id = ?`, [customerId]);
+  if (
+    empresa &&
+    !(await temRecurso({ company_id: empresa.company_id, platform_admin: false }, "portal"))
+  ) {
+    registrarNegacao(empresa.company_id, "portal", "portal-login");
+    return "O portal está indisponível no momento. Fale com a locadora.";
+  }
   await gravarCookieSessao(customerId);
   return null;
 }
