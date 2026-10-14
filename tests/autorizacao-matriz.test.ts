@@ -377,10 +377,12 @@ const walk = (dir: string, filtro: (f: string) => boolean, acc: string[] = []): 
 const PAGINAS_TRANSVERSAIS = new Set([
   "src/app/(app)/busca/page.tsx",
   "src/app/(app)/historico/page.tsx",
-  "src/app/(app)/assinatura-bloqueada/page.tsx",
   // Tela explicativa do gate de PLANOS: é o destino do redirect de
   // requireModule quando o recurso não está contratado — sem módulo próprio.
   "src/app/(app)/plano-restrito/page.tsx",
+  // A tela de bloqueio de ASSINATURA (/assinatura-bloqueada) mora FORA de
+  // (app) de propósito — o layout do grupo a envolveria e recriaria o loop
+  // de redirecionamento. Regressão travada em tests/assinatura-gate.test.ts.
 ]);
 
 /** rota -> módulo exigido em requireModule("<módulo>"). */

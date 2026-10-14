@@ -405,7 +405,10 @@ const ENTRADAS_COM_GATE = [
 /** Únicos pontos autorizados a pular o gate (cada um documentado no código). */
 const IGNORAR_PERMITIDO = new Set([
   "src/app/(app)/layout.tsx", // trata o bloqueio ele mesmo (redirect)
-  "src/app/(app)/assinatura-bloqueada/page.tsx", // É a tela de bloqueio
+  // É a tela de bloqueio — e fica FORA do grupo (app) de propósito: o layout
+  // que redireciona não pode envolvê-la (senão ele a redireciona para ela
+  // mesma, em loop infinito — ver o teste "loop de suspensão" abaixo).
+  "src/app/assinatura-bloqueada/page.tsx",
   "src/app/(app)/faturamento/actions.ts", // gerarCobrancaAction: recuperação
   "src/lib/error-log.ts", // diário de erros fica fora (exclusão da pendência)
 ]);
@@ -444,6 +447,30 @@ describe("5) cobertura estática: nenhuma action/rota escapa do gate", () => {
         );
       }
     }
+  });
+
+  it("tela de bloqueio fica FORA do grupo (app) — regressão do loop de suspensão", () => {
+    // Enquanto /assinatura-bloqueada vivia em src/app/(app)/, o layout do
+    // grupo a envolvia; como o layout redireciona toda conta bloqueada para
+    // ESTA URL, ele acabava se redirecionando para si mesmo em ciclo infinito
+    // (NEXT_REDIRECT sobre a própria rota) — o usuário preso em atualizações,
+    // nunca vendo a tela. A URL não muda, só a pasta.
+    assert.ok(
+      fs.existsSync(path.join(ROOT, "src/app/assinatura-bloqueada/page.tsx")),
+      "a tela de bloqueio deve viver fora de src/app/(app) (o layout do grupo não pode envolvê-la)",
+    );
+    assert.ok(
+      !fs.existsSync(path.join(ROOT, "src/app/(app)/assinatura-bloqueada")),
+      "tela de bloqueio dentro de (app) recria o loop: o layout a envolve e volta a redirecionar para ela mesma",
+    );
+    // O layout do grupo continua sendo quem trata o bloqueio — se alguém
+    // remover o redirect, o loop não volta, mas a conta bloqueada entra na
+    // área normalmente (o teste "requireModule manda a conta suspensa...").
+    const layout = fs.readFileSync(path.join(ROOT, "src/app/(app)/layout.tsx"), "utf8");
+    assert.ok(
+      layout.includes('redirect("/assinatura-bloqueada")'),
+      "o layout do grupo (app) deve continuar redirecionando a conta bloqueada para /assinatura-bloqueada",
+    );
   });
 
   it('`bloqueio: "ignorar"` só existe nos pontos documentados', () => {
