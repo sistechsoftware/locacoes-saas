@@ -10,19 +10,22 @@
   //      npm run deploy:production   -> wrangler deploy --env production
   //    O bloco padrão (top-level) serve só ao desenvolvimento local e nunca é
   //    deployado.
-  //  * Secrets por ambiente (nunca commitados) — TODOS declarados em
-  //    secrets.required abaixo (pendência #08: sem declaração o deploy passava
-  //    e o sistema operava sem cobrança/e-mail em silêncio):
-  //      VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY       -> gerados para ESTE projeto
+  //  * Secrets por ambiente (nunca commitados) — declarados em secrets.required
+  //    abaixo (pendência #08: sem declaração o deploy passava e o sistema
+  //    operava sem cobrança/e-mail em silêncio). Nas envs NAMED o trio Asaas
+  //    fica FORA do secrets.required — esse campo do wrangler só aceita o
+  //    caminho do Worker e bloquearia o deploy com credenciais no painel /saas;
+  //    quem cobra os dois caminhos é o pré-deploy (scripts/verificar-secrets.mjs):
+  //      VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY       -> SEMPRE secret do Worker
+  //      RESEND_API_KEY, RESEND_FROM               -> SEMPRE secret do Worker
   //      ASAAS_API_KEY, ASAAS_ENVIRONMENT,
-  //      ASAAS_WEBHOOK_TOKEN                       -> cobrança Asaas
-  //      RESEND_API_KEY, RESEND_FROM               -> e-mail transacional
+  //      ASAAS_WEBHOOK_TOKEN                       -> cobrança Asaas (Worker OU
+  //        painel /saas: platform_settings no D1 + PAINEL_CHAVE no Worker;
+  //        asaas_environment em produção só aceita "production" — sandbox é
+  //        bloqueio de deploy)
   //    Pré-deploy: npm run check:secrets -- staging|production (scripts/verificar-secrets.mjs)
-  //      - VAPID e RESEND: SEMPRE como secret do Worker.
-  //      - Asaas: secret do Worker OU cadastro no painel /saas
-  //        (platform_settings no D1 + secret PAINEL_CHAVE no Worker).
-  //      - asaas_environment do painel em produção só aceita "production"
-  //        (sandbox em produção é bloqueio de deploy).
+  //      (o bloco top-level mantém o trio em secrets.required para typegen/local
+  //       — ele nunca é deployado)
   // =============================================================================
   "name": "limas-saas",
   "main": "custom-worker.ts",
@@ -83,12 +86,12 @@
       },
       "triggers": { "crons": ["* * * * *"] },
       "secrets": {
+        // Trio Asaas fora daqui (pendência #08): o secrets.required do wrangler
+        // só aceita o caminho do Worker — quem cobra Worker OU painel é o
+        // pré-deploy (scripts/verificar-secrets.mjs).
         "required": [
           "VAPID_PUBLIC_KEY",
           "VAPID_PRIVATE_KEY",
-          "ASAAS_API_KEY",
-          "ASAAS_ENVIRONMENT",
-          "ASAAS_WEBHOOK_TOKEN",
           "RESEND_API_KEY",
           "RESEND_FROM"
         ]
@@ -128,14 +131,14 @@
       },
       "triggers": { "crons": ["* * * * *"] },
       "secrets": {
-        // Produção: ASAAS_ENVIRONMENT precisa valer "production" (valor do
-        // secret, invisível ao `secret list` — conferir no pré-deploy/local).
+        // Produção opera o Asaas pelo painel /saas (platform_settings +
+        // PAINEL_CHAVE), então o trio ASAAS_* NÃO está aqui: o secrets.required
+        // do wrangler bloquearia esse caminho no deploy. O pré-deploy cobra os
+        // dois caminhos e ainda valida o VALOR — asaas_environment em produção
+        // só aceita "production" (sandbox é bloqueio, pendência #08).
         "required": [
           "VAPID_PUBLIC_KEY",
           "VAPID_PRIVATE_KEY",
-          "ASAAS_API_KEY",
-          "ASAAS_ENVIRONMENT",
-          "ASAAS_WEBHOOK_TOKEN",
           "RESEND_API_KEY",
           "RESEND_FROM"
         ]

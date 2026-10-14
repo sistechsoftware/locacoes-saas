@@ -5,7 +5,9 @@
  *
  *   1. Secrets do Worker: TODOS os nomes de "secrets.required" (wrangler.jsonc)
  *      precisam existir — exceto o trio Asaas, que também pode vir do painel
- *      (item 2). VAPID e RESEND são obrigatórios SEMPRE no Worker.
+ *      (item 2). VAPID e RESEND são obrigatórios SEMPRE no Worker. O trio é
+ *      cobrado aqui MESMO quando sai do secrets.required do wrangler (as envs
+ *      named não o declaram: o wrangler só aceita o caminho do Worker).
  *   2. Credenciais Asaas (ASAAS_API_KEY / ASAAS_ENVIRONMENT /
  *      ASAAS_WEBHOOK_TOKEN) em ALGUM dos dois caminhos aceitos:
  *        a) secret do Worker; ou
@@ -59,6 +61,19 @@ const NO_PAINEL = {
 /** Segredos do painel só valem cifrados (ver src/lib/platform-settings.ts). */
 const PREFIXO_CIFRA = "enc:v1:";
 const SEGREDOS_DO_PAINEL = new Set(["asaas_api_key", "asaas_webhook_token"]);
+
+/**
+ * Nomes que o pré-deploy exige para o ambiente: `secrets.required` do
+ * wrangler.jsonc + o trio Asaas SEMPRE — nas envs named o trio saiu do
+ * secrets.required (esse campo do wrangler só aceita o caminho do Worker e
+ * bloquearia o deploy do painel), mas a cobrança da pendência #08 não afrouxa.
+ *
+ * @param {string[]} obrigatorios lista declarada em secrets.required
+ * @returns {string[]}
+ */
+export function esperadosDe(obrigatorios) {
+  return [...new Set([...obrigatorios, ...TRIO_ASAAS])];
+}
 
 /**
  * Resolve o trio Asaas campo a campo: secret do Worker > painel > ausente.
@@ -351,6 +366,7 @@ function main() {
   const cfg = JSON.parse(semComentarios(readFileSync(WRANGLER, "utf8")));
   const cfgEnv = cfg.env?.[ambiente] ?? cfg;
   const obrigatorios = cfgEnv.secrets?.required ?? [];
+  const esperados = esperadosDe(obrigatorios);
   const vars = cfgEnv.vars ?? {};
 
   if (obrigatorios.length === 0) {
@@ -366,7 +382,7 @@ function main() {
     if (!locais) {
       falha(".dev.vars.saas não encontrado (copie .env.example e preencha; o arquivo é gitignored)");
     } else {
-      for (const nome of obrigatorios) {
+      for (const nome of esperados) {
         const problema = problemaDeFormato(nome, locais[nome]);
         if (problema) falha(`${nome}: ${problema}`);
         else ok(`${nome} presente e com formato válido (valor não exibido)`);
@@ -392,12 +408,12 @@ function main() {
         if (remotos === null) {
           falha("saída do wrangler secret list ilegível — conferir manualmente");
         } else {
-          const faltando = obrigatorios.filter((n) => !remotos.includes(n));
+          const faltando = esperados.filter((n) => !remotos.includes(n));
           const faltandoTrio = faltando.filter((n) => TRIO_ASAAS.includes(n));
           const faltandoOutros = faltando.filter((n) => !TRIO_ASAAS.includes(n));
           if (faltandoOutros.length) falha(`ausentes no Worker (${ambiente}): ${faltandoOutros.join(", ")}`);
-          if (obrigatorios.length && faltandoTrio.length === 0) {
-            ok(`todos os ${obrigatorios.length} secrets declarados existem no Worker (${ambiente})`);
+          if (faltandoTrio.length === 0) {
+            ok(`todos os ${esperados.length} secrets exigidos existem no Worker (${ambiente})`);
           }
           if (faltandoTrio.length) {
             const c = conferirPainel(ambiente, cfgEnv, remotos);
@@ -408,7 +424,7 @@ function main() {
           if (remotos.includes("PAINEL_CHAVE")) {
             ok("PAINEL_CHAVE presente no Worker (chave de cifra do painel /saas)");
           }
-          const extras = remotos.filter((n) => !obrigatorios.includes(n) && n !== "PAINEL_CHAVE");
+          const extras = remotos.filter((n) => !esperados.includes(n) && n !== "PAINEL_CHAVE");
           if (extras.length) aviso(`no Worker mas fora de secrets.required: ${extras.join(", ")}`);
         }
       }
@@ -419,7 +435,7 @@ function main() {
     //    presença remota. Em `dev` (abaixo) o mesmo problema é falha.
     const locais = lerDevVars();
     if (locais) {
-      for (const nome of obrigatorios) {
+      for (const nome of esperados) {
         if (locais[nome] === undefined) {
           aviso(`${nome}: ausente no .dev.vars.saas local`);
           continue;
