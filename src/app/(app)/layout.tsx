@@ -86,7 +86,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   );
 }
 
-/** Redireciona a area bloqueada para a tela explicativa (fora do gate). */
+/**
+ * Redireciona a area bloqueada para a tela explicativa (fora do gate).
+ * ATENÇÃO: /assinatura-bloqueada precisa continuar FORA do grupo (app) — se
+ * a tela voltar para dentro do grupo, este layout a envolve e volta a
+ * redirecionar para ela mesma, em loop infinito (correção do loop de
+ * suspensão; regressão travada em tests/assinatura-gate.test.ts).
+ */
 function AssinaturaBloqueada(): never {
   redirect("/assinatura-bloqueada");
 }

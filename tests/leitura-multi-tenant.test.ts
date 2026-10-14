@@ -242,10 +242,17 @@ function serializar(out: any): string {
   return JSON.stringify(out, (_k, v) => (v === "type" ? undefined : v));
 }
 
-type Tela = { rota: string; positivo?: string; sp?: Record<string, string> };
+type Tela = {
+  rota: string;
+  /** Caminho alternativo quando a página NÃO está em src/app/(app). */
+  arquivo?: string;
+  positivo?: string;
+  sp?: Record<string, string>;
+};
 type Detalhe = { rota: string; idA: number; idB: number; positivo: string };
 
-const arquivos = (rota: string) => `src/app/(app)/${rota}/page.tsx`;
+const arquivos = (tela: Pick<Tela, "rota" | "arquivo">) =>
+  tela.arquivo ?? `src/app/(app)/${tela.rota}/page.tsx`;
 
 const LISTAS: Tela[] = [
   { rota: "estoque", positivo: "Mesa A" },
@@ -275,7 +282,9 @@ const LISTAS: Tela[] = [
   { rota: "promocoes", positivo: "Promo A" },
   { rota: "erros", positivo: "Erro A" },
   { rota: "faturamento" },
-  { rota: "assinatura-bloqueada" },
+  // Tela de bloqueio de assinatura: FORA do grupo (app) de propósito (o
+  // layout do grupo a envolveria e recriaria o loop de redirecionamento).
+  { rota: "assinatura-bloqueada", arquivo: "src/app/assinatura-bloqueada/page.tsx" },
   { rota: "clientes/novo" },
   { rota: "estoque/novo", positivo: "Mesa A" },
   { rota: "fretes/novo", positivo: "Cliente Alice" },
@@ -321,7 +330,7 @@ before(async () => {
 describe("PENDÊNCIA #01 — telas de listagem não vazam dados de outra empresa", () => {
   for (const tela of LISTAS) {
     it(`/${tela.rota} renderiza só a empresa da sessão`, async () => {
-      const out = await renderizar(arquivos(tela.rota), {}, tela.sp ?? {});
+      const out = await renderizar(arquivos(tela), {}, tela.sp ?? {});
       const json = serializar(out);
       assert.ok(!json.includes("ZB"), `/${tela.rota} devolveu dado da empresa 2 (marcador ZB)`);
       if (tela.positivo) {
@@ -334,7 +343,7 @@ describe("PENDÊNCIA #01 — telas de listagem não vazam dados de outra empresa
 describe("PENDÊNCIA #01 — telas de detalhe fecham IDOR por id", () => {
   for (const tela of DETALHES) {
     it(`/${tela.rota} mostra o registro da própria empresa`, async () => {
-      const out = await renderizar(arquivos(tela.rota), { id: String(tela.idA) });
+      const out = await renderizar(arquivos(tela), { id: String(tela.idA) });
       const json = serializar(out);
       assert.ok(!json.includes("ZB"), `/${tela.rota} devolveu dado da empresa 2 (marcador ZB)`);
       assert.ok(json.includes(tela.positivo), `/${tela.rota} não mostrou o registro da empresa 1 (${tela.positivo})`);
@@ -342,7 +351,7 @@ describe("PENDÊNCIA #01 — telas de detalhe fecham IDOR por id", () => {
 
     it(`/${tela.rota} responde 404 para o id da outra empresa`, async () => {
       await assert.rejects(
-        () => renderizar(arquivos(tela.rota), { id: String(tela.idB) }),
+        () => renderizar(arquivos(tela), { id: String(tela.idB) }),
         (e: any) => String(e?.message ?? e).includes("NEXT_NOT_FOUND"),
         `/${tela.rota} não devolveu 404 para o registro da empresa 2`,
       );
