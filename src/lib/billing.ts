@@ -151,8 +151,19 @@ export async function trocarPlano(companyId: number, planSlug: string): Promise<
   return (await one<Subscription>(`SELECT * FROM subscriptions WHERE company_id = ?`, [companyId]))!;
 }
 
-/** Limite de usuários do plano vigente (para cadastro de usuários). */
+/**
+ * Limite de usuários da empresa.
+ *
+ * Personalização por empresa (migration 0039): quando o painel /saas ajusta o
+ * limite de UMA empresa de forma explícita e auditada, vale o ajuste; sem
+ * ajuste, vale o do plano — o comportamento comercial original, inalterado.
+ */
 export async function limiteUsuarios(companyId: number): Promise<number> {
+  const ajuste = await one<{ max_users: number }>(
+    `SELECT max_users FROM company_limit_overrides WHERE company_id = ?`,
+    [companyId],
+  );
+  if (ajuste && Number.isInteger(ajuste.max_users) && ajuste.max_users > 0) return ajuste.max_users;
   const sub = await assinaturaDaEmpresa(companyId);
   if (!sub) return 3;
   const plano = await one<Plan>(`SELECT * FROM plans WHERE id = ?`, [sub.plan_id]);

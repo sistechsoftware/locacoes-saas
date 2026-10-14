@@ -1,7 +1,8 @@
-import { visivelParaPlano } from "./planos";
+import { visivelParaPlano, type AjustesMenu } from "./planos";
 
 // Reexportado para os componentes do menu filtrarem sem importar planos.ts.
 export { visivelParaPlano };
+export type { AjustesMenu };
 
 /** Definicao unica do menu, usada pela barra lateral e pela barra inferior. */
 export type NavItem = {
@@ -83,14 +84,19 @@ export const EXTRA_NAV = NAV.filter((n) => !n.mobile);
  *  * null     — plano desconhecido: so itens fundamentais ficam de pe;
  *  * undefined— sem restricao (operador da plataforma).
  *
+ * `ajustes` opcional aplica as personalizações da empresa (liberações e
+ * bloqueios administrativos, cortesia vigente) — mesmo filtro efetivo que o
+ * gate do backend aplica nas portas.
+ *
  * Isto é SÓ apresentação: a porta de verdade continua fechada no backend
  * (requireModule/requireModuleEdit/apiUser) — esconder o menu não é o gate.
  */
 export function itensParaPlano<T extends { href: string }>(
   itens: readonly T[],
   planoSlug: string | null | undefined,
+  ajustes?: AjustesMenu | null,
 ): T[] {
-  return itens.filter((n) => visivelParaPlano(n.href, planoSlug));
+  return itens.filter((n) => visivelParaPlano(n.href, planoSlug, ajustes));
 }
 
 /**

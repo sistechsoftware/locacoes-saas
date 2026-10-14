@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { estadoAssinaturaSeguro } from "@/lib/assinatura-gate";
+import { ajustesMenuDaEmpresa } from "@/lib/plano-personalizado";
 import { redirect } from "next/navigation";
 import PushRegistration from "@/components/PushRegistration";
 import { scalar } from "@/lib/db";
@@ -39,6 +40,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
    */
   const planoSlug: string | null | undefined = user.platform_admin ? undefined : (estado?.plano?.slug ?? null);
 
+  /*
+   * Personalizações da empresa (painel /saas): liberações/bloqueios
+   * administrativos e cortesia vigente ajustam o MENU (apresentação). A
+   * porta de verdade segue no backend — requireModule/requireModuleEdit/
+   * apiUser aplicam a MESMA precedência central.
+   */
+  const ajustes = user.platform_admin ? null : await ajustesMenuDaEmpresa(user.company_id).catch(() => null);
+
   // Os alertas sao recalculados no dashboard e na tela de notificacoes, e nao
   // aqui: rodar a varredura em toda navegacao deixava cada clique lento.
   const [settings, unread, chat, operacao] = await Promise.all([
@@ -64,13 +73,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         logo={settings.company_logo}
         operacaoLabel={tituloOperacoes(operacao)}
         planoSlug={planoSlug}
+        ajustes={ajustes}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar user={user} company={settings.company_name} logo={settings.company_logo} planoSlug={planoSlug} />
+        <TopBar user={user} company={settings.company_name} logo={settings.company_logo} planoSlug={planoSlug} ajustes={ajustes} />
         <main className="com-barra-inferior mx-auto w-full max-w-6xl flex-1 p-3 sm:p-5">{children}</main>
       </div>
-      <BottomNav operacaoLabel={tituloOperacoes(operacao)} planoSlug={planoSlug} />
-      <FloatingAction novaOperacaoLabel={`Nova ${pluralizar(operacao.rotulos.operacao_inicio)}`} planoSlug={planoSlug} />
+      <BottomNav operacaoLabel={tituloOperacoes(operacao)} planoSlug={planoSlug} ajustes={ajustes} />
+      <FloatingAction novaOperacaoLabel={`Nova ${pluralizar(operacao.rotulos.operacao_inicio)}`} planoSlug={planoSlug} ajustes={ajustes} />
       {estado?.avisoVencimento && <AvisoVencimento dias={estado.diasRestantes} />}
     </div>
   );

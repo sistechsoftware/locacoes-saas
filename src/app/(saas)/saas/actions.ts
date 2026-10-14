@@ -5,8 +5,20 @@ import { acaoPlataforma, assinaturaDaEmpresa, listarPlanos, trocarPlano } from "
 import { asaasClient, ASAAS_PRODUCAO, ASAAS_SANDBOX } from "@/lib/asaas";
 import { credenciaisAsaas, gravarConfig, type ChavePlataforma } from "@/lib/platform-settings";
 import { logAction } from "@/lib/audit";
+import {
+  aplicarAjustesRecursos,
+  aplicarLimiteUsuarios,
+  cancelarCortesia,
+  criarCortesia,
+  type EntradaAjuste,
+  type EntradaCortesia,
+  type ResultadoAdmin,
+} from "@/lib/plano-personalizado";
 
 export type AcaoResultado = { ok: boolean; mensagem: string };
+
+/** Resultado da lib admin -> formato das telas (erro vira mensagem). */
+const paraTela = (r: ResultadoAdmin): AcaoResultado => ({ ok: r.ok, mensagem: r.ok ? r.mensagem : r.erro });
 
 /**
  * Define o plano de uma empresa (reconciliação do painel — decisão da
@@ -57,6 +69,74 @@ export async function acaoPlataformaAction(
   } catch (e: any) {
     return { ok: false, mensagem: e?.message ?? "Falha na ação." };
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Personalização de planos por empresa (migration 0039)                       */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Toda a camada administrativa de funcionalidades, limites e cortesias vive
+ * AQUI, atrás do mesmo guard das demais ações do painel: assertPlatformAdmin
+ * (users.platform_admin = 1) lança PermissionError no servidor para qualquer
+ * chamada direta — o admin de uma empresa cliente, operador, usuário comum ou
+ * requisição manipulada nunca passam, independentemente da interface. Os
+ * company_id recebidos são validados contra companies antes de qualquer
+ * escrita, e o histórico fica em audit_logs com antes/depois.
+ */
+
+/**
+ * Salva um LOTE de ajustes de funcionalidade da empresa (liberar/bloquear/
+ * voltar ao padrão do plano) numa única operação atômica, sem tocar no plano
+ * contratado, no preço ou na cobrança.
+ */
+export async function salvarRecursosEmpresaAction(
+  companyId: number,
+  entradas: EntradaAjuste[],
+  motivo: string,
+): Promise<AcaoResultado> {
+  const admin = await assertPlatformAdmin();
+  const r = await aplicarAjustesRecursos(admin, companyId, entradas, motivo);
+  if (r.ok) {
+    revalidatePath("/saas/empresas");
+    revalidatePath(`/saas/empresas/${companyId}`);
+    revalidatePath("/saas");
+  }
+  return paraTela(r);
+}
+
+/** Ajusta (ou remove) o limite de usuários individual da empresa. */
+export async function salvarLimiteUsuariosAction(
+  companyId: number,
+  maxUsers: number | null,
+  motivo: string,
+): Promise<AcaoResultado> {
+  const admin = await assertPlatformAdmin();
+  const r = await aplicarLimiteUsuarios(admin, companyId, maxUsers, motivo);
+  if (r.ok) {
+    revalidatePath(`/saas/empresas/${companyId}`);
+    revalidatePath("/saas/empresas");
+  }
+  return paraTela(r);
+}
+
+/** Concede uma cortesia (plano-referência + vigência) sem mudar a assinatura. */
+export async function criarCortesiaAction(companyId: number, entrada: EntradaCortesia): Promise<AcaoResultado> {
+  const admin = await assertPlatformAdmin();
+  const r = await criarCortesia(admin, companyId, entrada);
+  if (r.ok) {
+    revalidatePath(`/saas/empresas/${companyId}`);
+    revalidatePath("/saas/assinaturas");
+  }
+  return paraTela(r);
+}
+
+/** Cancela UMA cortesia antecipadamente (só os benefícios dela). */
+export async function cancelarCortesiaAction(cortesiaId: number): Promise<AcaoResultado> {
+  const admin = await assertPlatformAdmin();
+  const r = await cancelarCortesia(admin, cortesiaId);
+  if (r.ok) revalidatePath("/saas/empresas");
+  return paraTela(r);
 }
 
 /* -------------------------------------------------------------------------- */

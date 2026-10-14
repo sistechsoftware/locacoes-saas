@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "./Icons";
 import ChatBell from "./ChatBell";
 import Avatar from "./Avatar";
-import { EXTRA_NAV, MOBILE_NAV, NAV, comRotuloOperacoes, itensParaPlano, visivelParaPlano } from "@/lib/nav";
+import { EXTRA_NAV, MOBILE_NAV, NAV, comRotuloOperacoes, itensParaPlano, visivelParaPlano, type AjustesMenu } from "@/lib/nav";
 import { pokeUnread } from "@/lib/chat-unread";
 import { useUnread } from "@/lib/use-unread";
 
@@ -21,6 +21,7 @@ export function Sidebar({
   logo,
   operacaoLabel,
   planoSlug,
+  ajustes,
 }: {
   company: string;
   logo?: string;
@@ -28,6 +29,8 @@ export function Sidebar({
   operacaoLabel?: string;
   /** Plano contratado: itens pagos fora do plano não aparecem (matriz em planos.ts). */
   planoSlug?: string | null;
+  /** Personalizações da empresa (liberações/bloqueios/cortesia) — só apresentação. */
+  ajustes?: AjustesMenu | null;
 }) {
   const pathname = usePathname();
   // No desktop a lateral fica fixa (sticky) com a altura da viewport: quando os
@@ -52,7 +55,7 @@ export function Sidebar({
       {/* min-h-0: dentro do flex, permite a navegacao encolher ate a altura
           disponivel — sem isso o overflow-y-auto nunca ativa. */}
       <nav className="navegacao-lateral min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
-        {itensParaPlano(comRotuloOperacoes(NAV, operacaoLabel), planoSlug).map((n) => (
+        {itensParaPlano(comRotuloOperacoes(NAV, operacaoLabel), planoSlug, ajustes).map((n) => (
           <Link
             key={n.href}
             href={n.href}
@@ -95,17 +98,20 @@ export function TopBar({
   company,
   logo,
   planoSlug,
+  ajustes,
 }: {
   user: User;
   company: string;
   logo?: string;
   /** Plano contratado: o chat é item pago (profissional+). */
   planoSlug?: string | null;
+  /** Personalizações da empresa (liberações/bloqueios/cortesia) — só apresentação. */
+  ajustes?: AjustesMenu | null;
 }) {
   const [open, setOpen] = useState(false);
   // Mesma fonte do badge do menu inferior: o estado compartilhado do chat.
   const { unread } = useUnread();
-  const chatLiberado = visivelParaPlano("/chat", planoSlug);
+  const chatLiberado = visivelParaPlano("/chat", planoSlug, ajustes);
   return (
     <header className="nao-imprimir sticky top-0 z-30 border-b border-nuvem-300 bg-white/95 backdrop-blur">
       <div className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
@@ -203,14 +209,17 @@ function GlobalSearch() {
 export function BottomNav({
   operacaoLabel,
   planoSlug,
+  ajustes,
 }: {
   operacaoLabel?: string;
   /** Plano contratado: itens pagos (Mensagens, Fretes...) ficam fora do "Mais". */
   planoSlug?: string | null;
+  /** Personalizações da empresa (liberações/bloqueios/cortesia) — só apresentação. */
+  ajustes?: AjustesMenu | null;
 }) {
   const pathname = usePathname();
   const [sheet, setSheet] = useState(false);
-  const chatLiberado = visivelParaPlano("/chat", planoSlug);
+  const chatLiberado = visivelParaPlano("/chat", planoSlug, ajustes);
   // Mesmo estado do sino do topo: uma unica fonte de verdade para o badge.
   // Mensagens saiu da barra, mas o contador continua visivel: o sino do topo,
   // o botao "Mais" (onde o chat agora vive) e o atalho no botao + leem tudo
@@ -222,7 +231,7 @@ export function BottomNav({
   // A barra inferior é invariantemente "4 itens + Mais": os 4 itens diretos
   // são recursos fundamentais (Dashboard, Agenda, Reservas, Operação) e nunca
   // caem por plano. O filtro de plano vale para os itens do menu "Mais".
-  const extras = itensParaPlano(comRotuloOperacoes(EXTRA_NAV, operacaoLabel), planoSlug);
+  const extras = itensParaPlano(comRotuloOperacoes(EXTRA_NAV, operacaoLabel), planoSlug, ajustes);
   const noMais = extras.some((n) => active(pathname, n.href));
 
   return (
@@ -338,16 +347,19 @@ const ACOES = [
 export function FloatingAction({
   novaOperacaoLabel,
   planoSlug,
+  ajustes,
 }: {
   novaOperacaoLabel?: string;
   /** Plano contratado: atalhos de recursos pagos (Mensagens, Fretes...) saem do +. */
   planoSlug?: string | null;
+  /** Personalizações da empresa (liberações/bloqueios/cortesia) — só apresentação. */
+  ajustes?: AjustesMenu | null;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   // Mesmo estado do sino do topo: badge de nao lidas do atalho Mensagens.
   const { unread } = useUnread();
-  const chatLiberado = visivelParaPlano("/chat", planoSlug);
+  const chatLiberado = visivelParaPlano("/chat", planoSlug, ajustes);
   useEffect(() => setOpen(false), [pathname]);
 
   /* No chat a tela usa a altura inteira e o composer (anexo/mic/enviar) ocupa a
@@ -362,7 +374,7 @@ export function FloatingAction({
       {/* Acima da barra inferior (cartao + margem), em qualquer aparelho. */}
       <div className="nao-imprimir fixed bottom-28 right-4 z-40 flex flex-col items-end gap-2 md:bottom-6">
         {open &&
-          itensParaPlano(ACOES, planoSlug).map((a) =>
+          itensParaPlano(ACOES, planoSlug, ajustes).map((a) =>
             a.href === "/operacao/nova" && novaOperacaoLabel ? { ...a, label: novaOperacaoLabel } : a,
           ).map((a) => (
             <Link
