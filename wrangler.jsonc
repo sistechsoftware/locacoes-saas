@@ -18,6 +18,11 @@
   //      ASAAS_WEBHOOK_TOKEN                       -> cobrança Asaas
   //      RESEND_API_KEY, RESEND_FROM               -> e-mail transacional
   //    Pré-deploy: npm run check:secrets -- staging|production (scripts/verificar-secrets.mjs)
+  //      - VAPID e RESEND: SEMPRE como secret do Worker.
+  //      - Asaas: secret do Worker OU cadastro no painel /saas
+  //        (platform_settings no D1 + secret PAINEL_CHAVE no Worker).
+  //      - asaas_environment do painel em produção só aceita "production"
+  //        (sandbox em produção é bloqueio de deploy).
   // =============================================================================
   "name": "limas-saas",
   "main": "custom-worker.ts",
