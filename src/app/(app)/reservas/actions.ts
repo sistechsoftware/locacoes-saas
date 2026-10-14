@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { all, insert, one, run, scalar } from "@/lib/db";
 import { assertAdmin, currentUser, PermissionError, requireModuleEdit, requireUser } from "@/lib/auth";
 import { exigirAssinaturaAtiva } from "@/lib/assinatura-gate";
+import { temRecurso } from "@/lib/plano-gate";
 import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { removeAttachment } from "@/lib/uploads";
@@ -213,11 +214,15 @@ export async function changeStatus(fd: FormData) {
   // janela, e a expansao fisica deixa de ser contabilizada pelo motor.
   await syncOperations(id);
 
-  // fidelidade acompanha o status real da locacao, nunca uma tela aberta
+  // fidelidade acompanha o status real da locacao, nunca uma tela aberta.
+  // Reverter/desfazer roda SEMPRE (desfaz o que existir, mesmo apos
+  // downgrade de plano); PONTUAR so roda com fidelidade contratada — empresa
+  // sem fidelidade nao acumula pontos invisiveis (decisao registrada na
+  // correcao de planos; o recurso e bloqueado tambem na action e na pagina).
   if (status === "cancelada") {
     await reverterReserva(id, user.id);
     await devolverRecompensaDaReserva(id);
-  } else {
+  } else if (await temRecurso(user, "fidelidade")) {
     await aoConcluirLocacao(id, user.id);
   }
 

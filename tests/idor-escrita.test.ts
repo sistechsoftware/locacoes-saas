@@ -84,11 +84,19 @@ async function montarCenario() {
     `INSERT INTO users (id, name, username, password_hash, role, company_id, active) VALUES
       (10, 'Dono A', 'dono-a-escrita', 'x', 'owner', 1, 1),
       (20, 'Dono ZB', 'dono-b-escrita', 'x', 'owner', 2, 1)`,
-  );
-  await exec(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?, 10, ?)`, [SESSAO, FUTURO]);
+  );  await exec(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?, 10, ?)`, [SESSAO, FUTURO]);
 
+  // Estes testes medem ESCRITA ISOLADA (IDOR), não o plano comercial:
+  // ambas as empresas ficam no Empresarial para o gate de recursos
+  // contratados (correção de planos) não interferir no que se mede aqui.
   await exec(
-    `INSERT INTO customers (id, name, phone, company_id) VALUES
+    `INSERT INTO subscriptions (company_id, plan_id, status, current_period_end)
+     VALUES (1, (SELECT id FROM plans WHERE slug = 'empresarial'), 'active', ?),
+            (2, (SELECT id FROM plans WHERE slug = 'empresarial'), 'active', ?)`,
+    [FUTURO.slice(0, 10), FUTURO.slice(0, 10)],
+  );
+
+  await exec(`INSERT INTO customers (id, name, phone, company_id) VALUES
       (100, 'Cliente Alice', '31999990000', 1), (200, 'Cliente ZB', '31999990001', 2)`,
   );
   await exec(

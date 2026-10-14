@@ -151,6 +151,14 @@ before(async () => {
       (54, 'Financeiro', 'authz-financeiro', 'x', 'financeiro', 1, 1),
       (55, 'Viewer', 'authz-viewer', 'x', 'viewer', 1, 1)`,
   );
+  // Estes testes medem PAPEL (roles), não plano comercial: a empresa fica no
+  // Empresarial para o gate de recursos contratados (correção de planos)
+  // não interferir na matriz de permissão.
+  await run(
+    `INSERT INTO subscriptions (company_id, plan_id, status, current_period_end)
+     VALUES (1, (SELECT id FROM plans WHERE slug = 'empresarial'), 'active', ?)`,
+    [FUTURO.slice(0, 10)],
+  );
   for (const p of PAPEIS) {
     await run(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)`, [SESSAO[p], ID[p], FUTURO]);
   }
@@ -370,6 +378,9 @@ const PAGINAS_TRANSVERSAIS = new Set([
   "src/app/(app)/busca/page.tsx",
   "src/app/(app)/historico/page.tsx",
   "src/app/(app)/assinatura-bloqueada/page.tsx",
+  // Tela explicativa do gate de PLANOS: é o destino do redirect de
+  // requireModule quando o recurso não está contratado — sem módulo próprio.
+  "src/app/(app)/plano-restrito/page.tsx",
 ]);
 
 /** rota -> módulo exigido em requireModule("<módulo>"). */

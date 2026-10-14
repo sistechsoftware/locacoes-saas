@@ -17,7 +17,7 @@
  *  - O limite do plano é conferido no banco na criação (podeCriarUsuario).
  */
 
-import { all, insert, one, run, scalar } from "./db";
+import { all, one, run, scalar } from "./db";
 import { hashPassword } from "./password";
 import { podeCriarUsuario } from "./billing";
 import { documentoDoTipo, emailValido, normalizarEmail, tipoPessoaValido } from "./identidade";
@@ -149,15 +149,44 @@ export async function criarUsuario(
   if (await emailJaUsado(email))
     return { ok: false, erro: "Este e-mail já está cadastrado em outra conta." };
 
-  // Limite do plano: validado AQUI, no backend, contra o banco.
+  // Limite do plano: pre-check AQUI, no backend, para a mensagem amigável.
   const limite = await podeCriarUsuario(ator.company_id);
   if (!limite.ok) return { ok: false, erro: limite.motivo ?? "Limite do plano atingido." };
 
-  const id = await insert(
+  // ...e guarda ATÔMICA dentro da própria escrita: o COUNT do limite roda
+  // no mesmo INSERT (SQLite/D1 serializa statements), então duas
+  // solicitações simultâneas com UMA vaga restante não furam o limite — uma
+  // delas encontra a vaga ocupada e o INSERT não acontece. O fallback 3 é o
+  // mesmo do limiteUsuarios para empresa sem plano configurado.
+  const criado = await run(
     `INSERT INTO users (name, username, email, phone, password_hash, role, company_id, person_type, document)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-    [name, username, email, String(dados.phone ?? "").trim(), hashPassword(password), papel, ator.company_id, tipo, documento],
+     SELECT ?,?,?,?,?,?,?,?,?
+      WHERE (SELECT COUNT(*) FROM users WHERE company_id = ? AND active = 1)
+          < (SELECT COALESCE((SELECT MAX(p.max_users)
+                                FROM plans p JOIN subscriptions s ON s.plan_id = p.id
+                               WHERE s.company_id = ?), 3))`,
+    [
+      name,
+      username,
+      email,
+      String(dados.phone ?? "").trim(),
+      hashPassword(password),
+      papel,
+      ator.company_id,
+      tipo,
+      documento,
+      ator.company_id,
+      ator.company_id,
+    ],
   );
+  if (!Number(criado.meta.changes)) {
+    // A corrida remanescente perdeu aqui: alguém ocupou a última vaga.
+    return {
+      ok: false,
+      erro: `Limite do plano atingido (${limite.limite} usuários ativos). Faça upgrade em Assinatura para adicionar mais usuários.`,
+    };
+  }
+  const id = Number(criado.meta.last_row_id);
   if (log) await log("criar", "usuario", id, `${ator.name} criou o usuario ${name} (${papel})`);
   return { ok: true, id };
 }
@@ -231,7 +260,31 @@ export async function alternarStatusUsuario(
   if (id === ator.id) return { ok: false, erro: "Você não pode inativar a sua própria conta." };
   if (alvo.role === "owner") return { ok: false, erro: "A conta do proprietário da empresa não pode ser inativada." };
 
-  await run(`UPDATE users SET active = ? WHERE id = ? AND company_id = ?`, [alvo.active ? 0 : 1, id, ator.company_id]);
+  // Reativar ocupa vaga do plano: mesma regra da criação, validada no
+  // servidor. Pré-check para a mensagem amigável e guarda ATÔMICA no
+  // UPDATE (COUNT do limite dentro do próprio statement) — duas
+  // reativações simultâneas com uma vaga só não passam juntas.
+  if (!alvo.active) {
+    const limite = await podeCriarUsuario(ator.company_id);
+    if (!limite.ok) return { ok: false, erro: limite.motivo ?? "Limite do plano atingido." };
+    const reativado = await run(
+      `UPDATE users SET active = 1
+        WHERE id = ? AND company_id = ? AND active = 0
+          AND (SELECT COUNT(*) FROM users WHERE company_id = ? AND active = 1)
+            < (SELECT COALESCE((SELECT MAX(p.max_users)
+                                  FROM plans p JOIN subscriptions s ON s.plan_id = p.id
+                                 WHERE s.company_id = ?), 3))`,
+      [id, ator.company_id, ator.company_id, ator.company_id],
+    );
+    if (!Number(reativado.meta.changes)) {
+      return {
+        ok: false,
+        erro: `Limite do plano atingido (${limite.limite} usuários ativos). Faça upgrade em Assinatura para liberar esta conta.`,
+      };
+    }
+  } else {
+    await run(`UPDATE users SET active = 0 WHERE id = ? AND company_id = ?`, [id, ator.company_id]);
+  }
   if (log) {
     await log(
       alvo.active ? "inativar" : "reativar",

@@ -86,11 +86,9 @@ async function montarCenario() {
       (11, 'Colega A', 'colega-a-leitura', 'x', 'operacional', 1, 1),
       (20, 'Dono ZB', 'dono-b-leitura', 'x', 'owner', 2, 1),
       (21, 'Colega ZB', 'colega-b-leitura', 'x', 'operacional', 2, 1)`,
-  );
-  await exec(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?, 10, ?)`, [SESSAO, FUTURO]);
+  );  await exec(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?, 10, ?)`, [SESSAO, FUTURO]);
 
-  await exec(
-    `INSERT INTO customers (id, name, phone, birth_date, company_id) VALUES
+  await exec(`INSERT INTO customers (id, name, phone, birth_date, company_id) VALUES
       (100, 'Cliente Alice', '31999990000', '1990-05-05', 1),
       (200, 'Cliente ZB', '31999990001', '1991-06-06', 2)`,
   );
@@ -216,9 +214,13 @@ async function montarCenario() {
   await exec(`INSERT INTO chat_conversations (id, user_low, user_high, company_id) VALUES (100, 10, 11, 1), (200, 20, 21, 2)`);
   await exec(`INSERT INTO chat_participants (conversation_id, user_id) VALUES (100, 10), (100, 11), (200, 20), (200, 21)`);
   await exec(`INSERT INTO chat_messages (conversation_id, sender_id, body, company_id) VALUES (100, 10, 'mensagem A', 1), (200, 20, 'mensagem ZB', 2)`);
+  // Ambas as empresas ficam no Empresarial: estes testes medem ISOLAMENTO
+  // ENTRE EMPRESAS, não o plano comercial — o gate de recursos contratados
+  // (correção de planos) não pode interferir no que se mede aqui.
   await exec(
-    `INSERT INTO subscriptions (id, company_id, plan_id, status, current_period_end) VALUES
-      (100, 1, 1, 'active', '2026-12-31'), (200, 2, 1, 'active', '2026-12-31')`,
+    `INSERT INTO subscriptions (id, company_id, plan_id, status, current_period_end)
+     VALUES (100, 1, (SELECT id FROM plans WHERE slug = 'empresarial'), 'active', '2026-12-31'),
+            (200, 2, (SELECT id FROM plans WHERE slug = 'empresarial'), 'active', '2026-12-31')`,
   );
   await exec(
     `INSERT INTO subscription_payments (company_id, subscription_id, amount_cents, status, due_date) VALUES

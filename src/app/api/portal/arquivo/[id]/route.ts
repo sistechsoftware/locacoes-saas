@@ -1,6 +1,7 @@
 import { getFile } from "@/lib/uploads";
 import { one } from "@/lib/db";
 import { clienteAtual } from "@/lib/portal-auth";
+import { respostaRecursoNaoContratado, temRecurso } from "@/lib/plano-gate";
 
 const HEX32 = /^[0-9a-f]{32}$/;
 
@@ -16,6 +17,11 @@ const HEX32 = /^[0-9a-f]{32}$/;
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const cliente = await clienteAtual();
   if (!cliente) return new Response("Não autenticado.", { status: 401 });
+  // Recurso contratado: o Portal do Cliente é item pago (profissional+).
+  // Sem o plano, o servidor nega ANTES de localizar qualquer arquivo.
+  if (!(await temRecurso({ company_id: cliente.company_id, platform_admin: false }, "portal"))) {
+    return respostaRecursoNaoContratado("portal", cliente, "portal-api");
+  }
 
   const { id } = await params;
   if (!HEX32.test(id)) return new Response("Not found", { status: 404 });

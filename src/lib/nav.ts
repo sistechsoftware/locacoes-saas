@@ -1,3 +1,8 @@
+import { visivelParaPlano } from "./planos";
+
+// Reexportado para os componentes do menu filtrarem sem importar planos.ts.
+export { visivelParaPlano };
+
 /** Definicao unica do menu, usada pela barra lateral e pela barra inferior. */
 export type NavItem = {
   href: string;
@@ -68,6 +73,25 @@ export const MOBILE_SAAS_NAV: { href: string; label: string; icon: string }[] = 
 /** Menu "Mais" da barra inferior: tudo que nao cabe na barra, na ordem
  *  original do menu lateral (Mensagens primeiro) — sem duplicar entradas. */
 export const EXTRA_NAV = NAV.filter((n) => !n.mobile);
+
+/**
+ * Filtra itens de menu/atalho pelo plano CONTRATADO da empresa
+ * (correção de planos — a matriz mora em planos.ts).
+ *
+ * `planoSlug`:
+ *  * string   — filtra pela matriz comercial (itens pagos fora do plano saem);
+ *  * null     — plano desconhecido: so itens fundamentais ficam de pe;
+ *  * undefined— sem restricao (operador da plataforma).
+ *
+ * Isto é SÓ apresentação: a porta de verdade continua fechada no backend
+ * (requireModule/requireModuleEdit/apiUser) — esconder o menu não é o gate.
+ */
+export function itensParaPlano<T extends { href: string }>(
+  itens: readonly T[],
+  planoSlug: string | null | undefined,
+): T[] {
+  return itens.filter((n) => visivelParaPlano(n.href, planoSlug));
+}
 
 /**
  * Aplica o nome das operações da empresa ao item de menu /operacao.

@@ -1,6 +1,7 @@
 import { requirePlatformAdmin } from "@/lib/auth";
 import { listarEmpresasPainel, STATUS_ROTULO, type SubscriptionStatus } from "@/lib/billing";
 import { Card, Badge, Empty } from "@/components/ui";
+import DefinirPlanoEmpresa from "../DefinirPlanoEmpresa";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,10 @@ export default async function SaasAssinaturasPage() {
                   {e.status === "past_due" && <>vencido em {dataBR(e.current_period_end)} — em tolerância</>}
                   {(e.status === "suspended" || e.status === "canceled") && <>bloqueada</>}
                 </div>
-                <Badge tone={TONE[e.status ?? "sem"]}>{STATUS_ROTULO[e.status as SubscriptionStatus]}</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <DefinirPlanoEmpresa companyId={e.company_id} planoAtual={e.plano} />
+                  <Badge tone={TONE[e.status ?? "sem"]}>{STATUS_ROTULO[e.status as SubscriptionStatus]}</Badge>
+                </div>
               </div>
             ))}
           </div>

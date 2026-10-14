@@ -254,7 +254,10 @@ describe("3) páginas redirecionam e rotas /api fecham a porta", () => {
   });
 
   it("apiUser: 402 com mensagem própria para conta bloqueada; null para sessão ausente", async () => {
-    const request = new Request("http://localhost/api/chat", {
+    // /api/routes é recurso BASE (cálculo de rota compartilhado com reservas):
+    // este teste mede o gate de ASSINATURA, não o de plano — o gate de recursos
+    // contratados tem teste próprio em tests/planos-recursos.test.ts.
+    const request = new Request("http://localhost/api/routes", {
       method: "POST",
       headers: { origin: "http://localhost" },
     });
@@ -279,7 +282,7 @@ describe("3) páginas redirecionam e rotas /api fecham a porta", () => {
 
     // origem inválida em mutação (CSRF) também continua null — não é bloqueio
     sessaoAtual = SESSAO.dono;
-    const cruzada = new Request("http://localhost/api/chat", {
+    const cruzada = new Request("http://localhost/api/routes", {
       method: "POST",
       headers: { origin: "http://evil.test" },
     });

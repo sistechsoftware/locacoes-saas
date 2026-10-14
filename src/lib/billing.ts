@@ -196,7 +196,12 @@ export type EstadoAssinatura = {
   current_period_end: string | null;
   diasRestantes: number | null;
   avisoVencimento: boolean;
-  plano: { name: string; price_cents: number; max_users: number } | null;
+  /**
+   * Plano contratado. `slug` é o identificador ESTÁVEL (essencial |
+   * profissional | empresarial) — é ele que alimenta o gate de recursos
+   * (plano-gate.ts); nome e preço são só exibição.
+   */
+  plano: { slug: string; name: string; price_cents: number; max_users: number } | null;
 };
 
 export async function estadoAssinatura(companyId: number): Promise<EstadoAssinatura> {
@@ -1230,6 +1235,33 @@ export async function alertasSaasPainel(): Promise<AlertaSaas[]> {
       severidade: "info",
       titulo: `Período vence em breve: ${p.name}`,
       detalhe: `Renovação em ${dataBRz(p.current_period_end)} — a rotina diária gera a cobrança.`,
+      href: "/saas/assinaturas",
+    });
+  }
+
+  // Divergência entre plano gravado e o que foi efetivamente cobrado
+  // (correção de planos): cobrança confirmada por valor diferente do preço do
+  // plano VIGENTE, gerada depois da última troca de plano. Só SINALIZA no
+  // painel — a correção é humana, pela ação "Plano" de cada empresa.
+  const divergentes = await all<
+    { name: string; nome_plano: string; amount_cents: number; price_cents: number }
+  >(
+    `SELECT c.name, p.name AS nome_plano, sp.amount_cents, p.price_cents
+       FROM subscription_payments sp
+       JOIN subscriptions s ON s.id = sp.subscription_id
+       JOIN companies c ON c.id = s.company_id
+       JOIN plans p ON p.id = s.plan_id
+      WHERE sp.status IN ('received','confirmed')
+        AND sp.amount_cents <> p.price_cents
+        AND sp.created_at >= s.updated_at
+      ORDER BY sp.created_at DESC
+      LIMIT 10`,
+  );
+  for (const d of divergentes) {
+    alertas.push({
+      severidade: "aviso",
+      titulo: `Plano x cobrança divergentes: ${d.name}`,
+      detalhe: `Plano gravado ${d.nome_plano} (${dinheiroFmt(d.price_cents)}) mas a cobrança confirmada mais recente foi ${dinheiroFmt(d.amount_cents)}. Revisar o plano da empresa.`,
       href: "/saas/assinaturas",
     });
   }

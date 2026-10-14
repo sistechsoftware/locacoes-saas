@@ -13,10 +13,10 @@ export const dynamic = "force-dynamic";
 export default async function PortalLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ feito?: string }>;
+  searchParams: Promise<{ feito?: string; bloqueio?: string }>;
 }) {
   if (await clienteAtual()) redirect("/portal");
-  const { feito } = await searchParams;
+  const { feito, bloqueio } = await searchParams;
   const s = await getSettings();
 
   return (
@@ -38,6 +38,12 @@ export default async function PortalLoginPage({
         {feito === "1" && (
           <div className="mb-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800">
             🎉 Acesso criado! Entre com seu CPF e a senha que você definiu.
+          </div>
+        )}
+
+        {bloqueio === "plano" && (
+          <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-900">
+            O portal está indisponível no momento. Fale com a locadora.
           </div>
         )}
 
