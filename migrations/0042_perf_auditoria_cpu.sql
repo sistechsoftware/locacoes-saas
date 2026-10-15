@@ -1,0 +1,31 @@
+-- =============================================================================
+-- Auditoria CPU/latencia (branch audit/cpu-latency-performance)
+--
+-- SOMENTE CREATE INDEX IF NOT EXISTS: nenhum dado e alterado, operacao segura
+-- e reversivel (drop do indice). Aplicacao local primeiro; producao so quando
+-- o usuario autorizar (npm run db:migrate NUNCA roda sozinho).
+--
+-- Cada indice existe por uma consulta REAL medida na auditoria, nao por
+-- "boa pratica":
+--
+-- 1) O cron roda A CADA MINUTO (wrangler.jsonc: "* * * * *") e executa
+--      DELETE FROM route_cache    WHERE expires_at < ?;
+--      DELETE FROM api_rate_limits WHERE expires_at < ?;
+--    1.440x/dia, SEM indice em expires_at = varredura completa das duas
+--    tabelas a cada tick. api_rate_limits cresce a cada POST de chat/mapa
+--    (bucket por minuto), entao a varredura diaria cresce com o uso —
+--    rows_read do D1 (franquia de 5 milhoes/dia no gratuito) pagando 1.440
+--    varreduras cheias por dia.
+--
+-- 2) A captura de lembretes do cron roda POR EMPRESA A CADA MINUTO:
+--      ... FROM activities a WHERE a.company_id = ? AND a.status = 'pending' ...
+--    EXPLAIN medido na auditoria (banco de 2.800 atividades):
+--      SEARCH a USING INDEX idx_activities_company (company_id=?)
+--    — le TODAS as atividades da empresa (passado + futuro) para filtrar
+--    status depois. A tabela so cresce (historico de reservas), entao o custo
+--    por tick cresce sem parar. Com (company_id, status) o plano passa a
+--    ler apenas as pendentes da empresa.
+-- =============================================================================
+CREATE INDEX IF NOT EXISTS idx_route_cache_expires ON route_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON api_rate_limits(expires_at);
+CREATE INDEX IF NOT EXISTS idx_activities_company_status ON activities(company_id, status);

@@ -47,13 +47,24 @@ export default async function DashboardPage({
   // Uma leitura so traz as operacoes do dia; a separacao por tipo e feita aqui,
   // em vez de custar quatro idas ao banco. O resto vai em paralelo. Os fretes
   // entram com a mesma prioridade: sao operacoes do dia tanto quanto as locacoes.
+  //
+  // REUSO (auditoria): operationsOn/freightsOn sao as MESMAS consultas que a
+  // agenda do dia faria — os promises ja iniciados vao para agendaEvents, que
+  // consome o que ja roda em vez de buscar de novo (2 idas a menos por
+  // carregamento). Sem o recurso de fretes no plano, quem busca os fretes da
+  // agenda continua sendo a propria agendaEvents, como sempre foi.
+  const opsDoDia = operationsOn(d0);
+  const fretesDoDia = temFretes ? freightsOn(d0) : undefined;
   const [, operacoesHoje, fretesHoje, atrasadas, fretesAtrasados, agenda] = await Promise.all([
     rebuildNotifications(),
-    operationsOn(d0),
-    temFretes ? freightsOn(d0) : Promise.resolve([]),
+    opsDoDia,
+    fretesDoDia ?? Promise.resolve([]),
     lateOperations(),
     temFretes ? lateFreights() : Promise.resolve([]),
-    agendaEvents(d0, d0),
+    agendaEvents(d0, d0, undefined, {
+      ops: opsDoDia,
+      ...(fretesDoDia ? { freights: fretesDoDia } : {}),
+    }),
   ]);
   // O alerta de atraso passa a representar tudo que atrasou: operacoes de
   // locacao e fretes em aberto de dias anteriores, na mesma linha do tempo.

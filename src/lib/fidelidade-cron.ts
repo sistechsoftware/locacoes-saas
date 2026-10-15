@@ -8,6 +8,7 @@
  * "dia já processado" (scheduler_state) ficam por empresa.
  */
 import { runWithCompany, runWithDb } from "./db";
+import { marcarConsulta } from "./perf";
 
 /**
  * Roda `rotina` uma vez por empresa ativa, com o contexto fixado.
@@ -19,6 +20,7 @@ export async function paraCadaEmpresa<T>(
   db: D1Database,
   rotina: (companyId: number, name: string) => Promise<T>,
 ): Promise<({ companyId: number; name: string; ok: true; valor: T } | { companyId: number; name: string; ok: false; erro: string })[]> {
+  marcarConsulta();
   const r = await db
     .prepare("SELECT id, name FROM companies WHERE active = 1 ORDER BY id")
     .all<{ id: number; name: string }>();
@@ -48,12 +50,14 @@ export async function runFidelityDaily(db: D1Database, nowSeconds: number) {
   const companyId = companyContextAtual() ?? (await currentCompanyId());
   const hoje = new Date((nowSeconds - 10800) * 1000).toISOString().slice(0, 10); // America/Sao_Paulo
   const marca = `fidelity_last_day:c${companyId}`;
+  marcarConsulta();
   const row = await db
     .prepare("SELECT value FROM scheduler_state WHERE key = ?")
     .bind(marca)
     .first<{ value: string }>();
   if (row?.value === hoje) return null;
 
+  marcarConsulta();
   await db
     .prepare(
       `INSERT INTO scheduler_state(key,value) VALUES (?,?)
@@ -82,6 +86,7 @@ export async function runBirthdayDaily(db: D1Database, nowSeconds: number) {
   const hoje = local.toISOString().slice(0, 10);
 
   const marca = `birthday_last_day:c${companyId}`;
+  marcarConsulta();
   const row = await db
     .prepare("SELECT value FROM scheduler_state WHERE key = ?")
     .bind(marca)
@@ -96,6 +101,7 @@ export async function runBirthdayDaily(db: D1Database, nowSeconds: number) {
   const { rotinaAniversarios } = await import("./aniversarios-db");
   // marca o dia so depois de dar certo, para uma falha poder ser repetida
   const resultado = await runWithDb(db, () => rotinaAniversarios(hoje));
+  marcarConsulta();
   await db
     .prepare(
       `INSERT INTO scheduler_state(key,value) VALUES (?,?)

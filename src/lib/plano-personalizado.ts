@@ -1,5 +1,6 @@
 import "server-only";
 import { all, batch, insert, one, run } from "./db";
+import { memoPorInvocacao } from "./perf";
 import { nowLocal } from "./format";
 import { estadoAssinaturaSeguro } from "./assinatura-gate";
 import { logAction } from "./audit";
@@ -139,6 +140,13 @@ export async function cortesiaAtiva(companyId: number, agora: string = nowLocal(
  * recurso já libera). Cada concessão continua valendo só pela sua janela.
  */
 export async function cortesiasAtivas(companyId: number, agora: string = nowLocal()): Promise<CortesiaLinha[]> {
+  /* Memo por requisicao (auditoria): o mesmo pedido se repetia em cada porta
+     de entrada do mesmo request (estadoRecursosEmpresa + recursoLiberado).
+     A chave leva `agora` — quem pede outro instante nao herda resposta alheia. */
+  return memoPorInvocacao(`cortesias:${companyId}:${agora}`, () => cortesiasAtivasLeitura(companyId, agora));
+}
+
+async function cortesiasAtivasLeitura(companyId: number, agora: string): Promise<CortesiaLinha[]> {
   return await all<CortesiaLinha>(
     `SELECT id, company_id, plan_slug, starts_at, ends_at, reason, notes, canceled_at,
             created_by_name, canceled_by_name, created_at
