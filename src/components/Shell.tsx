@@ -9,7 +9,14 @@ import { EXTRA_NAV, MOBILE_NAV, NAV, comRotuloOperacoes, itensParaPlano, visivel
 import { pokeUnread } from "@/lib/chat-unread";
 import { useUnread } from "@/lib/use-unread";
 
-type User = { id: number; name: string; role: string; avatar_url?: string | null };
+type User = {
+  id: number;
+  name: string;
+  role: string;
+  avatar_url?: string | null;
+  /** Operador da plataforma (dono do SaaS): libera o atalho para /saas. */
+  platform_admin?: boolean;
+};
 
 const active = (pathname: string, href: string) =>
   pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
@@ -22,6 +29,7 @@ export function Sidebar({
   operacaoLabel,
   planoSlug,
   ajustes,
+  platformAdmin,
 }: {
   company: string;
   logo?: string;
@@ -31,6 +39,8 @@ export function Sidebar({
   planoSlug?: string | null;
   /** Personalizações da empresa (liberações/bloqueios/cortesia) — só apresentação. */
   ajustes?: AjustesMenu | null;
+  /** Só o operador da plataforma (dono do SaaS) vê o atalho para /saas. */
+  platformAdmin?: boolean;
 }) {
   const pathname = usePathname();
   // No desktop a lateral fica fixa (sticky) com a altura da viewport: quando os
@@ -77,6 +87,21 @@ export function Sidebar({
        * e sempre o Locô, igual para todo tenant — a logo do cliente nunca
        * substitui a marca global do SaaS.
        */}
+      {/* Atalho de VOLTA para o painel administrativo da plataforma — existe
+          só para o operador do SaaS (quem tem users.platform_admin); o locador
+          comum nunca vê este link e segue direto na operação. Espelho do botão
+          "Ambiente operacional" que existe no SaasShell. */}
+      {platformAdmin && (
+        <div className="border-t border-nuvem-200 p-3">
+          <Link
+            href="/saas"
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-stone-600 hover:bg-nuvem-100"
+            title="Abrir o painel administrativo da plataforma"
+          >
+            <Icon name="seta" className="h-3.5 w-3.5" /> Painel administrativo
+          </Link>
+        </div>
+      )}
       <div className="flex items-center gap-2 border-t border-nuvem-200 px-4 py-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/icones/icone-512.png" alt="" className="h-7 w-7 shrink-0" />
@@ -161,6 +186,18 @@ export function TopBar({
                   <p className="text-sm font-bold text-tinta-900">{user.name}</p>
                   <p className="text-xs capitalize text-stone-500">{user.role}</p>
                 </div>
+                {/* Atalho para o painel /saas — SOMENTE platform_admin (dono
+                    do sistema). Fica no menu do avatar porque ele é o único
+                    ponto de navegação comum a celular e desktop. */}
+                {user.platform_admin && (
+                  <Link
+                    href="/saas"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-nuvem-50"
+                  >
+                    <Icon name="seta" className="h-4 w-4" /> Painel administrativo
+                  </Link>
+                )}
                 <Link
                   href="/configuracoes"
                   onClick={() => setOpen(false)}
