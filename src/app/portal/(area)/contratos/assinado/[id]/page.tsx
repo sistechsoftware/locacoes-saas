@@ -7,6 +7,7 @@ import { getCompanySignature } from "@/lib/assinatura-empresa";
 import { getSettings } from "@/lib/settings";
 import { dateTimeBR } from "@/lib/format";
 import ContratoTexto from "@/components/ContratoTexto";
+import CabecalhoContrato from "@/components/CabecalhoContrato";
 import PrintButton from "@/app/(app)/contratos/[id]/PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,19 @@ export default async function PortalContratoAssinadoPage({ params }: { params: P
         <PrintButton />
 
         <article className="cartao p-5 sm:p-6">
+          {/* identidade da locadora acima do documento — mesmo cabeçalho
+              do link de assinatura (logo, CNPJ, telefone, endereço) */}
+          <CabecalhoContrato
+            className="mb-4 border-b border-nuvem-200 pb-3"
+            nome={s.company_name}
+            subtitulo={`Contrato ${doc.contract_number}`}
+            logo={s.company_logo}
+            doc={s.company_doc}
+            telefone={s.company_phone}
+            endereco={s.company_address}
+            cidade={s.company_city}
+          />
+
           <ContratoTexto texto={doc.body_snapshot} className="break-words text-sm leading-relaxed text-tinta-800" />
 
           <section className="mt-8 border-t border-nuvem-200 pt-4">
