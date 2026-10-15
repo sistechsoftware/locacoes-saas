@@ -95,15 +95,25 @@ export default async function ErrosPage({
                     {[e.user_name, e.digest ? `digest ${e.digest}` : "", ctx].filter(Boolean).join(" · ")}
                   </p>
                 )}
-                {podeResolver && (
-                  <form action={alternarResolvido} className="pt-1">
-                    <input type="hidden" name="id" value={e.id} />
-                    <input type="hidden" name="resolvido" value={e.resolved ? "0" : "1"} />
-                    <button className="text-xs text-blue-600 hover:underline">
-                      {e.resolved ? "Reabrir" : "Marcar como resolvido"}
-                    </button>
-                  </form>
-                )}
+                <div className="flex flex-wrap items-center gap-4 pt-1">
+                  {podeResolver && (
+                    <form action={alternarResolvido}>
+                      <input type="hidden" name="id" value={e.id} />
+                      <input type="hidden" name="resolvido" value={e.resolved ? "0" : "1"} />
+                      <button className="text-xs text-blue-600 hover:underline">
+                        {e.resolved ? "Reabrir" : "Marcar como resolvido"}
+                      </button>
+                    </form>
+                  )}
+                  <Link
+                    href={`/suporte/novo?assunto=${encodeURIComponent(e.message.slice(0, 120))}&descricao=${encodeURIComponent(
+                      `Erro ${e.kind} #${e.id}${e.route ? ` — rota ${e.route}` : ""}\n${e.message}${e.digest ? `\ndigest: ${e.digest}` : ""}`,
+                    )}`}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Abrir chamado de suporte
+                  </Link>
+                </div>
               </div>
             );
           })}

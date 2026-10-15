@@ -29,9 +29,14 @@ import { lerVarWorker } from "./worker-env";
 /** Segredos: gravados cifrados (AES-GCM) e nunca exibidos de volta. */
 const SEGREDOS = new Set(["asaas_api_key", "asaas_webhook_token"]);
 /** Não-sensíveis: valor legível pelo painel. */
-const TEXTOS = new Set(["asaas_environment"]);
+const TEXTOS = new Set(["asaas_environment", "suporte_email", "suporte_whatsapp"]);
 
-export type ChavePlataforma = "asaas_api_key" | "asaas_environment" | "asaas_webhook_token";
+export type ChavePlataforma =
+  | "asaas_api_key"
+  | "asaas_environment"
+  | "asaas_webhook_token"
+  | "suporte_email"
+  | "suporte_whatsapp";
 
 export function ehSegredo(chave: string): boolean {
   return SEGREDOS.has(chave);
@@ -154,7 +159,7 @@ export async function configGravada(chave: ChavePlataforma): Promise<boolean> {
  */
 export async function gravarConfig(chave: ChavePlataforma, valor: string | null): Promise<void> {
   chaveValida(chave);
-  const limpo = (valor ?? "").trim();
+  let limpo = (valor ?? "").trim();
 
   if (!limpo) {
     await run(`DELETE FROM platform_settings WHERE key = ?`, [chave]);
@@ -164,6 +169,12 @@ export async function gravarConfig(chave: ChavePlataforma, valor: string | null)
   if (chave === "asaas_environment" && limpo !== "sandbox" && limpo !== "production") {
     throw new Error('Ambiente do Asaas só pode ser "sandbox" ou "production".');
   }
+  // Canal de suporte: e-mail precisa ter formato válido e o WhatsApp é
+  // gravado só com dígitos (é o que o wa.me aceita na URL).
+  if (chave === "suporte_email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpo)) {
+    throw new Error("E-mail de suporte inválido.");
+  }
+  if (chave === "suporte_whatsapp") limpo = limpo.replace(/\D/g, "");
 
   const guardado = ehSegredo(chave) ? await cifrarValor(limpo) : limpo;
   await run(

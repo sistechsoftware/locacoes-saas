@@ -1,9 +1,10 @@
 import { requirePlatformAdmin } from "@/lib/auth";
 import { asaasEnvironment } from "@/lib/asaas";
-import { credenciaisAsaas } from "@/lib/platform-settings";
+import { credenciaisAsaas, lerConfig } from "@/lib/platform-settings";
 import { emailEstado, type MotivoEmail } from "@/lib/email";
 import { Card } from "@/components/ui";
 import FormAsaas, { type EstadoIntegracao } from "./FormAsaas";
+import FormSuporte from "./FormSuporte";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,10 @@ export default async function SaasConfiguracoesPage() {
   const asaas = await asaasEnvironment();
   const cred = await credenciaisAsaas();
   const email = ESTADO_EMAIL[await emailEstado()];
+  const [suporteEmail, suporteWhats] = await Promise.all([
+    lerConfig("suporte_email"),
+    lerConfig("suporte_whatsapp"),
+  ]);
 
   const estado: EstadoIntegracao = {
     ambiente: cred.environment,
@@ -98,6 +103,15 @@ export default async function SaasConfiguracoesPage() {
             <code className="rounded bg-stone-100 px-1">/erros</code>.
           </p>
         </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">Contato de suporte</h2>
+        <p className="mt-1 text-xs text-stone-500">
+          Exibido para a empresa quando a assinatura está <b>bloqueada</b> (ela não entra no sistema, mas precisa de
+          ajuda) e como canal alternativo de atendimento. Valores não-sensíveis: ficam em claro no banco de propósito.
+        </p>
+        <FormSuporte email={suporteEmail ?? ""} whatsapp={suporteWhats ?? ""} />
       </Card>
     </div>
   );

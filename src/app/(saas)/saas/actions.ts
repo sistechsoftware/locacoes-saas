@@ -168,7 +168,7 @@ export async function salvarIntegracaoAsaasAction(
 
   try {
     for (const chave of campos) {
-      const bruto = entrada[chave];
+      const bruto = entrada[chave as keyof EntradaIntegracao];
       if (typeof bruto === "string" && bruto.trim()) {
         await gravarConfig(chave, bruto.trim());
       }
@@ -198,6 +198,46 @@ export async function salvarIntegracaoAsaasAction(
     return { ok: true, mensagem: "Integração salva." };
   } catch (e: any) {
     return { ok: false, mensagem: e?.message ?? "Falha ao salvar a integração." };
+  }
+}
+
+/**
+ * Contato de suporte da plataforma (e-mail e WhatsApp) — exibido na tela de
+ * assinatura BLOQUEADA e nos avisos de contato. São valores não-sensíveis
+ * (TEXTOS de platform-settings), gravados em claro de propósito: o cliente
+ * precisa deles para conseguir ajuda justamente quando não consegue entrar.
+ * Só platform_admin; campo vazio na lista `limpar` apaga o canal.
+ */
+export async function salvarContatoSuporteAction(
+  entrada: { suporte_email?: string; suporte_whatsapp?: string },
+  limpar: ChavePlataforma[] = [],
+): Promise<AcaoResultado> {
+  const admin = await assertPlatformAdmin();
+  const campos: ChavePlataforma[] = ["suporte_email", "suporte_whatsapp"];
+  try {
+    for (const chave of campos) {
+      const bruto = entrada[chave as keyof typeof entrada];
+      if (typeof bruto === "string" && bruto.trim()) {
+        await gravarConfig(chave, bruto.trim());
+      }
+    }
+    for (const chave of limpar) {
+      if (!campos.includes(chave)) continue;
+      await gravarConfig(chave, null);
+    }
+    await logAction(
+      admin,
+      "plataforma.contato_suporte",
+      "platform_setting",
+      null,
+      "Contato de suporte atualizado pelo painel",
+      { limpos: limpar },
+    );
+    revalidatePath("/saas/configuracoes");
+    revalidatePath("/assinatura-bloqueada");
+    return { ok: true, mensagem: "Contato de suporte salvo." };
+  } catch (e: any) {
+    return { ok: false, mensagem: e?.message ?? "Falha ao salvar o contato." };
   }
 }
 

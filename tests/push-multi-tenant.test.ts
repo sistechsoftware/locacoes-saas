@@ -4,7 +4,7 @@
  * Cobre o caminho real do cron (custom-worker -> paraCadaEmpresa ->
  * runNotificationScheduler) com DUAS empresas no mesmo banco:
  *
- *   1. regras de notificação: toda empresa tem as 12 regras padrão, com a
+ *   1. regras de notificação: toda empresa tem as 13 regras padrão, com a
  *      UNIQUE (company_id, type) — era isso que faltava para a empresa != 1
  *      aparecer na tela de preferências e ser encontrada pelo cron
  *      (LEFT JOIN notification_rules -> NULL -> rule_enabled = false ->
@@ -40,9 +40,10 @@ afterEach(() => {
 const cont = async (sql: string, p: any[] = []) => (await scalar<number>(sql, p)) ?? 0;
 
 /**
- * Executa EXATAMENTE o statement de backfill da migration 0034 (o mesmo texto
- * que o wrangler aplica em produção), para uma empresa criada depois das
- * migrations — é o caminho de "empresa já existente" da pendência.
+ * Executa EXATAMENTE os statements de regra padrão das migrations (o mesmo
+ * texto que o wrangler aplica em produção): 0034 (as 12 regras originais) e
+ * 0041 (a regra do tipo 'suporte', das 13). Para uma empresa criada depois
+ * das migrations — é o caminho de "empresa já existente" da pendência.
  */
 async function backfillDaMigration() {
   const arquivo = fs.readFileSync(path.resolve("migrations/0034_notification_rules_multi_tenant.sql"), "utf8");
@@ -53,6 +54,13 @@ async function backfillDaMigration() {
   const f = arquivo.indexOf(";", iInsert);
   assert.ok(i >= 0 && f > i, "statement de backfill não encontrado na migration 0034");
   await run(arquivo.slice(i, f + 1));
+
+  // 0041 — regra do suporte para toda empresa existente (INSERT OR IGNORE).
+  const suporte = fs.readFileSync(path.resolve("migrations/0041_suporte.sql"), "utf8");
+  const iSup = suporte.indexOf("INSERT OR IGNORE INTO notification_rules");
+  const fSup = suporte.indexOf(";", iSup);
+  assert.ok(iSup >= 0 && fSup > iSup, "statement de regra do suporte não encontrado na migration 0041");
+  await run(suporte.slice(iSup, fSup + 1));
 }
 
 /** Duas empresas reais, com equipe e as regras da empresa 2 via backfill 0034. */
@@ -92,10 +100,11 @@ const tick = (companyId: number, sender?: Sender) =>
   runWithCompany(companyId, () => runNotificationScheduler(getDb(), NOW, sender));
 
 describe("regras de notificação por empresa (migration 0034)", () => {
-  it("empresa existente recebe as 12 regras padrão sem tocar nas da empresa 1", async () => {
+  it("empresa existente recebe as 13 regras padrão sem tocar nas da empresa 1", async () => {
     await run(`INSERT INTO companies (id, name, active) VALUES (2, 'Empresa ZB', 1)`);
     const antes = await all(`SELECT type, enabled, offsets, message FROM notification_rules WHERE company_id = 1 ORDER BY type`);
-    assert.equal(antes.length, 12, "empresa 1 deveria já ter as 12 regras");
+    // 12 da 0034 + a regra do suporte semeada pela 0041.
+    assert.equal(antes.length, 13, "empresa 1 deveria já ter as 13 regras");
 
     await backfillDaMigration();
 
@@ -105,7 +114,7 @@ describe("regras de notificação por empresa (migration 0034)", () => {
     const daZb = await all<{ type: string; enabled: number; offsets: string; message: string }>(
       `SELECT type, enabled, offsets, message FROM notification_rules WHERE company_id = 2 ORDER BY type`,
     );
-    assert.equal(daZb.length, 12, `empresa 2 ficou com ${daZb.length} regras`);
+    assert.equal(daZb.length, 13, `empresa 2 ficou com ${daZb.length} regras`);
     assert.deepEqual(
       daZb.map((r) => r.type).sort(),
       Object.keys(NOTIFICATION_TYPES).sort(),
@@ -122,8 +131,8 @@ describe("regras de notificação por empresa (migration 0034)", () => {
 
     // idempotente: rodar de novo não duplica nem muda nada
     await backfillDaMigration();
-    assert.equal(await cont(`SELECT COUNT(*) FROM notification_rules WHERE company_id = 2`), 12);
-    assert.equal(await cont(`SELECT COUNT(*) FROM notification_rules WHERE company_id = 1`), 12);
+    assert.equal(await cont(`SELECT COUNT(*) FROM notification_rules WHERE company_id = 2`), 13);
+    assert.equal(await cont(`SELECT COUNT(*) FROM notification_rules WHERE company_id = 1`), 13);
   });
 
   it("a UNIQUE é (company_id, type): mesmos tipos convivem em empresas diferentes", async () => {
@@ -157,7 +166,7 @@ describe("regras de notificação por empresa (migration 0034)", () => {
       Object.keys(NOTIFICATION_TYPES).sort(),
       "REGRAS_PADRAO saiu de sincronia com os tipos da tela",
     );
-    assert.equal(REGRAS_PADRAO.length, 12, "esperavam-se as 12 regras padrão (0006 + 0010 + 0014)");
+    assert.equal(REGRAS_PADRAO.length, 13, "esperavam-se as 13 regras padrão (0006 + 0010 + 0014 + 0041)");
   });
 });
 

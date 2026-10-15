@@ -80,6 +80,8 @@ export type ChatSaveOptions = {
   tipo?: "audio";
   esperado?: string;
   audioSeconds?: number | null;
+  /** Rótulo do canal nas mensagens de erro (padrão "chat"); o suporte usa "suporte". */
+  origem?: string;
 };
 
 export type ChatSavedFile = {
@@ -100,7 +102,7 @@ export async function saveChatAttachment(file: File, opts: ChatSaveOptions = {})
   const maxBytes = opts.maxBytes ?? 1_500_000;
   const nome = (file.name || "arquivo").slice(0, 200);
   if (CHAT_FORBIDDEN_EXT.test(nome)) {
-    throw new UploadError("Este tipo de arquivo não é permitido no chat por segurança.");
+    throw new UploadError(`Este tipo de arquivo não é permitido no ${opts.origem ?? "chat"} por segurança.`);
   }
   if (file.size > maxBytes) {
     throw new UploadError(

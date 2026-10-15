@@ -40,6 +40,7 @@ export const NAV: NavItem[] = [
   { href: "/fretes", label: "Fretes", icon: "fretes" },
   { href: "/relatorios", label: "Relatórios", icon: "relatorios" },
   { href: "/historico", label: "Histórico", icon: "historico" },
+  { href: "/suporte", label: "Suporte", icon: "suporte" },
   { href: "/erros", label: "Diário de erros", icon: "configuracoes", adminOnly: true },
   { href: "/configuracoes", label: "Configurações", icon: "configuracoes" },
 ];
@@ -61,6 +62,7 @@ export const SAAS_NAV = [
   { href: "/saas/assinaturas", label: "Assinaturas", icon: "contratos" },
   { href: "/saas/cobrancas", label: "Cobranças", icon: "financeiro" },
   { href: "/saas/eventos", label: "Eventos Asaas", icon: "historico" },
+  { href: "/saas/suporte", label: "Suporte", icon: "suporte" },
   { href: "/saas/atividade", label: "Atividade", icon: "sino" },
   { href: "/saas/configuracoes", label: "Integrações", icon: "configuracoes" },
 ] as const;

@@ -440,6 +440,9 @@ const PAGINAS: Record<string, string> = {
   "src/app/(app)/reservas/nova/page.tsx": "reservas",
   "src/app/(app)/reservas/[id]/page.tsx": "reservas",
   "src/app/(app)/reservas/[id]/editar/page.tsx": "reservas",
+  "src/app/(app)/suporte/page.tsx": "suporte",
+  "src/app/(app)/suporte/novo/page.tsx": "suporte",
+  "src/app/(app)/suporte/[id]/page.tsx": "suporte",
 };
 
 const rel = (abs: string) => path.relative(ROOT, abs).split(path.sep).join("/");
