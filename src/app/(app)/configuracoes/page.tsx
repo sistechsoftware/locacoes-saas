@@ -394,9 +394,15 @@ export default async function ConfiguracoesPage({
             <Empty>Nenhuma finalidade cadastrada.</Empty>
           ) : (
             <ul className="divide-y divide-nuvem-200">
+              {/* Mobile: o grupo da direita (sem uso + badge + Desativar) é
+                  shrink-0 e sozinho leva ~210px; com o form em flex-1/basis-0
+                  o <li> nunca quebrava a linha e o input do nome ficava com
+                  ~45px — so dava pra ler "Cc", "Dv"... Abaixo de 640px as duas
+                  metades empilham e o nome ocupa a linha inteira; de sm em
+                  diante continua como antes. */}
               {finalidades.map((f: any) => (
-                <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                  <form action={renamePurpose} className="flex min-w-0 flex-1 items-center gap-2">
+                <li key={f.id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                  <form action={renamePurpose} className="flex min-w-0 items-center gap-2 sm:flex-1">
                     <input type="hidden" name="id" value={f.id} />
                     <input
                       name="name"
@@ -409,7 +415,7 @@ export default async function ConfiguracoesPage({
                       Renomear
                     </SubmitButton>
                   </form>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
                     <span className="text-xs text-stone-500">
                       {f.usos > 0 ? `${f.usos} saída(s)` : "sem uso"}
                     </span>
