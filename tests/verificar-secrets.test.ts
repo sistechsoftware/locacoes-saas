@@ -19,6 +19,7 @@ import {
   resolverTrio,
   regraAmbiente,
   segredoCifrado,
+  esperadosDe,
 } from "../scripts/verificar-secrets.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -120,6 +121,31 @@ describe("segredoCifrado (invariante: segredo do painel nunca em claro)", () => 
   it("asaas_environment é texto público: em claro é aceito", () => {
     assert.equal(segredoCifrado("asaas_environment", "production"), true);
     assert.equal(segredoCifrado("asaas_environment", "sandbox"), true);
+  });
+});
+
+describe("esperadosDe (o trio Asaas nunca sai da cobrança)", () => {
+  const obrigatoriosDoWrangler = [
+    "VAPID_PUBLIC_KEY",
+    "VAPID_PRIVATE_KEY",
+    "RESEND_API_KEY",
+    "RESEND_FROM",
+  ];
+
+  it("cobre o trio mesmo quando o wrangler.jsonc não o declara (envs named)", () => {
+    const r = esperadosDe(obrigatoriosDoWrangler);
+    for (const segredo of TRIO_ASAAS) {
+      assert.ok(r.includes(segredo), `${segredo} precisa seguir sendo cobrado`);
+    }
+    for (const nome of obrigatoriosDoWrangler) assert.ok(r.includes(nome));
+    assert.equal(r.length, obrigatoriosDoWrangler.length + TRIO_ASAAS.length);
+  });
+
+  it("não duplica quando o trio ainda está em secrets.required (top-level/dev)", () => {
+    const comTrio = [...obrigatoriosDoWrangler, ...TRIO_ASAAS];
+    const r = esperadosDe(comTrio);
+    assert.equal(r.length, comTrio.length, "union precisa deduplicar");
+    assert.equal(new Set(r).size, r.length);
   });
 });
 
