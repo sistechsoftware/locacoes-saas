@@ -8,6 +8,7 @@ import { ehAdmin } from "@/lib/roles";
 import { podeCriarUsuario } from "@/lib/billing";
 import { atualizarUsuario, criarUsuario, excluirUsuario, alternarStatusUsuario } from "@/lib/usuarios";
 import { getSettings, setSettings } from "@/lib/settings";
+import { espelharDadosEmpresa } from "@/lib/espelho-empresa";
 import { resolverOperacao, validarOperacaoForm } from "@/lib/operacao";
 import { restaurarOperacaoConfig, salvarOperacaoConfig } from "@/lib/operacao-db";
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
@@ -64,23 +65,23 @@ export async function saveCompanySettings(fd: FormData): Promise<void> {
 
   await setSettings(values);
   /**
-   * Espelho no cadastro da empresa: a cobrança (Asaas) consulta
-   * companies.document/email, e este formulário é a tela que os alimenta —
-   * um salvar, os dois lugares. Documento sai normalizado (só dígitos).
+   * Espelho COMPLETO no cadastro da empresa (companies): nome, documento,
+   * e-mail, telefone, whatsapp, endereço e cidade acompanham o que a tela
+   * acabou de salvar. A cobrança (Asaas), o painel SaaS e a sessão leem
+   * companies — sem este espelho, renomear a empresa mudava só o KV e o
+   * cadastro comercial ficava para sempre com o nome do onboarding.
+   * A regra de sobrescrita de cada coluna (e a proteção do que o onboarding
+   * gravou) vive em lib/espelho-empresa.ts; documento sai só com dígitos.
    */
-  const docLimpo = values.company_doc.replace(/\D/g, "");
-  if (docLimpo) {
-    await run(`UPDATE companies SET document = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [
-      docLimpo,
-      user.company_id,
-    ]);
-  }
-  if (values.company_email) {
-    await run(`UPDATE companies SET email = ?, updated_at = datetime('now','localtime') WHERE id = ?`, [
-      values.company_email,
-      user.company_id,
-    ]);
-  }
+  await espelharDadosEmpresa(user.company_id, {
+    name: values.company_name,
+    document: values.company_doc,
+    email: values.company_email,
+    phone: values.company_phone,
+    whatsapp: values.company_whatsapp,
+    address: values.company_address,
+    city: values.company_city,
+  });
   await logAction(user, "editar", "configuracao", null, `${user.name} atualizou os dados da empresa`);
   revalidatePath("/configuracoes");
   revalidatePath("/dashboard", "layout");
