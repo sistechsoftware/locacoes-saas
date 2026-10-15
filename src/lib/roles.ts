@@ -36,7 +36,8 @@ export type Module =
   | "configuracoes"
   | "usuarios"
   | "assinatura"
-  | "erros";
+  | "erros"
+  | "suporte";
 
 /** Papéis que podem visualizar cada módulo. Escrita exige edição (abaixo). */
 const VIEW: Record<Module, readonly Role[]> = {
@@ -62,6 +63,9 @@ const VIEW: Record<Module, readonly Role[]> = {
   usuarios:      ["owner", "admin"],
   assinatura:    ["owner", "admin"],
   erros:         ["owner", "admin"],
+  /* Suporte é FUNDAMENTAL (canal de atendimento de todo plano — relatório de
+     implementação): todo papel vê os chamados da própria empresa. */
+  suporte:       ["owner", "admin", "operacional", "financeiro", "viewer"],
 };
 
 /** Papéis que podem alterar dados de cada módulo (server-side, em toda escrita). */
@@ -94,6 +98,9 @@ const EDIT: Record<Module, readonly Role[]> = {
   usuarios:      ["owner", "admin"],
   assinatura:    ["owner", "admin"],
   erros:         ["owner", "admin"],
+  /* Abrir e responder chamado: mesma liberdade do chat (quem usa o sistema
+     encontra o problema); viewer apenas acompanha. */
+  suporte:       ["owner", "admin", "operacional", "financeiro"],
 };
 
 /** O papel pode VER o módulo? */

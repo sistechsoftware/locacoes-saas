@@ -2,14 +2,15 @@ export const NOTIFICATION_TYPES = {
   entrega: "Entregas", retirada: "Retiradas", montagem: "Montagens", desmontagem: "Desmontagens",
   separacao: "Separacao de materiais", reserva: "Reservas", frete: "Fretes", financeiro: "Financeiro",
   alteracao: "Alteracoes", cancelamento: "Cancelamentos", aniversario: "Aniversariantes",
-  chat: "Mensagens do chat",
+  chat: "Mensagens do chat", suporte: "Respostas do suporte",
 };
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
 
 /**
- * As 12 regras padrao, uma por tipo de notificacao — a fonte TS das linhas
+ * As 13 regras padrao, uma por tipo de notificacao — a fonte TS das linhas
  * que a migration 0034 semeia para CADA empresa (0006 = 10 tipos, 0010 =
- * aniversario sem lembrete, 0014 = chat com aviso imediato).
+ * aniversario sem lembrete, 0014 = chat com aviso imediato, 0041 = suporte
+ * com aviso imediato; a 0041 semeia o tipo novo nas empresas existentes).
  *
  * Usada pelo onboarding para nascer com as regras da empresa nova; o teste de
  * paridade (tests/push-multi-tenant.test.ts) garante que esta lista, os tipos
@@ -28,6 +29,7 @@ export const REGRAS_PADRAO: { type: NotificationType; enabled: 0 | 1; offsets: s
   { type: "cancelamento", enabled: 1, offsets: "[60,0]", message: "" },
   { type: "aniversario", enabled: 1, offsets: "[]", message: "" },
   { type: "chat", enabled: 1, offsets: "[0]", message: "" },
+  { type: "suporte", enabled: 1, offsets: "[0]", message: "" },
 ];
 export const OFFSETS = [1440, 720, 120, 60, 30, 15, 0];
 export const ROLE_KINDS: Record<string, string[]> = {

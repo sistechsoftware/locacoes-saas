@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { estadoAssinaturaSeguro } from "@/lib/assinatura-gate";
+import { lerConfig } from "@/lib/platform-settings";
 import GerarCobrancaButton from "../(app)/faturamento/GerarCobrancaButton";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,39 @@ function SairDaConta() {
 }
 
 /**
+ * Canal de suporte exibido no bloqueio: o cliente que não consegue entrar é
+ * justamente quem mais precisa de ajuda (cobrança/dúvida). Os valores vêm do
+ * cadastro do painel /saas (platform_settings); sem cadastro, o bloco some.
+ */
+function ContatoSuporte({ email, whatsapp }: { email: string | null; whatsapp: string | null }) {
+  if (!email && !whatsapp) return null;
+  const msg = encodeURIComponent("Olá! Estou com a conta bloqueada no sistema Locô e preciso de ajuda.");
+  return (
+    <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-left text-sm text-sky-900">
+      <p className="font-bold">Precisa de ajuda? O suporte continua disponível.</p>
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+        {email && (
+          <a className="font-semibold underline" href={`mailto:${email}`}>
+            {email}
+          </a>
+        )}
+        {whatsapp && (
+          <a
+            className="font-semibold underline"
+            href={`https://wa.me/${whatsapp.replace(/\D/g, "")}?text=${msg}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Falar no WhatsApp
+          </a>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-sky-700">Atendimento para dúvidas de cobrança e acesso — mesmo com a conta bloqueada.</p>
+    </div>
+  );
+}
+
+/**
  * Tela de bloqueio por assinatura (trial expirado, suspenso ou cancelado).
  *
  * FORA do grupo (app) DE PROPÓSITO — correção do loop infinito de suspensão:
@@ -46,7 +80,11 @@ export default async function AssinaturaBloqueadaPage() {
   // Esta tela É o bloqueio: é o segundo (e último) ponto autorizado a ignorar
   // o gate — sem isso o usuário ficaria preso num erro em vez de vê-la.
   const user = await requireUser({ bloqueio: "ignorar" });
-  const estado = await estadoAssinaturaSeguro(user.company_id);
+  const [estado, suporteEmail, suporteWhats] = await Promise.all([
+    estadoAssinaturaSeguro(user.company_id),
+    lerConfig("suporte_email"),
+    lerConfig("suporte_whatsapp"),
+  ]);
 
   // Visita direta com assinatura em ordem (trial vigente, ativa ou em
   // tolerância): isto não é tela de bloqueio — devolve para o sistema em vez
@@ -116,6 +154,7 @@ export default async function AssinaturaBloqueadaPage() {
               Fale com o proprietário da conta para regularizar o pagamento.
             </p>
           )}
+          <ContatoSuporte email={suporteEmail} whatsapp={suporteWhats} />
           <SairDaConta />
         </div>
       </div>
