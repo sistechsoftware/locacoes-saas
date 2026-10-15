@@ -8,6 +8,7 @@ import { dateTimeBR, docBR } from "@/lib/format";
 import { Alerta, Card, PageHeader } from "@/components/ui";
 import PrintButton from "../../[id]/PrintButton";
 import ContratoTexto from "@/components/ContratoTexto";
+import CabecalhoContrato from "@/components/CabecalhoContrato";
 
 export const dynamic = "force-dynamic";
 
@@ -54,11 +55,18 @@ export default async function DocumentoAssinadoPage({ params }: { params: Promis
       </div>
 
       <article className="cartao p-6 print:border-0 print:p-0 print:shadow-none">
-        <header className="mb-4 border-b border-nuvem-200 pb-3 text-center">
-          <p className="text-base font-bold text-tinta-900">{s.company_name}</p>
-          {s.company_doc && <p className="text-xs text-stone-500">{docBR(s.company_doc)}</p>}
-          <p className="mt-1 text-sm font-semibold">{doc.contract_number}</p>
-        </header>
+        {/* mesmo cabeçalho do link de assinatura: identidade da locadora
+            (logo, CNPJ, telefone, endereço) + número da via */}
+        <CabecalhoContrato
+          className="mb-4 border-b border-nuvem-200 pb-3"
+          nome={s.company_name}
+          subtitulo={doc.contract_number}
+          logo={s.company_logo}
+          doc={s.company_doc}
+          telefone={s.company_phone}
+          endereco={s.company_address}
+          cidade={s.company_city}
+        />
 
         <ContratoTexto texto={doc.body_snapshot} className="break-words text-sm leading-relaxed text-tinta-800" />
 

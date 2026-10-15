@@ -6,6 +6,7 @@ import { operacaoDaEmpresa } from "@/lib/operacao-db";
 import { dateBR, dateTimeBR, money, nowLocal } from "@/lib/format";
 import PainelAssinatura from "./PainelAssinatura";
 import ContratoTexto from "@/components/ContratoTexto";
+import CabecalhoContrato from "@/components/CabecalhoContrato";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +41,19 @@ export default async function AssinarPage({ params }: { params: Promise<{ token:
 
   return (
     <main className="mx-auto min-h-dvh max-w-2xl bg-nuvem-50 px-4 py-6 sm:py-10">
-      <header className="mb-4 text-center">
-        <h1 className="text-lg font-bold text-tinta-900">{s.company_name}</h1>
-        <p className="text-sm text-stone-600">Contrato de Locação {registro.contract_number}</p>
-      </header>
+      {/* Cabeçalho do contrato: logo (se cadastrada), nome, CNPJ/CPF,
+          telefone e endereço — dados da empresa dona do registro, os mesmos
+          que já abrem o corpo do contrato (LOCADORA). */}
+      <CabecalhoContrato
+        className="mb-4"
+        nome={s.company_name}
+        subtitulo={`Contrato de Locação ${registro.contract_number}`}
+        logo={s.company_logo}
+        doc={s.company_doc}
+        telefone={s.company_phone}
+        endereco={s.company_address}
+        cidade={s.company_city}
+      />
 
       <section className="cartao mb-4 p-4">
         <dl className="space-y-1 text-sm">
