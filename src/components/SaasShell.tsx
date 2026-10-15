@@ -84,7 +84,11 @@ export function SaasShell({ user, children }: { user: User; children: React.Reac
             <span className="hidden min-w-0 flex-1 truncate text-sm font-bold text-tinta-900 md:block">
               Administração da plataforma
             </span>
-            <div className="relative shrink-0">
+            {/* ml-auto apenas no mobile: sem o título (oculto em telas pequenas)
+                não havia nada empurrando o avatar para a direita. No desktop o
+                título com flex-1 já ocupa o espaço livre, então md:ml-0 mantém
+                o comportamento atual intacto. */}
+            <div className="relative ml-auto shrink-0 md:ml-0">
               <button
                 onClick={() => setOpen((v) => !v)}
                 className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full"
