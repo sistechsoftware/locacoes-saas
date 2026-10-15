@@ -126,6 +126,18 @@ export function SaasShell({ user, children }: { user: User; children: React.Reac
                   {n.label}
                 </Link>
               ))}
+              {/* Mesmo atalho do rodapé da barra lateral (desktop): sem isto o
+                  celular não tinha nenhuma saída para a operação — o link
+                  "Ambiente operacional" só existia dentro do aside oculto. */}
+              <div className="my-1 border-t border-nuvem-200" />
+              <Link
+                href="/dashboard"
+                onClick={() => setMenuMobile(false)}
+                className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium text-tinta-700 hover:bg-nuvem-100"
+                title="Abrir o ambiente operacional (da sua empresa vinculada)"
+              >
+                <Icon name="seta" className="h-[18px] w-[18px]" /> Ambiente operacional
+              </Link>
             </nav>
           )}
         </header>

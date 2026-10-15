@@ -74,6 +74,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         operacaoLabel={tituloOperacoes(operacao)}
         planoSlug={planoSlug}
         ajustes={ajustes}
+        platformAdmin={user.platform_admin}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar user={user} company={settings.company_name} logo={settings.company_logo} planoSlug={planoSlug} ajustes={ajustes} />
