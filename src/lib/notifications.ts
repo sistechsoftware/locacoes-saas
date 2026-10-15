@@ -206,21 +206,42 @@ export async function rebuildNotifications({ force = false } = {}) {
      O dedupe_key e UNICO no banco inteiro, entao recebe o prefixo da empresa —
      duas empresas nunca disputam a mesma chave (ex.: `op-7`). */
   const chave = (k: string) => `c${cid}:${k}`;
-  const keep = alertas.map((a) => chave(a.dedupe_key));
+  const keep = new Set(alertas.map((a) => chave(a.dedupe_key)));
   const escritas: { sql: string; params: any[] }[] = alertas.map((a) => ({
     sql: UPSERT_SQL,
     params: [cid, a.type, a.severity, a.title, a.body ?? null, a.link ?? null, chave(a.dedupe_key)],
   }));
-  escritas.push(
-    keep.length
-      ? {
-          sql: `DELETE FROM notifications WHERE company_id = ? AND dedupe_key IS NOT NULL AND dedupe_key NOT IN (${keep
-            .map(() => "?")
-            .join(",")})`,
-          params: [cid, ...keep],
-        }
-      : { sql: `DELETE FROM notifications WHERE company_id = ? AND dedupe_key IS NOT NULL`, params: [cid] },
+
+  /*
+   * Limpeza dos alertas que sairam — em FATIAS, nunca numa query so.
+   *
+   * O D1 limita 100 parametros por query (docs oficiais: "Maximum bound
+   * parameters per query: 100"). O DELETE antigo embutia UM `?` por chave viva:
+   * acima de ~99 alertas abertos a query estourava "too many SQL variables" e
+   * o batch INTEIRO falhava (D1 batch e atomico) — o rebuild inteiro morria e
+   * /dashboard e /notificacoes/alertas paravam de renderizar. Reproduzido na
+   * auditoria com uma locadora de 600 reservas (209+ alertas): pagina quebrada
+   * toda vez que a contagem passava de 100, recuperando quando caia abaixo —
+   * quebra INTERMITENTE, nao lenteza aleatoria.
+   *
+   * As fatias usam `IN` (e nao `NOT IN`) e sao disjuntas: cada DELETE apaga
+   * somente as chaves daquela fatia, entao nenhuma fatia pode apagar a chave
+   * que outra fatia deveria preservar. A leitura dos existentes vem tambem do
+   * banco (1 ida extra, com no maximo as chaves da propria empresa).
+   */
+  const existentes = await all<{ dedupe_key: string }>(
+    `SELECT dedupe_key FROM notifications WHERE company_id = ? AND dedupe_key IS NOT NULL`,
+    [cid],
   );
+  const paraRemover = existentes.map((r) => r.dedupe_key).filter((k) => !keep.has(k));
+  const FATIA = 90; // 90 chaves + 1 company_id = 91 < 100 (limite do D1)
+  for (let i = 0; i < paraRemover.length; i += FATIA) {
+    const fatia = paraRemover.slice(i, i + FATIA);
+    escritas.push({
+      sql: `DELETE FROM notifications WHERE company_id = ? AND dedupe_key IN (${fatia.map(() => "?").join(",")})`,
+      params: [cid, ...fatia],
+    });
+  }
   escritas.push({
     sql: `INSERT INTO company_settings (company_id, key, value) VALUES (?,?,?)
           ON CONFLICT(company_id, key) DO UPDATE SET value = excluded.value`,

@@ -2,6 +2,7 @@ import { buildPushPayload } from "@block65/webcrypto-web-push";
 import { eligible, notificationType, safePushEndpoint, ROLE_KINDS, type Activity, type Candidate } from "./push-rules";
 import { mensagemLembreteAntecipado, mensagemLembreteHoje } from "./adiantamento";
 import { companySettingsRows, cronCompanyId } from "./db";
+import { marcarConsulta } from "./perf";
 
 // a.* traz source/source_id/reservation_id mesmo sem declarados no tipo Activity
 type EventRow = Activity & {
@@ -11,9 +12,11 @@ type EventRow = Activity & {
 type Credentials = { publicKey: string; privateKey: string; subject: string };
 type Sender = (subscription: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: object) => Promise<number>;
 async function rows<T>(db: D1Database, sql: string, params: (string|number|null)[] = []) {
+  marcarConsulta();
   return (await db.prepare(sql).bind(...params).all<T>()).results;
 }
 async function execute(db: D1Database, sql: string, params: (string|number|null)[] = []) {
+  marcarConsulta();
   return db.prepare(sql).bind(...params).run();
 }
 async function candidates(db: D1Database, type: string, kind: string, companyId: number, id?: number): Promise<Candidate[]> {

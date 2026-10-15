@@ -1,4 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { marcarConsulta } from "./perf";
 
 type Row = Record<string, any>;
 
@@ -49,12 +50,14 @@ export function getDb(): D1Database {
 
 export async function all<T = Row>(sql: string, params: any[] = []): Promise<T[]> {
   const db = getDb();
+  marcarConsulta();
   const result = await db.prepare(sql).bind(...normalize(params)).all<T>();
   return result.results.map(plain) as T[];
 }
 
 export async function one<T = Row>(sql: string, params: any[] = []): Promise<T | undefined> {
   const db = getDb();
+  marcarConsulta();
   const row = await db.prepare(sql).bind(...normalize(params)).first<T>();
   return row === null ? undefined : (plain(row) as T);
 }
@@ -69,6 +72,7 @@ function plain<T>(row: T): T {
 
 export async function run(sql: string, params: any[] = []) {
   const db = getDb();
+  marcarConsulta();
   return db.prepare(sql).bind(...normalize(params)).run();
 }
 
@@ -110,6 +114,8 @@ export async function tx<T>(fn: () => Promise<T>): Promise<T> {
 export async function batch(statements: { sql: string; params?: any[] }[]) {
   if (!statements.length) return [];
   const db = getDb();
+  // Um batch e UMA ida ao D1 (transacao unica): conta como 1, nao como N.
+  marcarConsulta();
   return db.batch(statements.map((s) => db.prepare(s.sql).bind(...normalize(s.params ?? []))));
 }
 

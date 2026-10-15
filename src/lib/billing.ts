@@ -14,6 +14,7 @@
  */
 
 import { all, insert, one, run, scalar } from "./db";
+import { memoPorInvocacao } from "./perf";
 import {
   AsaasError,
   asaasClient,
@@ -216,6 +217,21 @@ export type EstadoAssinatura = {
 };
 
 export async function estadoAssinatura(companyId: number): Promise<EstadoAssinatura> {
+  /*
+   * Memo POR REQUISICAO (auditoria de latencia): o gate de assinatura roda em
+   * TODO ponto de entrada (layout, requireModule, apiUser, temRecurso…) e
+   * cada chamada relia subscription + plan — ~6 leituras idênticas (12
+   * consultas) na mesma pagina. Aqui a leitura acontece UMA vez por request;
+   * ENTRE requisicoes continua fresca (suspender/trocar plano segue efeito
+   * imediato — a nota de "leitura sempre fresca" vale entre requests, que e
+   * onde o efeito comercial acontece). Nenhum fluxo muta a assinatura e
+   * re-verifica o gate dentro do mesmo request (estadoAssinatura so e chamada
+   * pelo gate, sempre na entrada).
+   */
+  return memoPorInvocacao(`assinatura:${companyId}`, () => lerEstadoAssinatura(companyId));
+}
+
+async function lerEstadoAssinatura(companyId: number): Promise<EstadoAssinatura> {
   const sub = await assinaturaDaEmpresa(companyId);
   if (!sub) {
     return {

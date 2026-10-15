@@ -144,16 +144,31 @@ export type AgendaEvent = {
   status: string;
 };
 
-/** Une operacoes, fretes e eventos de reserva numa linha do tempo unica. */
-export async function agendaEvents(from: string, to: string, companyId?: number): Promise<AgendaEvent[]> {
+/**
+ * Une operacoes, fretes e eventos de reserva numa linha do tempo unica.
+ *
+ * `jaBuscado` (auditoria de latencia) permite ao chamador REUTILIZAR as
+ * leituras de operacoes e fretes que ja fez para o mesmo periodo — o
+ * dashboard buscava as mesmas duas consultas duas vezes por carregamento
+ * (blocos da tela + agenda). Quem passa os promises ja iniciados nao perde
+ * paralelismo: aqui so se aguarda o que ja estava rodando. Sem o parametro,
+ * comportamento identico ao de sempre (agenda pagina continua buscando tudo).
+ */
+export async function agendaEvents(
+  from: string,
+  to: string,
+  companyId?: number,
+  jaBuscado?: { ops?: Promise<any[]>; freights?: Promise<any[]> },
+): Promise<AgendaEvent[]> {
   const cid = await empresa(companyId);
   const [opsRaw, freightsRaw, eventsRaw] = await Promise.all([
-    operationsBetween(from, to, undefined, cid),
-    all<any>(
-      `SELECT f.*, c.name AS customer_name FROM freights f LEFT JOIN customers c ON c.id = f.customer_id
-        WHERE f.company_id = ? AND f.date BETWEEN ? AND ? AND f.status <> 'cancelado' ORDER BY f.date, f.time`,
-      [cid, from, to],
-    ),
+    jaBuscado?.ops ?? operationsBetween(from, to, undefined, cid),
+    jaBuscado?.freights ??
+      all<any>(
+        `SELECT f.*, c.name AS customer_name FROM freights f LEFT JOIN customers c ON c.id = f.customer_id
+          WHERE f.company_id = ? AND f.date BETWEEN ? AND ? AND f.status <> 'cancelado' ORDER BY f.date, f.time`,
+        [cid, from, to],
+      ),
     all<any>(
       `SELECT r.*, c.name AS customer_name FROM reservations r JOIN customers c ON c.id = r.customer_id
         WHERE r.company_id = ? AND r.event_date BETWEEN ? AND ? AND r.status <> 'cancelada' ORDER BY r.event_date`,
@@ -179,7 +194,7 @@ export async function agendaEvents(from: string, to: string, companyId?: number)
     label: "Frete",
     date: f.date,
     time: f.time ?? "",
-    title: f.customer_name ?? f.contact_name ?? "Frete",
+    title: f.customer_name ?? f.customer ?? f.contact_name ?? "Frete",
     subtitle: `${f.number} · ${f.origin ?? ""} até ${f.destination ?? ""}`,
     href: `/fretes/${f.id}`,
     status: f.status,

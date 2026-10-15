@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { AssinaturaBloqueadaError, exigirAssinaturaAtiva } from "./assinatura-gate";
 import { bloquearRecurso, exigirRecurso, recursoDoModulo, temRecurso } from "./plano-gate";
 import { all, one, run } from "./db";
+import { memoPorInvocacao } from "./perf";
 import { canEdit, canView, type Module, type Role } from "./roles";
 import { hashPassword, verifyPassword } from "./password";
 
@@ -93,26 +94,37 @@ export async function destroySession() {
  * migration 0027). Nenhum parâmetro, header ou corpo de requisição participa
  * desta decisão — é aqui que o isolamento entre empresas começa.
  */async function userCompanyContext(userId: string) {
-  return await one<{
-    id: number;
-    name: string;
-    username: string;
-    role: Role;
-    company_id: number;
-    avatar_url: string | null;
-    platform_admin: number;
-    user_active: number;
-    company_active: number;
-    company_name: string;
-    expires_at: string;
-  }>(
-    `SELECT u.id, u.name, u.username, u.role, u.company_id, u.avatar_url, u.platform_admin,
-            u.active AS user_active, c.active AS company_active, c.name AS company_name,
-            s.expires_at
-       FROM sessions s JOIN users u ON u.id = s.user_id
-       JOIN companies c ON c.id = u.company_id
-      WHERE s.id = ?`,
-    [userId],
+  /*
+   * Memo POR REQUISICAO (auditoria de latencia): a mesma linha de sessao era
+   * relida a cada chamada — requireUser, companyContext e tenantCompanyId
+   * (settings, operacao, notificacoes, alertas…) somavam ~10 idas identicas ao
+   * D1 por pagina (medido: /dashboard com 49 consultas no total). Com a memo,
+   * a sessao e lida UMA vez por request; entre requisicoes nada e cacheado —
+   * deslogar/expire de sessao continua efeito imediato. Fora de request
+   * (testes, cron sem wrapper) nao ha contexto: passthrough puro.
+   */
+  return memoPorInvocacao(`sessao:${userId}`, () =>
+    one<{
+      id: number;
+      name: string;
+      username: string;
+      role: Role;
+      company_id: number;
+      avatar_url: string | null;
+      platform_admin: number;
+      user_active: number;
+      company_active: number;
+      company_name: string;
+      expires_at: string;
+    }>(
+      `SELECT u.id, u.name, u.username, u.role, u.company_id, u.avatar_url, u.platform_admin,
+              u.active AS user_active, c.active AS company_active, c.name AS company_name,
+              s.expires_at
+         FROM sessions s JOIN users u ON u.id = s.user_id
+         JOIN companies c ON c.id = u.company_id
+        WHERE s.id = ?`,
+      [userId],
+    ),
   );
 }
 
