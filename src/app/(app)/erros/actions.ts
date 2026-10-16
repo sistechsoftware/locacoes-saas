@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { assertPlatformAdmin, assertAdmin } from "@/lib/auth";
 import { marcarResolvido } from "@/lib/error-log";
 
@@ -21,4 +22,13 @@ export async function alternarResolvido(fd: FormData) {
   } else {
     await marcarResolvido(id, resolvido, admin.company_id);
   }
+  /*
+   * Revalida a tela (correcao de percepcao — auditoria): sem isto a acao
+   * GRAVAVA no banco mas a pagina ficava com o botao antigo ("Marcar como
+   * resolvido" quando ja estava resolvido), e o usuario achava que o clique
+   * nao tinha funcionado e atualizava a pagina. Reproduzido ao vivo: DB = 1,
+   * UI = 0. e a unica action de escrita desta tela — as demais do sistema ja
+   * revalidam ou devolvem o resultado para o client.
+   */
+  revalidatePath("/erros");
 }

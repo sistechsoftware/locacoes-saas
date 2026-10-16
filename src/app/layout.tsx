@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ProgressoAcoes } from "@/components/ProgressoAcoes";
 
 /*
  * Splash screens nativas do iPhone.
@@ -106,6 +107,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
          */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         {SPLASH_LINKS}
+        {/*
+         * Barra global de espera do servidor — UMO ponto para todo o sistema
+         * (auditoria de percepcao): intercepta fetch com `next-action` (todas
+         * as server actions, de qualquer botao) e `rsc` sem prefetch (navegacao
+         * entre telas). Ver ProgressoAcoes.tsx para a evidencia que motivou o
+         * desenho. Na raiz para cobrir (app), (saas), /portal e /login.
+         */}
+        <ProgressoAcoes />
         {children}
       </body>
     </html>
