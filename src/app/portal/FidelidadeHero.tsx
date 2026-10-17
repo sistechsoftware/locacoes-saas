@@ -1,4 +1,4 @@
-import { resumoProgresso, diasAte, type Progresso, type Regra } from "@/lib/fidelidade";
+import { resumoProgresso, quantidadeUnidade, diasAte, type Progresso, type Regra } from "@/lib/fidelidade";
 import { dateBR } from "@/lib/format";
 
 type Recompensa = {
@@ -53,7 +53,8 @@ export default function FidelidadeHero({
               🎉 Parabéns! Você conquistou uma locação grátis!
             </p>
             <p className="mt-1.5 text-sm text-white/85">
-              Fale com a gente para usar na sua próxima festa — até {regra.kits} kits por conta da casa.
+              Fale com a gente para usar na sua {regra.perfil === "festas" ? "próxima festa" : "próxima locação"}{" "}
+              — até {quantidadeUnidade(regra.kits, regra.unidade)} por conta da casa.
             </p>
           </>
         ) : (
@@ -92,7 +93,7 @@ export default function FidelidadeHero({
         )}
 
         <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white/90 ring-1 ring-white/20">
-          📦 Limite da recompensa: até {regra.kits} kits
+          📦 Limite da recompensa: até {quantidadeUnidade(regra.kits, regra.unidade)}
         </p>
       </div>
 
@@ -104,7 +105,7 @@ export default function FidelidadeHero({
               const dias = diasAte(r.expires_on, hoje);
               return (
                 <li key={r.id}>
-                  Até {r.kit_quantity} kits grátis, conquistada em {dateBR(r.earned_at)}
+                  Até {quantidadeUnidade(r.kit_quantity, regra.unidade)} grátis, conquistada em {dateBR(r.earned_at)}
                   {r.expires_on && (
                     <>
                       {" "}· vale até {dateBR(r.expires_on)}
@@ -127,8 +128,8 @@ export default function FidelidadeHero({
             {recompensas.map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-2 text-sm text-white/85">
                 <span>
-                  Até {r.kit_quantity} kits · conquistada {dateBR(r.earned_at)}
-                  {r.used_at && r.used_kits ? ` · usou ${r.used_kits} kits` : ""}
+                  Até {quantidadeUnidade(r.kit_quantity, regra.unidade)} · conquistada {dateBR(r.earned_at)}
+                  {r.used_at && r.used_kits ? ` · usou ${quantidadeUnidade(r.used_kits, regra.unidade)}` : ""}
                   {r.expires_on ? ` · valia até ${dateBR(r.expires_on)}` : ""}
                 </span>
                 <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs font-semibold">
@@ -140,7 +141,7 @@ export default function FidelidadeHero({
         </details>
       )}
 
-      <p className="sr-only">{resumoProgresso(progresso, regra.kits)}</p>
+      <p className="sr-only">{resumoProgresso(progresso, regra.kits, regra.unidade)}</p>
     </section>
   );
 }

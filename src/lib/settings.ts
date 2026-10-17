@@ -101,6 +101,9 @@ export const DEFAULT_SETTINGS: Settings = {
   fidelity_active: "",
   fidelity_goal: "",
   fidelity_kits: "",
+  /* Unidade da recompensa no singular ("kit", "locação") ou "singular/plural".
+   * Vazia = padrao do perfil operacional (festas: kit, carretinhas: locação). */
+  fidelity_unidade: "",
   fidelity_validity_days: "",
   fidelity_accumulate: "",
   fidelity_count_free_rental: "",

@@ -3,7 +3,7 @@ import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { all } from "@/lib/db";
 import { regraAtual, mensagensPendentes, importarHistorico } from "@/lib/fidelidade-db";
-import { progresso, resumoProgresso, situacao, diasAte } from "@/lib/fidelidade";
+import { progresso, quantidadeUnidade, resumoProgresso, situacao, diasAte } from "@/lib/fidelidade";
 import { dateBR, money, today, waLink } from "@/lib/format";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Section, Stat } from "@/components/ui";
 import { Icon } from "@/components/Icons";
@@ -54,7 +54,7 @@ export default async function FidelidadePage({
     <div className="space-y-4">
       <PageHeader
         title="Programa de Fidelidade"
-        subtitle={`A cada ${regra.meta} locações, até ${regra.kits} kits grátis`}
+        subtitle={`A cada ${regra.meta} locações, até ${quantidadeUnidade(regra.kits, regra.unidade)} grátis`}
         action={<LinkButton href="/configuracoes?aba=fidelidade">Configurar</LinkButton>}
       />
 
@@ -183,7 +183,7 @@ export default async function FidelidadePage({
                       {r.customer_name}
                     </Link>
                     <span className="block text-xs text-stone-500">
-                      até {r.kit_quantity} kits · conquistada em {dateBR(r.earned_at)}
+                      até {quantidadeUnidade(r.kit_quantity, regra.unidade)} · conquistada em {dateBR(r.earned_at)}
                     </span>
                   </span>
                   {r.expires_on ? (
@@ -213,7 +213,7 @@ export default async function FidelidadePage({
                     <Link href={`/clientes/${c.id}`} className="text-sm font-semibold text-marca-600">
                       {c.name}
                     </Link>
-                    <span className="text-xs text-stone-500">{resumoProgresso(p, regra.kits)}</span>
+                    <span className="text-xs text-stone-500">{resumoProgresso(p, regra.kits, regra.unidade)}</span>
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-nuvem-200">
                     <div

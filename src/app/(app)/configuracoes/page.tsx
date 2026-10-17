@@ -75,8 +75,9 @@ export default async function ConfiguracoesPage({
   if (aba === "frete" && !temFretes) bloquearRecurso("fretes", user, "configuracoes");
   if (aba === "fidelidade" && !temFidelidade) bloquearRecurso("fidelidade", user, "configuracoes");
   const s = await getSettings();
-  /* Configuração operacional (rótulos/visibilidade) — só a aba Operação usa. */
-  const operacaoOperacional = aba === "operacao" ? await getOperacao() : null;
+  /* Configuração operacional (rótulos/visibilidade/perfil) — a aba Operação e a
+     aba Fidelidade, que deriva o termo da recompensa do perfil selecionado. */
+  const operacaoOperacional = aba === "operacao" || aba === "fidelidade" ? await getOperacao() : null;
   const categorias = await all<any>(
     `SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.company_id = c.company_id) AS produtos
        FROM categories c WHERE c.company_id = ? ORDER BY c.name`,
@@ -360,7 +361,9 @@ export default async function ConfiguracoesPage({
 
       {aba === "recibos" && <ReciboSettings settings={s} admin={admin} />}
 
-      {aba === "fidelidade" && <FidelitySettings settings={s} admin={admin} />}
+      {aba === "fidelidade" && (
+        <FidelitySettings settings={s} admin={admin} perfil={operacaoOperacional?.perfil ?? "festas"} />
+      )}
 
       {aba === "assinatura" && admin && (
         <Section title="Assinatura digital da empresa">

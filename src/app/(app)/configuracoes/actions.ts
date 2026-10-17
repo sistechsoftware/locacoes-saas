@@ -10,6 +10,7 @@ import { atualizarUsuario, criarUsuario, excluirUsuario, alternarStatusUsuario }
 import { getSettings, setSettings } from "@/lib/settings";
 import { espelharDadosEmpresa } from "@/lib/espelho-empresa";
 import { resolverOperacao, validarOperacaoForm } from "@/lib/operacao";
+import { normalizarUnidade } from "@/lib/fidelidade";
 import { restaurarOperacaoConfig, salvarOperacaoConfig } from "@/lib/operacao-db";
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
 import { validarDimensoesRecibo } from "@/lib/recibo-visual";
@@ -551,6 +552,8 @@ export async function saveFidelitySettings(fd: FormData) {
     fidelity_active: marcado("active"),
     fidelity_goal: inteiro("goal", 5, 100) === "0" ? "1" : inteiro("goal", 5, 100),
     fidelity_kits: inteiro("kits", 5, 100),
+    /* vazio volta ao padrao do perfil operacional — nunca grava lixo */
+    fidelity_unidade: normalizarUnidade(String(fd.get("unidade") ?? "")),
     fidelity_validity_days: inteiro("validity_days", 0, 3650),
     fidelity_accumulate: marcado("accumulate"),
     fidelity_count_free_rental: marcado("count_free_rental"),

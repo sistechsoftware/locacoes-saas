@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { dateBR, money, utcParaLocal, waLink } from "@/lib/format";
-import { diasAte, resumoProgresso, type Progresso, type Regra } from "@/lib/fidelidade";
+import { diasAte, quantidadeUnidade, resumoProgresso, type Progresso, type Regra } from "@/lib/fidelidade";
 import { Alerta, Badge, Card, Section } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 
@@ -54,7 +54,7 @@ export function FidelidadeCliente({
           <span className="text-2xl font-bold text-tinta-900">
             {progresso.noCiclo}/{progresso.meta}
           </span>
-          <span className="text-sm text-stone-600">{resumoProgresso(progresso, regra.kits)}</span>
+          <span className="text-sm text-stone-600">{resumoProgresso(progresso, regra.kits, regra.unidade)}</span>
         </div>
         <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-nuvem-200">
           <div className="h-full bg-marca-600 transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
@@ -72,7 +72,7 @@ export function FidelidadeCliente({
               const dias = diasAte(r.expires_on, hoje);
               return (
                 <li key={r.id}>
-                  Até {r.kit_quantity} kits grátis, conquistada em {dateBR(r.earned_at)}
+                  Até {quantidadeUnidade(r.kit_quantity, regra.unidade)} grátis, conquistada em {dateBR(r.earned_at)}
                   {r.expires_on && (
                     <span className={dias !== null && dias <= 3 ? "font-bold text-red-700" : ""}>
                       {" "}
@@ -116,7 +116,7 @@ export function FidelidadeCliente({
             {recompensas.map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <span className="min-w-0">
-                  <span className="block font-semibold text-tinta-900">Até {r.kit_quantity} kits grátis</span>
+                  <span className="block font-semibold text-tinta-900">Até {quantidadeUnidade(r.kit_quantity, regra.unidade)} grátis</span>
                   <span className="block text-xs text-stone-500">
                     conquistada em {dateBR(r.earned_at)}
                     {r.used_at && r.reservation_number && (
