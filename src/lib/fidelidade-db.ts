@@ -1,6 +1,6 @@
 import "server-only";
 import { all, insert, one, run, scalar } from "./db";
-import { getSettings, renderTemplate } from "./settings";
+import { getSettings } from "./settings";
 import { today, nowLocal, dateBR } from "./format";
 import {
   aEmitir,
@@ -11,13 +11,19 @@ import {
   lembretesDeVencimento,
   EVENTOS,
   MODELOS_PADRAO,
+  modeloFidelidade,
+  quantidadeUnidade,
+  renderMensagemModelo,
+  resolverUnidade,
   progresso,
   situacao,
   utilizavel,
   REGRA_PADRAO,
   type EventoFidelidade,
   type Regra,
+  type Unidade,
 } from "./fidelidade";
+import { resolverOperacao, type PerfilOperacional } from "./operacao";
 
 /**
  * Fidelidade: pontuacao, recompensas e avisos.
@@ -26,6 +32,19 @@ import {
  * lanca a reversao, e nada e apagado. O saldo e sempre somado do livro, nunca
  * guardado num contador, entao ele nao tem como divergir do historico.
  */
+
+/**
+ * Perfil operacional + unidade da recompensa, direto das settings da empresa.
+ *
+ * O mapa de settings ja traz as chaves `op_*` (whitelist de setSettings),
+ * entao o perfil sai da MESMA leitura que a regra — nenhuma consulta extra —
+ * e a unidade e o campo livre `fidelity_unidade`, com o padrao do perfil
+ * quando a empresa deixou em branco.
+ */
+function perfilEUnidade(s: Record<string, string>): { perfil: PerfilOperacional; unidade: Unidade } {
+  const perfil = resolverOperacao(s).perfil;
+  return { perfil, unidade: resolverUnidade(s.fidelity_unidade, perfil) };
+}
 
 /** Configuracao vigente, lida das settings. */
 export async function regraAtual(): Promise<Regra> {
@@ -46,6 +65,8 @@ export async function regraAtual(): Promise<Regra> {
       .filter(Boolean),
     valorMinimoCents: Math.max(0, num("fidelity_min_value_cents", 0)),
     contarLocacaoGratuita: s.fidelity_count_free_rental === "1",
+    /* os textos de fidelidade acompanham a configuração operacional */
+    ...perfilEUnidade(s),
   };
 }
 
@@ -264,7 +285,11 @@ export async function simularUso(rewardId: number, reservationId: number) {
       WHERE i.reservation_id = ?`,
     [reservationId],
   );
-  return beneficio(itens, recompensa.kit_quantity);
+  // Fora do perfil Festas a recompensa também cobre produtos simples: o
+  // catálogo de carretinhas não tem kits e o benefício antigo nunca
+  // conseguiria descontar nada — a recompensa seria inaplicável.
+  const regra = await regraAtual();
+  return beneficio(itens, recompensa.kit_quantity, { cobrirSimples: regra.perfil !== "festas" });
 }
 
 /**
@@ -294,7 +319,10 @@ export async function usarRecompensa(
   }
 
   const b = await simularUso(rewardId, reservationId);
-  if (!b || b.kitsGratis === 0) return "Esta reserva não tem kits para a recompensa cobrir.";
+  if (!b || b.kitsGratis === 0) {
+    const { unidade } = await regraAtual();
+    return `Esta reserva não tem ${unidade.plural} para a recompensa cobrir.`;
+  }
 
   // trava otimista: so aplica se a recompensa ainda estiver disponivel, entao
   // dois cliques simultaneos nao conseguem consumi-la duas vezes
@@ -321,7 +349,7 @@ export async function usarRecompensa(
 
 async function modelo(evento: EventoFidelidade): Promise<string> {
   const s = await getSettings();
-  return s[`fidelity_msg_${evento}`] || MODELOS_PADRAO[evento];
+  return modeloFidelidade(evento, s[`fidelity_msg_${evento}`]);
 }
 
 /**
@@ -349,7 +377,14 @@ export async function prepararMensagem(
   };
   if (s[ligado[evento]] === "0") return null;
 
-  const texto = renderTemplate(await modelo(evento), { empresa_nome: s.company_name, ...vars });
+  const regra = await regraAtual();
+  const qtd = Number(vars.quantidade_kits ?? regra.kits);
+  const texto = renderMensagemModelo(await modelo(evento), {
+    empresa_nome: s.company_name,
+    ...vars,
+    /* {unidade} concorda com a quantidade: 1 → singular, 5 → plural */
+    unidade: qtd === 1 ? regra.unidade.singular : regra.unidade.plural,
+  });
   try {
     /* Pendência #04: a empresa vem do DONO da mensagem (customers.company_id,
        sempre preenchido) — sem isto todo INSERT gravava company_id DEFAULT 1. */
@@ -487,7 +522,7 @@ export async function aoConcluirLocacao(reservationId: number, userId?: number) 
   for (const rewardId of recompensasNovas) {
     await avisarEquipe(
       "conquista",
-      `${primeiroNome} conquistou uma recompensa de até ${regra.kits} kits grátis`,
+      `${primeiroNome} conquistou uma recompensa de até ${quantidadeUnidade(regra.kits, regra.unidade)} grátis`,
       reserva.customer_id,
       rewardId,
     );
@@ -499,7 +534,7 @@ export async function aoConcluirLocacao(reservationId: number, userId?: number) 
     if (p.faltam === 1) {
       await avisarEquipe(
         "quase_la",
-        `${primeiroNome} está a 1 locação de ganhar até ${regra.kits} kits grátis`,
+        `${primeiroNome} está a 1 locação de ganhar até ${quantidadeUnidade(regra.kits, regra.unidade)} grátis`,
         reserva.customer_id,
         p.ciclosCompletos + 1,
       );

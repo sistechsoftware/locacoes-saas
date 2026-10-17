@@ -3,27 +3,47 @@ import { useState } from "react";
 import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { RESERVATION_STATUS } from "@/lib/domain";
-import { EVENTOS, MODELOS_PADRAO, VARIAVEIS_FIDELIDADE, type EventoFidelidade } from "@/lib/fidelidade";
+import {
+  EVENTOS,
+  VARIAVEIS_FIDELIDADE,
+  modeloFidelidade,
+  quantidadeUnidade,
+  resolverUnidade,
+  rotuloUnidade,
+  UNIDADES_PERFIL,
+  type EventoFidelidade,
+} from "@/lib/fidelidade";
+import type { PerfilOperacional } from "@/lib/operacao";
 import { saveFidelitySettings } from "./actions";
 
 /**
  * Configuracao do programa de fidelidade.
  *
- * Tudo aqui e regra de negocio que o dono do negocio muda sozinho: meta, kits,
- * validade, o que conta como locacao e o texto das mensagens. Trocar 5 por 3 ou
- * por 10 nao pode exigir programador.
+ * Tudo aqui e regra de negocio que o dono do negocio muda sozinho: meta, unidade
+ * da recompensa (kits, locacoes…), validade, o que conta como locacao e o texto
+ * das mensagens. Trocar 5 por 3 ou por 10 nao pode exigir programador.
  */
 export default function FidelitySettings({
   settings,
   admin,
+  perfil,
 }: {
   settings: Record<string, string>;
   admin: boolean;
+  /** Perfil operacional da empresa (Configurações → Operação): fonte do
+   *  termo usado em todos os textos de fidelidade quando não há override. */
+  perfil: PerfilOperacional;
 }) {
   const [ativo, setAtivo] = useState(settings.fidelity_active !== "0");
   const [statusMarcados, setStatusMarcados] = useState<string[]>(
     String(settings.fidelity_eligible_status ?? "retirada,finalizada").split(",").map((t) => t.trim()).filter(Boolean),
   );
+
+  /* Unidade da recompensa editada nesta tela (controlada para o rótulo e a
+     prévia acompanharem o que está sendo digitado). Vazia = padrão do perfil. */
+  const [unidadeTexto, setUnidadeTexto] = useState(settings.fidelity_unidade ?? "");
+  const unidade = resolverUnidade(unidadeTexto, perfil);
+  const unidadePadrao = UNIDADES_PERFIL[perfil];
 
   const alterna = (valor: string) =>
     setStatusMarcados((atuais) =>
@@ -75,7 +95,25 @@ export default function FidelitySettings({
               disabled={!admin}
             />
           </Field>
-          <Field label="Kits grátis por recompensa">
+          <Field
+            label="Nome da unidade da recompensa"
+            hint={`O que o cliente ganha, no singular (ex.: kit, locação, vale) ou “singular/plural”. Aparece em todas as telas, mensagens e avisos. Vazio = padrão do perfil: ${unidadePadrao.singular}/${unidadePadrao.plural}.`}
+          >
+            <input
+              name="unidade"
+              value={unidadeTexto}
+              onChange={(e) => setUnidadeTexto(e.target.value)}
+              maxLength={60}
+              placeholder={`${unidadePadrao.singular}/${unidadePadrao.plural}`}
+              className="campo"
+              disabled={!admin}
+            />
+            <p className="mt-1 text-xs text-stone-500">
+              Prévia: “A cada {Number(settings.fidelity_goal) || 5} locações, até{" "}
+              {quantidadeUnidade(Number(settings.fidelity_kits) || 5, unidade)} grátis”.
+            </p>
+          </Field>
+          <Field label={`${rotuloUnidade(unidade)} por recompensa`}>
             <input
               name="kits"
               type="number"
@@ -234,14 +272,15 @@ export default function FidelitySettings({
       <section className="cartao p-4">
         <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-stone-500">Mensagens</h3>
         <p className="mb-3 text-xs text-stone-500">
-          Campos disponíveis: {VARIAVEIS_FIDELIDADE.map((v) => `{${v}}`).join(", ")}. Campo sem valor sai vazio.
+          Campos disponíveis: {VARIAVEIS_FIDELIDADE.map((v) => `{${v}}`).join(", ")}. Campo sem valor sai vazio. O{" "}
+          {`{unidade}`} sai em singular ou plural conforme a quantidade da recompensa ("1 kit", "5 kits").
         </p>
         <div className="space-y-3">
           {eventos.map((e) => (
             <Field key={e} label={EVENTOS[e]}>
               <textarea
                 name={`msg_${e}`}
-                defaultValue={settings[`fidelity_msg_${e}`] ?? MODELOS_PADRAO[e]}
+                defaultValue={modeloFidelidade(e, settings[`fidelity_msg_${e}`])}
                 rows={2}
                 className="campo text-xs"
                 disabled={!admin}

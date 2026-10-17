@@ -42,7 +42,8 @@ import { parcelarReserva, receberParcela } from "../../financeiro/receber-action
 import { adiantamentosDaReserva, recebiveisDe } from "@/lib/receber";
 import { recibosDaReserva, reciboQuitacaoDaReserva } from "@/lib/recibos";
 import { gerarReciboDeposit, gerarReciboPayment, gerarQuitacaoCaucao, gerarQuitacaoLocacao } from "../../recibos/actions";
-import { recompensasDisponiveis, simularUso } from "@/lib/fidelidade-db";
+import { regraAtual, recompensasDisponiveis, simularUso } from "@/lib/fidelidade-db";
+import { quantidadeUnidade } from "@/lib/fidelidade";
 import { aplicarRecompensa } from "../fidelidade-actions";
 import { situacaoParcela } from "@/lib/financeiro";
 import { situacaoAdiantamento } from "@/lib/adiantamento";
@@ -165,6 +166,9 @@ export default async function ReservaPage({
   const previaRecompensas = await Promise.all(
     recompensas.map(async (rec: any) => ({ rec, previa: await simularUso(rec.id, r.id) })),
   );
+  // unidade da recompensa (kits, locações…) para os textos da seção — a mesma
+  // leitura de settings que simularUso já fez (cacheada por request)
+  const unidade = (await regraAtual()).unidade;
   const temKit = items.some((i: any) => i.product_kind === "kit");
   const pay = paymentState(m.total, m.paid);
   const resumo = itemsSummary(items);
@@ -436,8 +440,9 @@ export default async function ReservaPage({
         <Section title="Fidelidade">
           {recompensaUsada ? (
             <Alerta tone="verde" title="Recompensa aplicada nesta locação">
-              {recompensaUsada.used_kits} kit(s) gratuitos, {money(recompensaUsada.used_discount_cents ?? 0)} de
-              desconto. O valor entrou no desconto da reserva; frete e itens avulsos seguem cobrados.
+              {quantidadeUnidade(recompensaUsada.used_kits ?? 0, unidade)} grátis, {money(recompensaUsada.used_discount_cents ?? 0)} de
+              desconto. O valor entrou no desconto da reserva;{" "}
+              {operacao.perfil === "festas" ? "frete e itens avulsos seguem cobrados." : "itens avulsos também podem ser cobertos."}
             </Alerta>
           ) : (
             <>
@@ -449,7 +454,7 @@ export default async function ReservaPage({
                   <li key={rec.id} className="rounded-xl border border-nuvem-300 bg-white p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>
-                        <span className="text-sm font-bold text-tinta-900">Até {rec.kit_quantity} kits grátis</span>
+                        <span className="text-sm font-bold text-tinta-900">Até {quantidadeUnidade(rec.kit_quantity, unidade)} grátis</span>
                         <span className="ml-2 text-xs text-stone-500">
                           conquistada em {dateBR(rec.earned_at)}
                           {rec.expires_on ? ` · vale até ${dateBR(rec.expires_on)}` : ""}
@@ -457,10 +462,10 @@ export default async function ReservaPage({
                       </span>
                       {previa && previa.kitsGratis > 0 ? (
                         <Badge tone="verde">
-                          cobre {previa.kitsGratis} kit(s) · {money(previa.descontoCents)}
+                          cobre {quantidadeUnidade(previa.kitsGratis, unidade)} · {money(previa.descontoCents)}
                         </Badge>
                       ) : (
-                        <Badge tone="cinza">sem kit nesta reserva</Badge>
+                        <Badge tone="cinza">sem {unidade.singular} nesta reserva</Badge>
                       )}
                     </div>
                     {previa && previa.kitsGratis > 0 && r.status !== "cancelada" && (

@@ -11,10 +11,12 @@ import {
   devolverRecompensaDaReserva,
   importarHistorico,
   painelDoCliente,
+  mensagensDoCliente,
   pontosDe,
   pontuarReserva,
   recompensasDe,
   recompensasDisponiveis,
+  regraAtual,
   reverterReserva,
   rotinaDiaria,
   simularUso,
@@ -374,6 +376,61 @@ describe("rotina diaria", () => {
     const resultado = await rotinaDiaria();
     assert.equal(resultado.expiradas, 0);
     assert.equal((await recompensasDisponiveis(cliente)).length, 1);
+  });
+});
+
+describe("perfil carretinhas: textos e benefício", () => {
+  beforeEach(cenario);
+
+  async function comRecompensa() {
+    for (let i = 0; i < 5; i++) await locacao();
+    const [r] = await recompensasDisponiveis(cliente);
+    return r;
+  }
+
+  it("a regra expõe a unidade locação/locações", async () => {
+    await config("op_perfil", "carretinhas");
+    const regra = await regraAtual();
+    assert.equal(regra.perfil, "carretinhas");
+    assert.deepEqual(regra.unidade, { singular: "locação", plural: "locações" });
+  });
+
+  it("a unidade livre da empresa vence o perfil", async () => {
+    await config("op_perfil", "carretinhas");
+    await config("fidelity_unidade", "vale/vales");
+    assert.deepEqual((await regraAtual()).unidade, { singular: "vale", plural: "vales" });
+  });
+
+  it("a mensagem de conquista sai com “locações grátis” e nada de kits", async () => {
+    await config("op_perfil", "carretinhas");
+    await comRecompensa();
+    const msgs = await mensagensDoCliente(cliente);
+    const conquista = msgs.find((m: any) => m.event === "conquista");
+    assert.ok(conquista, "a conquista gera mensagem para o cliente");
+    assert.match(conquista.body, /até 5 locações grátis/);
+    assert.ok(!/kits/i.test(conquista.body), `texto ainda fala de kits: ${conquista.body}`);
+  });
+
+  it("sem kits no catálogo, a recompensa alcança produtos simples", async () => {
+    await config("op_perfil", "carretinhas");
+    const r = await comRecompensa();
+    const nova = await locacao("confirmada", 2000, [{ produto: FORRO, qty: 4, preco: 500 }]);
+    const b = await simularUso(r.id, nova);
+    assert.equal(b!.kitsGratis, 4, "os 4 itens simples entram");
+    assert.equal(b!.descontoCents, 2000);
+    assert.equal(await usarRecompensa(r.id, nova, 1), null, "o resgate passa");
+    const usada = await one<any>(`SELECT status, used_discount_cents FROM fidelity_rewards WHERE id=?`, [r.id]);
+    assert.equal(usada.status, "usada");
+    assert.equal(usada.used_discount_cents, 2000, "o benefício foi registrado");
+    const reserva = await one<any>(`SELECT discount_cents FROM reservations WHERE id=?`, [nova]);
+    assert.equal(reserva.discount_cents, 2000, "o desconto entrou na reserva");
+  });
+
+  it("o recuso de resgate fala a unidade do perfil", async () => {
+    await config("op_perfil", "carretinhas");
+    const r = await comRecompensa();
+    const vazia = await locacao("confirmada", 10000, []);
+    assert.match((await usarRecompensa(r.id, vazia, 1)) ?? "", /locações/);
   });
 });
 

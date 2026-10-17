@@ -16,10 +16,20 @@ import {
   lembretesDeVencimento,
   progresso,
   recompensasDevidas,
+  MODELOS_LEGADO,
+  MODELOS_PADRAO,
+  VARIAVEIS_FIDELIDADE,
+  modeloFidelidade,
+  normalizarUnidade,
+  quantidadeUnidade,
+  renderMensagemModelo,
+  resolverUnidade,
   resumoProgresso,
+  rotuloUnidade,
   situacao,
   utilizavel,
   REGRA_PADRAO,
+  type EventoFidelidade,
   type Locacao,
   type Regra,
 } from "../src/lib/fidelidade.ts";
@@ -267,5 +277,164 @@ describe("frase do progresso", () => {
 
   it("anuncia a meta atingida", () => {
     assert.match(resumoProgresso(progresso(5, regra()), 5), /Meta atingida/);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Unidade da recompensa: o termo muda com o perfil operacional        */
+/* ------------------------------------------------------------------ */
+
+describe("unidade da recompensa por perfil", () => {
+  it("festas continua falando kits", () => {
+    assert.deepEqual(resolverUnidade("", "festas"), { singular: "kit", plural: "kits" });
+    assert.equal(rotuloUnidade(resolverUnidade("", "festas")), "Kits grátis");
+  });
+
+  it("carretinhas fala locação/locações", () => {
+    assert.deepEqual(resolverUnidade(undefined, "carretinhas"), { singular: "locação", plural: "locações" });
+    assert.equal(rotuloUnidade(resolverUnidade("", "carretinhas")), "Locações grátis");
+  });
+
+  it("personalizado sem texto gravado cai no padrão da plataforma", () => {
+    assert.deepEqual(resolverUnidade("   ", "personalizado"), { singular: "kit", plural: "kits" });
+  });
+
+  it("o que a empresa escreveu vence o perfil", () => {
+    assert.deepEqual(resolverUnidade("vale", "carretinhas"), { singular: "vale", plural: "vales" });
+    assert.deepEqual(resolverUnidade("diária/diárias", "festas"), { singular: "diária", plural: "diárias" });
+  });
+
+  it("plural derivado: brinde→brindes, locação→locações, kit→kits", () => {
+    assert.equal(resolverUnidade("brinde", "festas").plural, "brindes");
+    assert.equal(resolverUnidade("locação", "festas").plural, "locações");
+    assert.equal(resolverUnidade("kit", "festas").plural, "kits");
+  });
+
+  it("normalizarUnidade limpa o campo e nunca grava lixo", () => {
+    assert.equal(normalizarUnidade("  locação  "), "locação");
+    assert.equal(normalizarUnidade("lo\u0000cação\n/  Diárias "), "locação/Diárias");
+    assert.equal(normalizarUnidade("/  "), "", "só separador volta ao padrão");
+    assert.equal(normalizarUnidade(null), "");
+  });
+
+  it("padrões por perfil ficam disponíveis para a tela de configuração", () => {
+    assert.equal(REGRA_PADRAO.perfil, "festas");
+    assert.deepEqual(REGRA_PADRAO.unidade, { singular: "kit", plural: "kits" });
+  });
+});
+
+describe("textos com a unidade certa", () => {
+  const locacao = { singular: "locação", plural: "locações" };
+
+  it("quantidadeUnidade concorda singular e plural", () => {
+    assert.equal(quantidadeUnidade(1, locacao), "1 locação");
+    assert.equal(quantidadeUnidade(5, locacao), "5 locações");
+    assert.equal(quantidadeUnidade(1), "1 kit");
+    assert.equal(quantidadeUnidade(5), "5 kits");
+  });
+
+  it("frase do progresso usa a unidade da empresa", () => {
+    assert.equal(
+      resumoProgresso(progresso(2, regra()), 5, locacao),
+      "2/5 · faltam 3 locações para até 5 locações grátis",
+    );
+    assert.equal(
+      resumoProgresso(progresso(4, regra()), 1, locacao),
+      "4/5 · falta 1 locação para até 1 locação grátis",
+    );
+  });
+
+  it("sem unidade informada mantém o texto histórico de kits", () => {
+    assert.equal(resumoProgresso(progresso(4, regra()), 5), "4/5 · falta 1 locação para até 5 kits grátis");
+  });
+});
+
+describe("modelos de mensagem", () => {
+  const eventos: EventoFidelidade[] = [
+    "progresso",
+    "quase_la",
+    "conquista",
+    "uso",
+    "vencendo",
+    "expirada",
+    "reversao",
+  ];
+
+  it("padrão com {unidade}=kits é idêntico ao texto legado de Festas", () => {
+    for (const e of eventos) {
+      assert.equal(MODELOS_PADRAO[e].replace(/\{unidade\}/g, "kits"), MODELOS_LEGADO[e], e);
+    }
+  });
+
+  it("{unidade} é variável aceita nas mensagens", () => {
+    assert.ok(VARIAVEIS_FIDELIDADE.includes("unidade"));
+  });
+
+  it("mensagem nunca editada acompanha a unidade vigente", () => {
+    assert.equal(modeloFidelidade("conquista", ""), MODELOS_PADRAO.conquista);
+    assert.equal(modeloFidelidade("conquista", MODELOS_LEGADO.conquista), MODELOS_PADRAO.conquista);
+  });
+
+  it("texto que a empresa mudou de verdade prevalece", () => {
+    const meu = "Fala com a gente, {cliente_nome}!";
+    assert.equal(modeloFidelidade("conquista", meu), meu);
+  });
+
+  it("modelo é renderizado com as variáveis — nada de {chave} literal", () => {
+    const texto = renderMensagemModelo(MODELOS_PADRAO.conquista, {
+      cliente_nome: "Joao",
+      locacoes_necessarias: 5,
+      quantidade_kits: 5,
+      unidade: "kits",
+    });
+    assert.equal(
+      texto,
+      "Parabéns, Joao! Você completou 5 locações e conquistou até 5 kits grátis. Fale com a gente para usar na sua próxima locação.",
+    );
+    assert.ok(!/\{\w+\}/.test(texto), `sobrou variável literal: ${texto}`);
+  });
+
+  it("unidade no singular quando a quantidade é 1", () => {
+    const texto = renderMensagemModelo(MODELOS_PADRAO.expirada, {
+      quantidade_kits: 1,
+      unidade: "locação",
+      data_expiracao: "20/10/2026",
+    });
+    assert.equal(texto, "Sua recompensa de até 1 locação grátis expirou em 20/10/2026.");
+  });
+
+  it("variável sem valor sai vazia e chave dupla continua funcionando", () => {
+    assert.equal(renderMensagemModelo("Oi {cliente_nome}, tudo bem?", { cliente_nome: "" }), "Oi , tudo bem?");
+    assert.equal(renderMensagemModelo("CNPJ {{empresa_doc}}", { empresa_doc: "123" }), "CNPJ 123");
+  });
+});
+
+describe("benefício cobre produtos simples fora do perfil Festas", () => {
+  const avulso = (product_id: number, qty: number, preco: number) => ({
+    product_id,
+    qty,
+    unit_price_cents: preco,
+    kind: "simples",
+  });
+
+  it("padrão continua descontando só kits", () => {
+    assert.equal(beneficio([avulso(1, 5, 2000)], 5).descontoCents, 0);
+  });
+
+  it("com cobrirSimples a recompensa alcança itens simples", () => {
+    const b = beneficio([avulso(1, 5, 2000)], 5, { cobrirSimples: true });
+    assert.equal(b.kitsGratis, 5);
+    assert.equal(b.descontoCents, 10000);
+  });
+
+  it("fora do limite da recompensa nada é de graça", () => {
+    const b = beneficio([avulso(1, 10, 1000)], 3, { cobrirSimples: true });
+    assert.equal(b.descontoCents, 3000);
+    assert.equal(b.kitsGratis, 3);
+  });
+
+  it("kits continuam entrando com a flag ligada", () => {
+    const kits = [{ product_id: 9, qty: 2, unit_price_cents: 4000, kind: "kit" }];
+    assert.equal(beneficio(kits, 5, { cobrirSimples: true }).descontoCents, 8000);
   });
 });

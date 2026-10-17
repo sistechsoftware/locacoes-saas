@@ -5,7 +5,8 @@ import { one } from "@/lib/db";
 import { requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { money } from "@/lib/format";
-import { prepararMensagem, usarRecompensa } from "@/lib/fidelidade-db";
+import { prepararMensagem, regraAtual, usarRecompensa } from "@/lib/fidelidade-db";
+import { quantidadeUnidade } from "@/lib/fidelidade";
 
 /**
  * Aplica a recompensa de fidelidade na reserva.
@@ -31,12 +32,13 @@ export async function aplicarRecompensa(fd: FormData) {
     [rewardId],
   );
   if (r) {
+    const regra = await regraAtual();
     await logAction(
       user,
       "editar",
       "reserva",
       reservationId,
-      `${user.name} aplicou a recompensa de fidelidade (${r.used_kits} kit(s), ${money(r.used_discount_cents)}) na reserva ${r.number}`,
+      `${user.name} aplicou a recompensa de fidelidade (${quantidadeUnidade(r.used_kits ?? 0, regra.unidade)}, ${money(r.used_discount_cents)}) na reserva ${r.number}`,
     );
     await prepararMensagem(
       "uso",
