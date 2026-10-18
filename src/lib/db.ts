@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { marcarConsulta } from "./perf";
+import { marcarConsulta, novaMemoriaAsync, type MemoriaAsync } from "./perf";
 
 type Row = Record<string, any>;
 
@@ -49,6 +49,8 @@ export function getDb(): D1Database {
 /* ------------------------------------------------------------------ */
 
 export async function all<T = Row>(sql: string, params: any[] = []): Promise<T[]> {
+  const lote = alsLote.getStore();
+  if (lote) return (await lerNoLote(lote, sql, params)) as T[];
   const db = getDb();
   marcarConsulta();
   const result = await db.prepare(sql).bind(...normalize(params)).all<T>();
@@ -56,6 +58,11 @@ export async function all<T = Row>(sql: string, params: any[] = []): Promise<T[]
 }
 
 export async function one<T = Row>(sql: string, params: any[] = []): Promise<T | undefined> {
+  const lote = alsLote.getStore();
+  if (lote) {
+    const linhas = await lerNoLote(lote, sql, params);
+    return (linhas[0] as T) ?? undefined;
+  }
   const db = getDb();
   marcarConsulta();
   const row = await db.prepare(sql).bind(...normalize(params)).first<T>();
@@ -108,6 +115,157 @@ function normalize(params: any[]): any[] {
  */
 export async function tx<T>(fn: () => Promise<T>): Promise<T> {
   return fn();
+}
+
+/* ------------------------------------------------------------------ */
+/* Lote de leituras — uma ida ao D1 por onda de leitura                */
+/* ------------------------------------------------------------------ */
+
+type LeituraPendente = {
+  sql: string;
+  params: any[];
+  resolve: (linhas: Row[]) => void;
+  reject: (erro: unknown) => void;
+};
+
+type LoteDeLeituras = {
+  pendentes: LeituraPendente[];
+  /** Timer da proxima onda (null = nenhuma onda marcada). */
+  onda: ReturnType<typeof setTimeout> | null;
+  /** Ondas ja disparadas e ainda em voo. */
+  emVoo: Promise<void>[];
+};
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __limasLoteAls: MemoriaAsync<LoteDeLeituras> | undefined;
+}
+
+/**
+ * ALS do lote compartilhada entre os DOIS bundles gerados pelo OpenNext
+ * (mesmo truque do globalThis em perf.ts): sem uma instancia unica, o
+ * contexto criado na pagina nao sobreviveria aos imports duplicados. A
+ * fábrica mora em perf.ts para o build não gerar um aviso novo de Edge
+ * Runtime — o `node:async_hooks` já entra pelo próprio perf.ts.
+ */
+const alsLote: MemoriaAsync<LoteDeLeituras> =
+  (globalThis.__limasLoteAls ??= novaMemoriaAsync<LoteDeLeituras>());
+
+/** Statements por `batch()` — margem de seguranca abaixo de qualquer limite. */
+const TAMANHO_DO_LOTE = 25;
+
+/**
+ * Agrupa TODAS as leituras (all/one/scalar) feitas dentro de `fn` em
+ * `batch()` do D1, uma ida por ONDA em vez de uma ida por consulta.
+ *
+ * POR QUE: o D1 e unitario por banco — ele processa uma consulta por vez
+ * (docs de limites do D1), entao cada `all/one` e uma volta de rede ate a
+ * primaria. Uma tela como /reservas/[id] faz ~37 leituras; em producao isso
+ * virava ~37 voltas sequenciais/enfileiradas antes do primeiro byte. Aqui as
+ * leituras disparadas na mesma volta do event loop sao agrupadas num unico
+ * `batch()` (uma ida, statements executados em sequencia no servidor).
+ *
+ * COMO FUNCIONA: `all/one` dentro do lote nao executam na hora — entram numa
+ * fila e a fila e descarregada num `setTimeout(0)`, que roda DEPOIS de toda a
+ * volta corrente (inclusive as continuacoes que esperavam uma promessa ja
+ * resolvida, como memo de sessao/settings). Cada nova volta de leitura vira
+ * uma nova onda. Quem espera o resultado (`await all(...)`) simplesmente
+ * espera a onda terminar.
+ *
+ * SEGURANCA:
+ *  - e SO para leituras: `run/insert` continuam imediatas. Nao envolva
+ *    escritas e leituras que dependam da ordem (read-after-write) num lote.
+ *  - `batch()` e atomico: se UM statement falhar, o lote inteiro falha. Nesse
+ *    caso cada statement e refazido SOZINHO, entao uma consulta ruim derruba
+ *    apenas ela mesma — o mesmo comportamento de antes do lote (quem chama com
+ *    `.catch()` continua vendo o erro so da propria leitura).
+ *  - o contexto morre com `fn`: leituras que ficaram sem dono sao drenadas no
+ *    `finally`, para ninguem ficar com promessa pendurada.
+ *  - sem contexto (testes, scripts, cron sem wrapper) e passthrough puro: nada
+ *    muda fora de quem chama emLoteLeituras.
+ *
+ * ANINHAMENTO: se ja estamos num lote, o chamado interno e apenas `fn()` —
+ * o lote externo e quem descarrega.
+ */
+export async function emLoteLeituras<T>(fn: () => Promise<T>): Promise<T> {
+  if (alsLote.getStore()) return fn();
+  const lote: LoteDeLeituras = { pendentes: [], onda: null, emVoo: [] };
+  try {
+    return await alsLote.run(lote, fn);
+  } finally {
+    if (lote.onda !== null) {
+      clearTimeout(lote.onda);
+      lote.onda = null;
+    }
+    // Drena o que faltou e espera as ondas em voo: `fn` so devolve depois de
+    // toda leitura que ele proprio disparou ter terminado (ou rejeitado).
+    for (;;) {
+      if (lote.pendentes.length) {
+        await drenarOnda(lote).catch(() => {});
+        continue;
+      }
+      if (lote.emVoo.length) {
+        await Promise.allSettled(lote.emVoo);
+        continue;
+      }
+      break;
+    }
+  }
+}
+
+/** Enfileira a leitura e marca a onda que a descarrega. */
+function lerNoLote(lote: LoteDeLeituras, sql: string, params: any[]): Promise<Row[]> {
+  return new Promise<Row[]>((resolve, reject) => {
+    lote.pendentes.push({ sql, params: normalize(params), resolve, reject });
+    if (lote.onda !== null) return;
+    lote.onda = setTimeout(() => {
+      lote.onda = null;
+      void drenarOnda(lote).catch(() => {});
+    }, 0);
+  });
+}
+
+/** Descarrega uma onda: tudo que foi registrado ate aqui vira um batch. */
+async function drenarOnda(lote: LoteDeLeituras): Promise<void> {
+  const lidos = lote.pendentes.splice(0, lote.pendentes.length);
+  if (!lidos.length) return;
+  const onda = executarEmLotes(lidos);
+  lote.emVoo.push(onda);
+  try {
+    await onda;
+  } finally {
+    const i = lote.emVoo.indexOf(onda);
+    if (i >= 0) lote.emVoo.splice(i, 1);
+  }
+}
+
+async function executarEmLotes(lidos: LeituraPendente[]): Promise<void> {
+  const db = getDb();
+  for (let i = 0; i < lidos.length; i += TAMANHO_DO_LOTE) {
+    const fatia = lidos.slice(i, i + TAMANHO_DO_LOTE);
+    try {
+      // Um batch e UMA ida ao D1 (conta como 1 na observabilidade).
+      marcarConsulta();
+      const resultados = await db.batch(fatia.map((s) => db.prepare(s.sql).bind(...s.params)));
+      for (let j = 0; j < fatia.length; j++) {
+        const linhas = ((resultados[j] as any)?.results ?? []) as Row[];
+        fatia[j].resolve(linhas.map(plain));
+      }
+    } catch {
+      // Fallback statement a statement: uma falha do lote nao pode derrubar
+      // as demais leituras da onda. Cada leitura resolve ou rejeita sozinha,
+      // exatamente como antes de existir o lote.
+      for (const s of fatia) {
+        try {
+          marcarConsulta();
+          const r = await db.prepare(s.sql).bind(...s.params).all();
+          s.resolve((r.results as Row[]).map(plain));
+        } catch (erro) {
+          s.reject(erro);
+        }
+      }
+    }
+  }
 }
 
 /** Executa varios statements atomicamente (transacao unica no D1). */

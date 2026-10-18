@@ -52,6 +52,22 @@ export function contextoAtual(): ContextoInvocacao | undefined {
   return als.getStore();
 }
 
+/**
+ * Tipo/fábrica de AsyncLocalStorage para OUTROS módulos.
+ *
+ * `node:async_hooks` só é importado AQUI (perf.ts): quem precisa de um ALS
+ * próprio — como o lote de leituras de db.ts — usa estas duas exports. O
+ * motivo é o build do Next: cada `import "node:async_hooks"` em arquivo de
+ * rota/render vira um aviso "not supported in the Edge Runtime" (o worker
+ * roda com nodejs_compat e o módulo funciona; o gráfico de módulos não muda,
+ * perf.ts já o carrega — era só ruído duplicado).
+ */
+export type MemoriaAsync<T> = AsyncLocalStorage<T>;
+
+export function novaMemoriaAsync<T>(): AsyncLocalStorage<T> {
+  return new AsyncLocalStorage<T>();
+}
+
 /** Registra uma ida ao D1. Chamado pelos helpers de db.ts. */
 export function marcarConsulta(): void {
   const ctx = als.getStore();

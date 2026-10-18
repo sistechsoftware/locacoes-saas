@@ -663,9 +663,21 @@ export async function checkConflicts(
   return out;
 }
 
-/** Revalidate an existing reservation against its SAVED physical composition. */
-export async function checkReservationConflicts(reservationId: number, options: StockOptions = {}): Promise<Conflict[]> {
-  const r = await one<any>(`SELECT * FROM reservations WHERE id = ?`, [reservationId]);
+/**
+ * Revalidate an existing reservation against its SAVED physical composition.
+ *
+ * `reservaJaLida` / `consumoJaLido` são atalhos para quem JÁ tem esses dados
+ * em mão (a tela de detalhe lê os dois na mesma onda): passar evita duas
+ * voltas ao D1 só para religar o que a tela acabou de carregar. Sem os
+ * parâmetros o comportamento é exatamente o de antes — a função lê sozinha.
+ */
+export async function checkReservationConflicts(
+  reservationId: number,
+  options: StockOptions = {},
+  reservaJaLida?: any,
+  consumoJaLido?: any[],
+): Promise<Conflict[]> {
+  const r = reservaJaLida ?? (await one<any>(`SELECT * FROM reservations WHERE id = ?`, [reservationId]));
   if (!r) return [];
   const w = holdWindow(r);
   const config = await stockOptions(options);
@@ -682,7 +694,7 @@ export async function checkReservationConflicts(reservationId: number, options: 
    * cada consumo no mapa. Mesma regra de calculo, sem nenhuma segunda fonte.
    */
   const [usage, disponibilidade] = await Promise.all([
-    reservationPhysicalUsage(reservationId),
+    consumoJaLido ?? reservationPhysicalUsage(reservationId),
     availabilityAll(w.from, to, reservationId, config, r.company_id),
   ]);
   const porProduto = new Map(disponibilidade.map((a) => [a.product_id, a]));
@@ -768,13 +780,22 @@ export async function rebuildReservationComponents(reservationId: number, versio
 export async function compositionDrift(reservationId: number): Promise<
   { product: string; gravado: number; atual: number }[]
 > {
-  const items = await all<{ id: number; product_id: number; qty: number }>(
-    `SELECT id, product_id, qty FROM reservation_items WHERE reservation_id = ?`,
-    [reservationId],
-  );
+  /* Itens, ficha de composição e consumo gravado não dependem um do outro:
+     uma onda só (dentro do lote da tela, um único batch) em vez de três. */
+  const [items, specs, gravadoRows] = await Promise.all([
+    all<{ id: number; product_id: number; qty: number }>(
+      `SELECT id, product_id, qty FROM reservation_items WHERE reservation_id = ?`,
+      [reservationId],
+    ),
+    loadSpecs(),
+    all<{ product_id: number; qty: number }>(
+      `SELECT product_id, SUM(qty) AS qty FROM reservation_item_components
+        WHERE reservation_id = ? GROUP BY product_id`,
+      [reservationId],
+    ),
+  ]);
   if (!items.length) return [];
 
-  const specs = await loadSpecs();
   const esperado = new Map<number, number>();
   for (const item of items) {
     for (const parte of explodeLine({ product_id: item.product_id, qty: item.qty }, specs)) {
@@ -782,11 +803,6 @@ export async function compositionDrift(reservationId: number): Promise<
     }
   }
 
-  const gravadoRows = await all<{ product_id: number; qty: number }>(
-    `SELECT product_id, SUM(qty) AS qty FROM reservation_item_components
-      WHERE reservation_id = ? GROUP BY product_id`,
-    [reservationId],
-  );
   const gravado = new Map(gravadoRows.map((r) => [r.product_id, Number(r.qty)]));
 
   const nomes = new Map([...specs.values()].map((s) => [s.id, s.name]));

@@ -3,7 +3,7 @@ import { estadoAssinaturaSeguro } from "@/lib/assinatura-gate";
 import { ajustesMenuDaEmpresa } from "@/lib/plano-personalizado";
 import { redirect } from "next/navigation";
 import PushRegistration from "@/components/PushRegistration";
-import { scalar } from "@/lib/db";
+import { scalar, emLoteLeituras } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { unreadCount } from "@/lib/notifications";
 import { unreadCounters } from "@/lib/chat";
@@ -15,18 +15,52 @@ import { BottomNav, FloatingAction, Sidebar, TopBar } from "@/components/Shell";
 export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  /*
+   * Tudo que o layout lê (sessão, assinatura, ajustes do menu, settings,
+   * contadores e configuração operacional) roda dentro de emLoteLeituras:
+   * as leituras da mesma volta viram UM batch() do D1 em vez de uma ida por
+   * consulta. Este layout envolve TODA a área autenticada, então o ganho vale
+   * para todo clique do app — não só para a tela de reserva.
+   */
+  return await emLoteLeituras(async () => {
   // Este layout É quem trata o bloqueio (redireciona para a tela explicativa),
   // por isso é o único ponto que pede o gate "ignorar" — ver teste estático.
   const user = await requireUser({ bloqueio: "ignorar" });
+
   /*
-   * Gate comercial (Etapa 3): assinatura expirada/suspensa/cancelada bloqueia
-   * TODA a area autenticada. Pendência #05: a leitura não é mais fail-open —
-   * estadoAssinaturaSeguro devolve o último estado conhecido quando a consulta
-   * falha e `null` (desconhecido) quando não há evidência recente; sem
-   * confirmação de que a conta está boa, o gate não abre (as escritas são
-   * barradas pelo mesmo helper no backend).
+   * Uma onda só para tudo que o layout lê depois da sessão: estado da
+   * assinatura (memo da requisição — requireUser já leu), ajustes do menu,
+   * settings, contadores e configuração operacional. Antes eram três esperas
+   * encadeadas (gate → ajustes → grupo), e cada espera era uma volta ao D1
+   * antes do primeiro byte de QUALQUER tela da área autenticada.
    */
-  const estado = await estadoAssinaturaSeguro(user.company_id);
+  const [estado, ajustes, settings, unread, chat, operacao] = await Promise.all([
+    /*
+     * Gate comercial (Etapa 3): assinatura expirada/suspensa/cancelada bloqueia
+     * TODA a area autenticada. Pendência #05: a leitura não é mais fail-open —
+     * estadoAssinaturaSeguro devolve o último estado conhecido quando a consulta
+     * falha e `null` (desconhecido) quando não há evidência recente; sem
+     * confirmação de que a conta está boa, o gate não abre (as escritas são
+     * barradas pelo mesmo helper no backend).
+     */
+    estadoAssinaturaSeguro(user.company_id),
+    /*
+     * Personalizações da empresa (painel /saas): liberações/bloqueios
+     * administrativos e cortesia vigente ajustam o MENU (apresentação). A
+     * porta de verdade segue no backend — requireModule/requireModuleEdit/
+     * apiUser aplicam a MESMA precedência central.
+     */
+    user.platform_admin
+      ? Promise.resolve(null)
+      : ajustesMenuDaEmpresa(user.company_id).catch(() => null),
+    // Os alertas sao recalculados no dashboard e na tela de notificacoes, e nao
+    // aqui: rodar a varredura em toda navegacao deixava cada clique lento.
+    getSettings(),
+    scalar<number>("SELECT COUNT(*) FROM user_notifications WHERE user_id=? AND read_at IS NULL", [user.id]),
+    unreadCounters(user.id),
+    getOperacao(),
+  ]);
+
   const bloqueado = estado === null || estado.bloqueioDuro === true;
   if (bloqueado && user.platform_admin === false) {
     return <AssinaturaBloqueada />;
@@ -34,28 +68,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   /*
    * Recursos contratados (correção de planos): o slug vem da ASSINATURA da
-   * empresa (banco), nunca do navegador, e só serve para filtrar o MENU   * (itens pagos fora do plano não aparecem). A porta de verdade é o backend:
+   * empresa (banco), nunca do navegador, e só serve para filtrar o MENU
+   * (itens pagos fora do plano não aparecem). A porta de verdade é o backend:
    * requireModule/requireModuleEdit/apiUser barram página, action e API.
    * platform_admin opera sem restrição de plano (mesma exceção do gate).
    */
   const planoSlug: string | null | undefined = user.platform_admin ? undefined : (estado?.plano?.slug ?? null);
-
-  /*
-   * Personalizações da empresa (painel /saas): liberações/bloqueios
-   * administrativos e cortesia vigente ajustam o MENU (apresentação). A
-   * porta de verdade segue no backend — requireModule/requireModuleEdit/
-   * apiUser aplicam a MESMA precedência central.
-   */
-  const ajustes = user.platform_admin ? null : await ajustesMenuDaEmpresa(user.company_id).catch(() => null);
-
-  // Os alertas sao recalculados no dashboard e na tela de notificacoes, e nao
-  // aqui: rodar a varredura em toda navegacao deixava cada clique lento.
-  const [settings, unread, chat, operacao] = await Promise.all([
-    getSettings(),
-    scalar<number>("SELECT COUNT(*) FROM user_notifications WHERE user_id=? AND read_at IS NULL", [user.id]),
-    unreadCounters(user.id),
-    getOperacao(),
-  ]);
   // Primeiro quadro: o contador ja nasce preenchido no servidor, sem piscar
   // de zero nem esperar a primeira consulta do ciclo compartilhado. A partir
   // daqui, apenas essa fonte alimenta topo, menu e tela do chat.
@@ -85,6 +103,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {estado?.avisoVencimento && <AvisoVencimento dias={estado.diasRestantes} />}
     </div>
   );
+  });
 }
 
 /**
