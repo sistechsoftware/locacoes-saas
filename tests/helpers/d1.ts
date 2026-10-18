@@ -15,8 +15,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 class Stmt {
   constructor(
     private db: DatabaseSync,
-    private sql: string,
-    private params: any[] = [],
+    readonly sql: string,
+    readonly params: any[] = [],
   ) {}
 
   bind(...params: any[]) {
@@ -54,11 +54,24 @@ export class FakeD1 {
     return new Stmt(this.sqlite, sql);
   }
 
+  /**
+   * Mesmo contrato do `batch()` do D1: devolve UM resultado por statement,
+   * cada um com `results` (linhas) + `meta`. Leituras devolvem as linhas —
+   * e o que o lote de leituras de db.ts consome — e escritas continuam
+   * devolvendo `meta` como antes (last_row_id/changes).
+   */
   async batch(statements: any[]) {
     this.sqlite.exec("BEGIN");
     try {
       const out = [];
-      for (const s of statements) out.push(await s.run());
+      for (const s of statements) {
+        const ehLeitura = /^\s*(select|with|pragma|values|explain)/i.test(s.sql);
+        if (ehLeitura) {
+          out.push({ results: this.sqlite.prepare(s.sql).all(...s.params), success: true, meta: {} });
+        } else {
+          out.push({ ...(await s.run()), results: [] });
+        }
+      }
       this.sqlite.exec("COMMIT");
       return out;
     } catch (e) {

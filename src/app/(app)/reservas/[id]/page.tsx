@@ -4,7 +4,7 @@ import { availabilityQuery, addMinutes, type AvailabilityParams } from "@/lib/av
 import { stockOptions } from "@/lib/availability-settings";
 import { HOLDING_STATUSES } from "@/lib/domain";
 import { notFound } from "next/navigation";
-import { all, one } from "@/lib/db";
+import { all, emLoteLeituras, one } from "@/lib/db";
 import { requireModule } from "@/lib/auth";
 import { temRecurso } from "@/lib/plano-gate";
 import { ehAdmin } from "@/lib/roles";
@@ -68,37 +68,64 @@ export default async function ReservaPage({
   /* company_id vem SEMPRE do contexto autenticado (nunca fallback de tenant).
      A reserva-pai ja e carregada escopada; cada leitura abaixo repete o
      filtro de empresa, inclusive as por id (IDOR por URL). */
+  return await emLoteLeituras(async () => {
   const ctx = await requireModule("reservas");
   const user = ctx.user;
+  const cid = ctx.companyId;
+  const { id } = await params;
+  const sp = await searchParams;
+  const { erro, aviso } = sp;
+
   /*
+   * Onda 1 — nada aqui depende da ordem.
+   *
    * Gate de APRESENTAÇÃO (mesma matriz do menu — planos.ts): Contratos é
    * item pago do Empresarial e Fidelidade do Profissional+. Sem o recurso no
    * plano, a seção de contrato (e o botão Gerar Contrato) e o bloco de
    * recompensas não são renderizados — o backend continua negando por igual
    * (requireModuleEdit), então não existe caminho de escrita sem o plano.
+   *
+   * Recursos, configuração operacional e a reserva são lidos JUNTOS: antes
+   * eram três esperas encadeadas (gate → reserva → operação) e cada espera
+   * era uma volta ao D1 antes de qualquer dado da tela aparecer.
    */
-  const [contratoLiberado, fidelidadeLiberada] = await Promise.all([
+  const [contratoLiberado, fidelidadeLiberada, operacao, r] = await Promise.all([
     temRecurso(user, "contratos"),
     temRecurso(user, "fidelidade"),
+    // nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação)
+    getOperacao(),
+    getReservation(Number(id), cid),
   ]);
-  const cid = ctx.companyId;
-  const { id } = await params;
-  const sp = await searchParams;
-  const { erro, aviso } = sp;
-  const r = await getReservation(Number(id), cid);
   if (!r) notFound();
-  // nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação)
-  const operacao = await getOperacao();
   // status com a nomenclatura da empresa (fim da locação = retirada/devolução)
   const STATUS_RESERVA = statusReserva(operacao, RESERVATION_STATUS);
 
+  /* Janela e filtros de disponibilidade: derivam só da reserva e dos params. */
+  const w = holdWindow(r);
+  const query = availabilityQuery({ ...sp, inicio: w.from, fim: w.to, preparo: sp.preparo ?? (sp.consulta === "1" ? "0" : String(r.stock_consider_preparation)) });
+
   /*
-   * Leitura da tela em paralelo.
+   * Onda 2 — TODAS as leituras da tela de uma vez.
    *
-   * Nenhuma destas consultas depende da outra — antes, cada uma esperava a
-   * anterior, e a tela pagava a soma de ~17 voltas ao D1 (2 a 4s em 4G).
-   * Junto, o tempo cai para o custo da consulta mais lenta do grupo.
+   * Antes existiam duas fases: um Promise.all grande e, DEPOIS dele, uma fila
+   * de esperas encadeadas (quitação, recompensa usada, prévia de fidelidade,
+   * mensagens, janela de disponibilidade e conflitos). O D1 processa uma
+   * consulta por vez, então cada espera nova era mais uma volta à rede: a tela
+   * pagava a SOMA das fases. Aqui as leituras derivadas já entram encadeadas
+   * (IIFE), e o custo passa a ser o da onda mais funda.
+   *
+   * Tudo roda dentro de emLoteLeituras: a onda vira UM batch() do D1 — uma
+   * ida à rede em vez de uma por consulta.
    */
+  const itensP = reservationItems(r.id, cid);
+  const moneyP = reservationMoney(r.id, cid);
+  const opcoesP = stockOptions(query);
+  const usoP = reservationPhysicalUsage(r.id);
+  const recompensasP =
+    r.status === "cancelada" || !fidelidadeLiberada
+      ? Promise.resolve([] as any[])
+      : recompensasDisponiveis(r.customer_id);
+
   const [
     items,
     m,
@@ -123,9 +150,25 @@ export default async function ReservaPage({
     consumoFisico,
     // divergencia de composicao dos kits (vazia para reserva cancelada)
     divergencia,
+    // Quitação unificada (locação e caução): leitura canônica — devolve o
+    // documento por obrigação ou null quando ainda não existe.
+    quitacao,
+    // Recompensa aplicada: exibição também é do Profissional+ — fora do plano
+    // a tela não mostra o bloco (o dado histórico permanece no banco).
+    recompensaUsada,
+    // opções de estoque (tempo de preparação) da janela desta reserva
+    options,
+    // conflitos de estoque — só para os status que bloqueiam estoque
+    conflicts,
+    // mensagens de WhatsApp pré-montadas
+    mensagens,
+    // prévia de cada recompensa disponível (quanto cobriria desta reserva)
+    previaRecompensas,
+    // regra de fidelidade vigente (unidade usada nos textos)
+    regra,
   ] = await Promise.all([
-    reservationItems(r.id, cid),
-    reservationMoney(r.id, cid),
+    itensP,
+    moneyP,
     reservationOperations(r.id, cid),
     all<any>(`SELECT * FROM payments WHERE reservation_id = ? AND company_id = ? ORDER BY paid_at DESC, id DESC`, [r.id, cid]),
     recibosDaReserva(r.id),
@@ -140,49 +183,46 @@ export default async function ReservaPage({
     logsFor("reserva", r.id),
     recebiveisDe({ tipo: "locacao", reservationId: r.id }, cid),
     adiantamentosDaReserva(r.id, cid),
-    r.status === "cancelada" || !fidelidadeLiberada ? Promise.resolve([]) : recompensasDisponiveis(r.customer_id),
-    reservationPhysicalUsage(r.id),
+    recompensasP,
+    usoP,
     r.status === "cancelada" ? Promise.resolve([]) : compositionDrift(r.id),
+    reciboQuitacaoDaReserva(r.id),
+    fidelidadeLiberada
+      ? one<any>(`SELECT * FROM fidelity_rewards WHERE used_reservation_id = ? AND company_id = ? LIMIT 1`, [r.id, cid])
+      : Promise.resolve(null),
+    opcoesP,
+    // Conflitos reusam a reserva e o consumo físico já lidos nesta onda —
+    // antes esta checagem relia a reserva e refazia o consumo (2 voltas só
+    // para descobrir o que a tela já tinha em mãos).
+    (async () => {
+      const opts = await opcoesP;
+      if (!(HOLDING_STATUSES as readonly string[]).includes(r.status)) return [];
+      return checkReservationConflicts(r.id, opts, r, await usoP);
+    })(),
+    // Mensagens dependem dos itens e do financeiro da MESMA onda: cadeia curta
+    // sem volta extra ao banco (as settings já vieram do cache por requisição).
+    (async () => {
+      const [itensDaReserva, money] = await Promise.all([itensP, moneyP]);
+      return messagesForReservation(r, itemsSummary(itensDaReserva), money.balance);
+    })(),
+    (async () => {
+      const disponiveis = await recompensasP;
+      return Promise.all(disponiveis.map(async (rec: any) => ({ rec, previa: await simularUso(rec.id, r.id) })));
+    })(),
+    regraAtual(),
   ]);
+
+  const { unidade } = regra;
   const adiantamentoAberto = adiantamentos.find((a: any) => a.status === "aberta");
   const historicoAdiantamentos = adiantamentos.filter((a: any) => a.id !== adiantamentoAberto?.id);
   const reciboDeposit = deposito ? recibos.find((rc: any) => rc.deposit_id === deposito.id) : null;
   const reciboPorPagamento = new Map<number, any>(
     recibos.filter((rc: any) => rc.payment_id).map((rc: any) => [rc.payment_id, rc]),
   );
-  // Quitação unificada: os recibos já vêm na lista (recibosDaReserva), mas a
-  // consulta dedicada é a leitura canônica — devolve o documento por obrigação
-  // (locação e caução) ou null quando ainda não existe.
-  const quitacao = await reciboQuitacaoDaReserva(r.id);
-  // Recompensa aplicada: exibição também é do Profissional+ — fora do plano
-  // a tela não mostra o bloco (o dado histórico permanece no banco).
-  const recompensaUsada = fidelidadeLiberada
-    ? await one<any>(
-        `SELECT * FROM fidelity_rewards WHERE used_reservation_id = ? AND company_id = ? LIMIT 1`,
-        [r.id, cid],
-      )
-    : null;
-  // quanto cada recompensa cobriria desta reserva, para o operador decidir vendo o valor
-  const previaRecompensas = await Promise.all(
-    recompensas.map(async (rec: any) => ({ rec, previa: await simularUso(rec.id, r.id) })),
-  );
-  // unidade da recompensa (kits, locações…) para os textos da seção — a mesma
-  // leitura de settings que simularUso já fez (cacheada por request)
-  const unidade = (await regraAtual()).unidade;
   const temKit = items.some((i: any) => i.product_kind === "kit");
   const pay = paymentState(m.total, m.paid);
-  const resumo = itemsSummary(items);
-  const mensagens = await messagesForReservation(r, resumo, m.balance);
   const maps = mapsLink(r.address, r.district, r.city);
-
-  const w = holdWindow(r);
-  const query = availabilityQuery({ ...sp, inicio: w.from, fim: w.to, preparo: sp.preparo ?? (sp.consulta === "1" ? "0" : String(r.stock_consider_preparation)) });
-  const options = await stockOptions(query);
   const occupiedUntil = addMinutes(w.to, options.preparationMinutes);
-  const conflicts =
-    (HOLDING_STATUSES as readonly string[]).includes(r.status)
-      ? await checkReservationConflicts(r.id, options)
-      : [];
 
   const flowIndex = (RESERVATION_FLOW as readonly string[]).indexOf(r.status);
   const proximo = flowIndex >= 0 && flowIndex < RESERVATION_FLOW.length - 1 ? RESERVATION_FLOW[flowIndex + 1] : null;
@@ -1071,6 +1111,7 @@ export default async function ReservaPage({
       )}
     </div>
   );
+  });
 }
 
 /**

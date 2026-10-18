@@ -145,16 +145,23 @@ export type ReservationMoney = {
 
 export async function reservationMoney(id: number, companyId?: number): Promise<ReservationMoney> {
   const cid = await empresa(companyId);
-  const total = await scalar<number>(`SELECT COALESCE(total_cents,0) FROM reservations WHERE id = ? AND company_id = ?`, [id, cid]);
-  const paid = await scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE reservation_id = ? AND company_id = ?`, [id, cid]);
-  const dep = await one<any>(`SELECT * FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [id, cid]);
-  // adiantamento combinado para o futuro: e promessa, nao caixa, entao fica
-  // separado do que a reserva ja recebeu de verdade
-  const scheduledAdvance = await scalar<number>(
-    `SELECT COALESCE(SUM(amount_cents),0) FROM financial_entries
-      WHERE reservation_id = ? AND company_id = ? AND category = 'Adiantamento' AND status = 'aberta'`,
-    [id, cid],
-  );
+  /*
+   * As quatro leituras são independentes e viram UMA onda (dentro do lote da
+   * tela, um único batch). Encadeadas como antes, cada uma era uma volta ao
+   * D1 — o caminho mais fundo da tela de detalhe.
+   */
+  const [total, paid, dep, scheduledAdvance] = await Promise.all([
+    scalar<number>(`SELECT COALESCE(total_cents,0) FROM reservations WHERE id = ? AND company_id = ?`, [id, cid]),
+    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE reservation_id = ? AND company_id = ?`, [id, cid]),
+    one<any>(`SELECT * FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [id, cid]),
+    // adiantamento combinado para o futuro: e promessa, nao caixa, entao fica
+    // separado do que a reserva ja recebeu de verdade
+    scalar<number>(
+      `SELECT COALESCE(SUM(amount_cents),0) FROM financial_entries
+        WHERE reservation_id = ? AND company_id = ? AND category = 'Adiantamento' AND status = 'aberta'`,
+      [id, cid],
+    ),
+  ]);
   return {
     total,
     paid,

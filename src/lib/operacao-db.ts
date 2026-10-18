@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { all, batch } from "./db";
 import { tenantCompanyId } from "./tenant";
 import { OPERACAO_KEYS, resolverOperacao, type OperacaoConfig } from "./operacao";
@@ -23,10 +24,16 @@ export async function operacaoDaEmpresa(companyId: number): Promise<OperacaoConf
   return resolverOperacao(settings);
 }
 
-/** Configuração operacional da empresa da sessão. */
-export async function getOperacao(): Promise<OperacaoConfig> {
+/**
+ * Configuração operacional da empresa da sessão.
+ *
+ * Memo por requisição (mesmo `cache` do React usado em getSettings): esta
+ * leitura acontece no layout E na página, e em mais uma dezena de telas —
+ * sem a memo cada uma pagava a própria ida ao D1 na mesma requisição.
+ */
+export const getOperacao = cache(async function (): Promise<OperacaoConfig> {
   return operacaoDaEmpresa(await tenantCompanyId());
-}
+});
 
 /**
  * Grava as configurações operacionais da empresa em UM batch atômico.
