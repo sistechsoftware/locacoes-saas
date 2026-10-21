@@ -16,6 +16,7 @@ import "server-only";
 import { all } from "./db";
 import { settingsDaEmpresa } from "./settings";
 import { diasCobrados } from "./format";
+import { exprValida } from "./desconto";
 
 export type ModoCobranca = "fixo" | "diaria";
 
@@ -24,6 +25,8 @@ export type ItemComPreco = {
   qty: number;
   unit_price_cents: number;
   discount_cents: number;
+  /** Forma do desconto ("10%" ou NULL = R$) — só exibição, migração 0046. */
+  discount_expr: string | null;
   pricing_mode: ModoCobranca;
   period_qty: number;
 };
@@ -48,6 +51,7 @@ export async function aplicarPrecos<
     qty: number;
     unit_price_cents?: number;
     discount_cents?: number;
+    discount_expr?: unknown;
     pricing_mode?: unknown;
     period_qty?: unknown;
   },
@@ -68,6 +72,7 @@ export async function aplicarPrecos<
       qty: i.qty,
       unit_price_cents: i.unit_price_cents ?? 0,
       discount_cents: i.discount_cents ?? 0,
+      discount_expr: exprValida(i.discount_expr),
       pricing_mode: modo,
       period_qty: modo === "diaria" ? dias : 1,
     };

@@ -58,6 +58,9 @@ export async function saveCompanySettings(fd: FormData): Promise<void> {
     default_deposit_cents: String(parseMoney(String(fd.get("default_deposit") ?? ""))),
     // Modalidade padrão de cobrança: só valores conhecidos; lixo vira 'fixo'.
     pricing_default_mode: String(fd.get("pricing_default_mode") ?? "") === "diaria" ? "diaria" : "fixo",
+    // Hora extra da extensão de retirada: preço em centavos, limite com mínimo 1.
+    extra_hour_price_cents: String(parseMoney(String(fd.get("extra_hour_price") ?? ""))),
+    extra_hours_until_daily: String(Math.max(1, Math.round(Number(fd.get("extra_hours_until_daily")) || 6))),
   };
   if (logoPath) {
     // troca a logo e descarta a anterior, para nao acumular arquivo orfao

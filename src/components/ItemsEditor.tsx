@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { diasCobrados, money, parseMoney } from "@/lib/format";
+import { descontoDePct, exprDePct, pctDeExpr, pctDigitado, type ModoDesconto } from "@/lib/desconto";
 import { precoUnitario, rotuloFaixa, type Promocao } from "@/lib/promocoes";
 import { Icon } from "./Icons";
 
@@ -29,6 +30,8 @@ export type ItemRow = {
   qty: number;
   unit_price_cents: number;
   discount_cents: number;
+  /** Forma do desconto ("10%" ou ausente = R$) — só exibição, migração 0046. */
+  discount_expr?: string | null;
   /**
    * O operador digitou este preco a mao?
    *
@@ -40,6 +43,9 @@ export type ItemRow = {
 };
 
 export type StockInfo = Record<number, { available: number; requested: number; missing: number }>;
+
+/** Última forma de desconto usada (R$ ou %) — mesma memória dos formulários. */
+const CHAVE_DESCTO_MODO = "locacoes:desconto-modo";
 
 /**
  * Períodos cobrados de uma linha: 'diaria' multiplica pelos dias de calendário
@@ -89,6 +95,14 @@ export default function ItemsEditor({
   dias?: number;
 }) {
   const [picker, setPicker] = useState("");
+  const [modoDesconto, setModoDesconto] = useState<ModoDesconto>("money");
+  useEffect(() => {
+    const m = window.localStorage.getItem(CHAVE_DESCTO_MODO);
+    if (m === "money" || m === "percent") setModoDesconto(m);
+  }, []);
+  useEffect(() => {
+    window.localStorage.setItem(CHAVE_DESCTO_MODO, modoDesconto);
+  }, [modoDesconto]);
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const dia = dataReferencia || new Date().toISOString().slice(0, 10);
   const janelaDias = Math.max(1, dias ?? 1);
@@ -117,6 +131,24 @@ export default function ItemsEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, dia]);
 
+  // Linha com desconto em %: o dinheiro gravado acompanha a base quando a
+  // quantidade ou o preço muda — 10% de 3 mesas não pode continuar sendo
+  // 10% de 1 mesa. Linha em R$ fica intacta, como sempre.
+  useEffect(() => {
+    let mudou = false;
+    const ajustados = items.map((i) => {
+      const pct = pctDeExpr(i.discount_expr);
+      if (pct === null) return i;
+      const base = i.qty * periodosDaLinha(byId.get(i.product_id)?.pricing_mode, janelaDias) * i.unit_price_cents;
+      const cents = descontoDePct(base, pct);
+      if (cents === i.discount_cents) return i;
+      mudou = true;
+      return { ...i, discount_cents: cents };
+    });
+    if (mudou) onChange(ajustados);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
   const add = (productId: number) => {
     if (!productId) return;
     const p = byId.get(productId);
@@ -132,6 +164,7 @@ export default function ItemsEditor({
           qty: 1,
           unit_price_cents: calcular(productId, 1).unit_price_cents,
           discount_cents: 0,
+          discount_expr: null,
         },
       ]);
     }
@@ -142,6 +175,42 @@ export default function ItemsEditor({
     onChange(items.map((i, idx) => (idx === index ? { ...i, ...changes } : i)));
 
   const remove = (index: number) => onChange(items.filter((_, idx) => idx !== index));
+
+  /** Texto inicial do campo de desconto: a forma GRAVADA manda; sem expressão,
+   *  o valor existente é convertido para a forma atual (nada pula). */
+  const valorDescontoLinha = (item: ItemRow, baseLinha: number, modo: ModoDesconto) => {
+    const pct = pctDeExpr(item.discount_expr);
+    if (modo === "percent") {
+      if (pct !== null) return String(pct).replace(".", ",");
+      if (item.discount_cents > 0 && baseLinha > 0) {
+        const semeado = Math.min(100, Math.round((item.discount_cents / baseLinha) * 10000) / 100);
+        return semeado > 0 ? String(semeado).replace(".", ",") : "";
+      }
+      return "";
+    }
+    return (item.discount_cents / 100).toFixed(2);
+  };
+
+  /** Blur do desconto: grava dinheiro e forma juntos, na mesma linha. */
+  const aplicarDescontoLinha = (index: number, valor: string, baseLinha: number) => {
+    const item = items[index];
+    if (!item) return;
+    if (modoDesconto === "percent") {
+      if (valor.trim() === "") {
+        if (item.discount_cents !== 0 || item.discount_expr) patch(index, { discount_cents: 0, discount_expr: null });
+        return;
+      }
+      const pct = pctDigitado(valor);
+      if (pct === null) return; // texto que não é percentual: mantém o anterior
+      const cents = descontoDePct(baseLinha, pct);
+      if (cents === item.discount_cents && exprDePct(pct) === item.discount_expr) return;
+      patch(index, { discount_cents: cents, discount_expr: exprDePct(pct) });
+      return;
+    }
+    const cents = parseMoney(valor);
+    if (cents === item.discount_cents && !item.discount_expr) return;
+    patch(index, { discount_cents: cents, discount_expr: null });
+  };
 
   const subtotal = items.reduce(
     (s, i) => s + subtotalLinha(i, byId.get(i.product_id)?.pricing_mode, janelaDias),
@@ -176,6 +245,28 @@ export default function ItemsEditor({
         </select>
       </div>
 
+      {items.length > 0 && (
+        <div className="flex items-center justify-between">
+          <span className="text-[0.68rem] font-semibold uppercase text-stone-500">Descontos por item em</span>
+          <div className="flex overflow-hidden rounded-xl border border-nuvem-300">
+            <button
+              type="button"
+              onClick={() => setModoDesconto("money")}
+              className={`px-3 py-1 text-xs font-bold ${modoDesconto === "money" ? "bg-marca-600 text-white" : "bg-white text-stone-500"}`}
+            >
+              R$
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoDesconto("percent")}
+              className={`px-3 py-1 text-xs font-bold ${modoDesconto === "percent" ? "bg-marca-600 text-white" : "bg-white text-stone-500"}`}
+            >
+              %
+            </button>
+          </div>
+        </div>
+      )}
+
       {items.length === 0 ? (
         <p className="rounded-xl border border-dashed border-nuvem-300 bg-nuvem-50 px-3 py-6 text-center text-sm text-stone-500">
           Nenhum item adicionado ainda.
@@ -188,6 +279,7 @@ export default function ItemsEditor({
             const per = periodosDaLinha(p?.pricing_mode, janelaDias);
             const line = subtotalLinha(item, p?.pricing_mode, janelaDias);
             const promo = calcular(item.product_id, item.qty);
+            const baseLinha = item.qty * per * item.unit_price_cents;
             return (
               <div
                 key={item.product_id}
@@ -268,10 +360,13 @@ export default function ItemsEditor({
                   </label>
 
                   <label className="block">
-                    <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">Desconto</span>
+                    <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">
+                      Desconto {modoDesconto === "percent" ? "%" : "R$"}
+                    </span>
                     <input
-                      defaultValue={(item.discount_cents / 100).toFixed(2)}
-                      onBlur={(e) => patch(index, { discount_cents: parseMoney(e.target.value) })}
+                      key={`desc-${modoDesconto}-${item.product_id}`}
+                      defaultValue={valorDescontoLinha(item, baseLinha, modoDesconto)}
+                      onBlur={(e) => aplicarDescontoLinha(index, e.target.value, baseLinha)}
                       inputMode="decimal"
                       className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
                     />

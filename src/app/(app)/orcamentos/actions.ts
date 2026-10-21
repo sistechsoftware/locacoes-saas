@@ -12,10 +12,13 @@ import { aplicarPrecos } from "@/lib/pricing";
 import { checkConflicts, conflictsMessage, rebuildReservationComponents, stamp } from "@/lib/stock";
 import { tenantCompanyId } from "@/lib/tenant";
 import { addDays, parseMoney } from "@/lib/format";
+import { calcularExtensao } from "@/lib/hora-extra";
+import { settingsDaEmpresa } from "@/lib/settings";
 import { dataEventoOuInicio } from "@/lib/operacao";
 import { getOperacao } from "@/lib/operacao-db";
+import { exprValida } from "@/lib/desconto";
 
-type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
+type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number; discount_expr?: string | null };
 
 function readItems(fd: FormData): ItemInput[] {
   try {
@@ -26,6 +29,8 @@ function readItems(fd: FormData): ItemInput[] {
         qty: Math.max(0, Number(i.qty) || 0),
         unit_price_cents: Number(i.unit_price_cents) || 0,
         discount_cents: Number(i.discount_cents) || 0,
+        // forma do desconto ("10%" ou NULL = R$): só exibição, migração 0046
+        discount_expr: exprValida(i.discount_expr),
       }))
       .filter((i) => i.product_id && i.qty > 0);
   } catch {
@@ -58,6 +63,7 @@ function readHeader(fd: FormData, opts: { derivarEvento?: boolean } = {}) {
     disassembly_cents: parseMoney(String(fd.get("disassembly") ?? "")),
     other_cents: parseMoney(String(fd.get("other") ?? "")),
     discount_cents: parseMoney(String(fd.get("discount") ?? "")),
+    discount_expr: exprValida(fd.get("discount_expr")),
     notes: String(fd.get("notes") ?? "").trim(),
     status: String(fd.get("status") ?? "rascunho"),
   };
@@ -84,8 +90,8 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
     id = await insert(
       `INSERT INTO quotes (number, customer_id, status, event_date, event_time, address, district, city,
         delivery_at, pickup_at, valid_until, freight_cents, assembly_cents, disassembly_cents, other_cents,
-        discount_cents, notes, created_by, company_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        discount_cents, discount_expr, notes, created_by, company_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         number,
         h.customer_id,
@@ -103,18 +109,20 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
         h.disassembly_cents,
         h.other_cents,
         h.discount_cents,
+        h.discount_expr,
         h.notes,
         user.id,
         companyId,
       ],
     );
     for (const i of precos) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?)`, [
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, discount_expr, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
         i.unit_price_cents,
         i.discount_cents,
+        i.discount_expr ?? null,
         i.pricing_mode,
         i.period_qty,
         companyId,
@@ -145,11 +153,28 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
   if (!items.length) return "Adicione ao menos um item.";
   const precos = await aplicarPrecos(items, h, companyId);
 
+  /* Hora extra da extensão de retirada (mesma regra da reserva): comparar a
+   * retirada gravada com a nova, no servidor. Retirada não alterada preserva
+   * o valor já combinado. */
+  const cfg = await settingsDaEmpresa(companyId);
+  const ext =
+    String(h.pickup_at) === String(q.pickup_at)
+      ? { minutos: q.extension_minutes ?? 0, cents: q.extension_cents ?? 0 }
+      : calcularExtensao({
+          pickupAnterior: q.pickup_at,
+          pickupNovo: h.pickup_at,
+          deliveryAnterior: q.delivery_at,
+          deliveryNovo: h.delivery_at,
+          precoHoraCents: Number(cfg.extra_hour_price_cents) || 0,
+          limiteHoras: Number(cfg.extra_hours_until_daily) || 0,
+        });
+
   await tx(async () => {
     await run(
       `UPDATE quotes SET customer_id=?, status=?, event_date=?, event_time=?, address=?, district=?, city=?,
               delivery_at=?, pickup_at=?, valid_until=?, freight_cents=?, assembly_cents=?, disassembly_cents=?,
-              other_cents=?, discount_cents=?, notes=?, updated_at=datetime('now','localtime')
+              other_cents=?, discount_cents=?, discount_expr=?, notes=?, extension_minutes=?, extension_cents=?,
+              updated_at=datetime('now','localtime')
         WHERE id = ? AND company_id = ?`,
       [
         h.customer_id,
@@ -167,19 +192,23 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
         h.disassembly_cents,
         h.other_cents,
         h.discount_cents,
+        h.discount_expr,
         h.notes,
+        ext.minutos,
+        ext.cents,
         id,
         companyId,
       ],
     );
     await run(`DELETE FROM quote_items WHERE quote_id = ?`, [id]);
     for (const i of precos) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?)`, [
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, discount_expr, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
         i.unit_price_cents,
         i.discount_cents,
+        i.discount_expr ?? null,
         i.pricing_mode,
         i.period_qty,
         companyId,

@@ -14,6 +14,8 @@ import { messageForQuote } from "@/lib/whatsapp";
 import { logsFor } from "@/lib/audit";
 import { QUOTE_STATUS } from "@/lib/domain";
 import { dateBR, money, utcParaLocal } from "@/lib/format";
+import { rotuloDesconto } from "@/lib/desconto";
+import { rotuloExtensao } from "@/lib/hora-extra";
 import { Alerta, Card, Empty, LinkButton, PageHeader, Row, Section, StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -180,7 +182,10 @@ export default async function OrcamentoPage({
             {(operacao.vis.montagem || q.assembly_cents > 0) && <Row label="Montagem" value={money(q.assembly_cents)} />}
             {(operacao.vis.montagem || q.disassembly_cents > 0) && <Row label="Desmontagem" value={money(q.disassembly_cents)} />}
             <Row label="Outros" value={money(q.other_cents)} />
-            <Row label="Desconto" value={"- " + money(q.discount_cents)} />
+            {(q.extension_cents ?? 0) > 0 && (
+              <Row label={`Extensão ${rotuloExtensao(q.extension_minutes)}`} value={money(q.extension_cents)} />
+            )}
+            <Row label="Desconto" value={"- " + rotuloDesconto(q.discount_cents, q.discount_expr)} />
             <div className="flex items-center justify-between pt-1 text-base font-bold">
               <span>Total</span>
               <span>{money(q.total_cents)}</span>
