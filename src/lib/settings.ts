@@ -60,6 +60,11 @@ LOCADORA                                  LOCATARIO`;
  */
 export const DEFAULT_SETTINGS: Settings = {
   stock_preparation_minutes: "0",
+  /* Preço por período (Fase 1): modalidade padrão de cobrança dos produtos
+   * que não têm pricing_mode próprio. "fixo" = comportamento atual; "diaria"
+   * cobra pelo dias de calendário da janela. Entra aqui para a whitelist de
+   * setSettings aceitá-la por empresa. */
+  pricing_default_mode: "fixo",
   company_name: "",
   company_tagline: "Gestao de Locacoes e Eventos",
   company_doc: "",

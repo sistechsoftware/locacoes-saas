@@ -18,11 +18,14 @@ async function empresa(companyId?: number): Promise<number> {
 /* Totais                                                              */
 /* ------------------------------------------------------------------ */
 
-/** Recalcula subtotais dos itens e o total da reserva. Fonte unica da verdade. */
+/** Recalcula subtotais dos itens e o total da reserva. Fonte unica da verdade.
+ *  period_qty = períodos cobrados (migração 0044): linha 'fixo' tem 1 e a
+ *  fórmula é exatamente a antiga qty × unit − discount; linha 'diária' tem os
+ *  dias de calendário da janela gravados no item. */
 export async function recalcReservation(id: number) {
   await run(
     `UPDATE reservation_items
-        SET subtotal_cents = MAX(0, qty * unit_price_cents - discount_cents)
+        SET subtotal_cents = MAX(0, qty * period_qty * unit_price_cents - discount_cents)
       WHERE reservation_id = ?`,
     [id],
   );
@@ -42,7 +45,7 @@ export async function recalcReservation(id: number) {
 
 export async function recalcQuote(id: number) {
   await run(
-    `UPDATE quote_items SET subtotal_cents = MAX(0, qty * unit_price_cents - discount_cents) WHERE quote_id = ?`,
+    `UPDATE quote_items SET subtotal_cents = MAX(0, qty * period_qty * unit_price_cents - discount_cents) WHERE quote_id = ?`,
     [id],
   );
   const items = await scalar<number>(`SELECT COALESCE(SUM(subtotal_cents),0) FROM quote_items WHERE quote_id = ?`, [id]);

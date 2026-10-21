@@ -168,7 +168,10 @@ export default async function OrcamentoImprimirPage({ params }: { params: Promis
               <tbody>
                 {itens.map((i: any) => (
                   <tr key={i.id} className="border-b border-nuvem-200">
-                    <td className="px-2 py-2">{i.product_name}</td>
+                    <td className="px-2 py-2">
+                      {i.product_name}
+                      {i.pricing_mode === "diaria" && i.period_qty > 1 ? ` · ${i.period_qty} diárias` : ""}
+                    </td>
                     <td className="px-2 py-2 text-right">{i.qty}</td>
                     <td className="px-2 py-2 text-right">{money(i.unit_price_cents)}</td>
                     <td className="px-2 py-2 text-right font-semibold">{money(i.subtotal_cents)}</td>

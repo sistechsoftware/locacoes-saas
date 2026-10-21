@@ -201,6 +201,20 @@ export default async function ConfiguracoesPage({
                   disabled={!admin}
                 />
               </Field>
+              <Field
+                label="Cobrança padrão dos produtos"
+                hint="Produtos sem regra própria seguem esta modalidade. Por diária: valor × dias de calendário da janela."
+              >
+                <select
+                  name="pricing_default_mode"
+                  defaultValue={s.pricing_default_mode === "diaria" ? "diaria" : "fixo"}
+                  className="campo"
+                  disabled={!admin}
+                >
+                  <option value="fixo">Fixo (por unidade) — comportamento atual</option>
+                  <option value="diaria">Por diária</option>
+                </select>
+              </Field>
             </Grid>
             <Field label="Dados bancários">
               <textarea name="bank_info" defaultValue={s.bank_info} rows={2} className="campo" disabled={!admin} />

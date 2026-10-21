@@ -1,6 +1,7 @@
 import "server-only";
 import { promocoesAtivasPorProduto } from "./promocoes-db";
 import { all, one, run, batch, scalar } from "./db";
+import { settingsDaEmpresa } from "./settings";
 import { tenantCompanyId } from "./tenant";
 import { addMinutes, normalizeStamp, timeWindow } from "./availability-time";
 import { stockOptions, type StockOptions } from "./availability-settings";
@@ -124,9 +125,9 @@ export async function loadSpecs(companyId?: number): Promise<SpecMap> {
  */
 export async function sellableProducts(companyId?: number) {
   const cid = await empresa(companyId);
-  const [rows, comps, promocoes] = await Promise.all([
+  const [rows, comps, promocoes, cfg] = await Promise.all([
     all<any>(
-      `SELECT p.id, p.code, p.name, p.kind, p.rent_price_cents, p.total_qty, c.name AS category
+      `SELECT p.id, p.code, p.name, p.kind, p.rent_price_cents, p.total_qty, p.pricing_mode, c.name AS category
          FROM products p LEFT JOIN categories c ON c.id = p.category_id
         WHERE p.company_id = ? AND p.active = 1
         ORDER BY c.name, p.name`,
@@ -145,7 +146,11 @@ export async function sellableProducts(companyId?: number) {
     // sem uma consulta por linha; a vigencia por data e avaliada la, contra a
     // data do evento que o operador escolheu
     promocoesAtivasPorProduto(),
+    settingsDaEmpresa(cid),
   ]);
+  // Modalidade de cobrança RESOLVIDA (produto > default da empresa > fixo) para
+  // o editor exibir a mesma regra que o servidor vai gravar — lib/pricing.ts.
+  const padrao: "fixo" | "diaria" = cfg.pricing_default_mode === "diaria" ? "diaria" : "fixo";
   const byParent = new Map<number, string[]>();
   for (const c of comps) {
     const list = byParent.get(c.parent_product_id) ?? [];
@@ -154,6 +159,7 @@ export async function sellableProducts(companyId?: number) {
   }
   return rows.map((r) => ({
     ...r,
+    pricing_mode: r.pricing_mode === "fixo" || r.pricing_mode === "diaria" ? r.pricing_mode : padrao,
     composition: r.kind === "kit" ? (byParent.get(r.id) ?? []).join(" + ") || null : null,
     promocao: promocoes.get(r.id) ?? null,
   }));
