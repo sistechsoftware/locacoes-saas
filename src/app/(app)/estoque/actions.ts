@@ -10,8 +10,12 @@ import { validateComposition, type Component } from "@/lib/kits";
 
 function readProduct(fd: FormData) {
   const kind = String(fd.get("kind") ?? "simples") === "kit" ? "kit" : "simples";
+  // Modalidade de cobrança: só os valores conhecidos viram coluna; vazio/lixo
+  // vira NULL = "seguir o default da empresa" (precedência produto > empresa).
+  const modo = String(fd.get("pricing_mode") ?? "");
   return {
     kind,
+    pricing_mode: modo === "fixo" || modo === "diaria" ? modo : null,
     code: String(fd.get("code") ?? "").trim().toUpperCase(),
     name: String(fd.get("name") ?? "").trim(),
     category_id: Number(fd.get("category_id")) || null,
@@ -82,8 +86,8 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
     const code = p.code || (await nextProductCode());
     try {
       id = await insert(
-        `INSERT INTO products (code, name, category_id, kind, total_qty, min_qty, rent_price_cents, replace_cents, description, photo, company_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO products (code, name, category_id, kind, total_qty, min_qty, rent_price_cents, replace_cents, description, photo, pricing_mode, company_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           code,
           p.name,
@@ -95,6 +99,7 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
           p.replace_cents,
           p.description,
           p.photo,
+          p.pricing_mode,
           user.company_id,
         ],
       );
@@ -160,7 +165,7 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
 
   await run(
     `UPDATE products SET code=?, name=?, category_id=?, kind=?, total_qty=?, min_qty=?, rent_price_cents=?, replace_cents=?,
-            description=?, photo=? WHERE id = ? AND company_id = ?`,
+            description=?, photo=?, pricing_mode=? WHERE id = ? AND company_id = ?`,
     [
       code,
       p.name,
@@ -172,6 +177,7 @@ export async function updateProduct(_prev: string | null, fd: FormData): Promise
       p.replace_cents,
       p.description,
       p.photo,
+      p.pricing_mode,
       id,
       user.company_id,
     ],

@@ -393,7 +393,9 @@ export default async function ReservaPage({
                       )}
                     </span>
                     <span className="block text-xs text-stone-500">
-                      {money(i.unit_price_cents)} cada
+                      {i.pricing_mode === "diaria" && i.period_qty > 1
+                        ? `${money(i.unit_price_cents)} × ${i.period_qty} diárias`
+                        : `${money(i.unit_price_cents)} cada`}
                       {i.discount_cents > 0 ? ` · desconto ${money(i.discount_cents)}` : ""}
                     </span>
                   </span>

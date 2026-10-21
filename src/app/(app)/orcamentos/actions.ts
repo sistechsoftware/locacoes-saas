@@ -8,6 +8,7 @@ import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
 import { logAction } from "@/lib/audit";
 import { recalcQuote, recalcReservation, syncOperations } from "@/lib/reservations";
+import { aplicarPrecos } from "@/lib/pricing";
 import { checkConflicts, conflictsMessage, rebuildReservationComponents, stamp } from "@/lib/stock";
 import { tenantCompanyId } from "@/lib/tenant";
 import { addDays, parseMoney } from "@/lib/format";
@@ -72,6 +73,9 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
   const items = readItems(fd);
   if (!h.customer_id) return "Selecione o cliente.";
   if (!items.length) return "Adicione ao menos um item.";
+  // Modalidade e período resolvidos no servidor pela janela do orçamento;
+  // o formulário não envia período (lib/pricing.ts).
+  const precos = await aplicarPrecos(items, h, companyId);
 
   let id = 0;
   await tx(async () => {
@@ -104,13 +108,15 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
         companyId,
       ],
     );
-    for (const i of items) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, company_id) VALUES (?,?,?,?,?,?)`, [
+    for (const i of precos) {
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
         i.unit_price_cents,
         i.discount_cents,
+        i.pricing_mode,
+        i.period_qty,
         companyId,
       ]);
     }
@@ -137,6 +143,7 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
   if (!q) return "Orçamento não encontrado.";
   if (q.status === "convertido") return "Orçamento já convertido em reserva não pode ser alterado.";
   if (!items.length) return "Adicione ao menos um item.";
+  const precos = await aplicarPrecos(items, h, companyId);
 
   await tx(async () => {
     await run(
@@ -166,13 +173,15 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
       ],
     );
     await run(`DELETE FROM quote_items WHERE quote_id = ?`, [id]);
-    for (const i of items) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, company_id) VALUES (?,?,?,?,?,?)`, [
+    for (const i of precos) {
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
         i.unit_price_cents,
         i.discount_cents,
+        i.pricing_mode,
+        i.period_qty,
         companyId,
       ]);
     }

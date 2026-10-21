@@ -56,6 +56,8 @@ export async function saveCompanySettings(fd: FormData): Promise<void> {
     pix_key: String(fd.get("pix_key") ?? "").trim(),
     bank_info: String(fd.get("bank_info") ?? "").trim(),
     default_deposit_cents: String(parseMoney(String(fd.get("default_deposit") ?? ""))),
+    // Modalidade padrão de cobrança: só valores conhecidos; lixo vira 'fixo'.
+    pricing_default_mode: String(fd.get("pricing_default_mode") ?? "") === "diaria" ? "diaria" : "fixo",
   };
   if (logoPath) {
     // troca a logo e descarta a anterior, para nao acumular arquivo orfao

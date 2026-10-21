@@ -4,7 +4,7 @@ import { tenantCompanyId } from "./tenant";
 import { explodeLine, isKit, loadSpecs } from "./stock";
 
 type Statement = { sql: string; params?: any[] };
-export type RentalItem = { product_id: number; qty: number; unit_price_cents?: number; discount_cents?: number };
+export type RentalItem = { product_id: number; qty: number; unit_price_cents?: number; discount_cents?: number; pricing_mode?: string; period_qty?: number };
 export const STOCK_CHANGED = "O estoque ou a reserva mudou durante a verificacao. Nada foi alterado; confira os dados e tente novamente.";
 
 /**
@@ -79,10 +79,16 @@ export async function writeRental(companyId: number, version: number, header: Re
     { sql: `INSERT INTO reservations(id,number,${fields.map(([key]) => key).join(",")}) VALUES(?,?,${fields.map(() => "?").join(",")})`, params: [id, number, ...fields.map(([,v]) => v)] },
   ];
   const specs = await loadSpecs();
+  // Modalidade e período resolvidos NO SERVIDOR: o period_qty vem da janela
+  // [delivery_at, pickup_at] da própria escrita (o cliente não envia período);
+  // linha que já traz pricing_mode do banco (conversão de orçamento) preserva
+  // a modalidade negociada — ver lib/pricing.ts.
+  const { aplicarPrecos } = await import("./pricing");
+  const precos = await aplicarPrecos(items, header, companyId);
   // o laco abaixo incrementa antes de usar, por isso o -1
   let itemId = (await nextFreeId("reservation_items")) - 1;
-  for (const item of items) {
-    itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,company_id) VALUES(?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents ?? 0,item.discount_cents ?? 0,companyId] });
+  for (const item of precos) {
+    itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,pricing_mode,period_qty,company_id) VALUES(?,?,?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents,item.discount_cents,item.pricing_mode,item.period_qty,companyId] });
     const spec = specs.get(item.product_id);
     for (const part of explodeLine(item, specs)) {
       const perUnit = isKit(spec) ? spec!.components.find(c => c.product_id === part.product_id)!.quantity : 1;

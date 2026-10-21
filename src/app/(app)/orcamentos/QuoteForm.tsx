@@ -2,11 +2,11 @@
 import Link from "next/link";
 import RouteEstimate from "@/components/RouteEstimate";
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import ItemsEditor, { type ItemRow, type Product, type StockInfo } from "@/components/ItemsEditor";
+import ItemsEditor, { subtotalLinha, type ItemRow, type Product, type StockInfo } from "@/components/ItemsEditor";
 import ConflictList from "@/components/ConflictList";
 import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
-import { money, parseMoney } from "@/lib/format";
+import { diasCobrados, money, parseMoney } from "@/lib/format";
 import { sugerirJanelaEvento } from "@/lib/availability-time";
 import { QUOTE_STATUS } from "@/lib/domain";
 import { unicosPorId, type OpcaoSelecionavel } from "@/lib/search-select-utils";
@@ -117,7 +117,11 @@ export default function QuoteForm({
     [conflicts],
   );
 
-  const itemsTotal = items.reduce((s, i) => s + Math.max(0, i.qty * i.unit_price_cents - i.discount_cents), 0);
+  // dias de calendário da janela: multiplicador das linhas 'diaria' na
+  // exibição — o servidor recalcula da janela gravada ao salvar
+  const dias = diasCobrados(deliveryAt, pickupAt);
+  const modoDe = (productId: number) => products.find((p) => p.id === productId)?.pricing_mode;
+  const itemsTotal = items.reduce((s, i) => s + subtotalLinha(i, modoDe(i.product_id), dias), 0);
   const total = Math.max(
     0,
     itemsTotal + parseMoney(freight) + parseMoney(assembly) + parseMoney(disassembly) + parseMoney(other) - parseMoney(discount),
@@ -253,7 +257,7 @@ export default function QuoteForm({
             </Alerta>
           </div>
         )}
-        <ItemsEditor products={products} items={items} onChange={setItems} stock={stockInfo} dataReferencia={eventDate || deliveryAt.slice(0, 10)} />
+        <ItemsEditor products={products} items={items} onChange={setItems} stock={stockInfo} dataReferencia={eventDate || deliveryAt.slice(0, 10)} dias={dias} />
       </section>
 
       <section className="cartao p-4">

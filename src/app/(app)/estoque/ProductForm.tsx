@@ -134,6 +134,16 @@ export default function ProductForm({
             className="campo"
           />
         </Field>
+        <Field
+          label="Cobrança"
+          hint="Por diária: o valor acima é por dia e a locação multiplica pelos dias de calendário. Padrão da empresa: usa a configuração global de preços."
+        >
+          <select name="pricing_mode" defaultValue={v.pricing_mode ?? ""} className="campo">
+            <option value="">Padrão da empresa</option>
+            <option value="fixo">Fixo (por unidade)</option>
+            <option value="diaria">Por diária</option>
+          </select>
+        </Field>
         <Field label="Foto (URL)">
           <input name="photo" defaultValue={v.photo ?? ""} className="campo" placeholder="https://..." />
         </Field>

@@ -161,7 +161,11 @@ export default async function OrcamentoPage({
                 <li key={i.id} className="flex items-center justify-between py-2 text-sm">
                   <span>
                     {i.qty} x {i.product_name}
-                    <span className="block text-xs text-stone-500">{money(i.unit_price_cents)} cada</span>
+                    <span className="block text-xs text-stone-500">
+                      {i.pricing_mode === "diaria" && i.period_qty > 1
+                        ? `${money(i.unit_price_cents)} × ${i.period_qty} diárias`
+                        : `${money(i.unit_price_cents)} cada`}
+                    </span>
                   </span>
                   <span className="font-bold">{money(i.subtotal_cents)}</span>
                 </li>

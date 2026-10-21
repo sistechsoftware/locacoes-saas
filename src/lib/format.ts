@@ -237,6 +237,20 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((dbb.getTime() - da.getTime()) / 864e5);
 }
 
+/**
+ * Diárias cobradas de uma janela de locação — regra aprovada na auditoria:
+ * DIA DE CALENDÁRIO, usando só a parte de data (o horário não cria diária).
+ *   entrega sáb, retirada dom = 1 diária; mesma data = 1 (mínimo);
+ *   entrega sáb, retirada ter = 3 diárias.
+ * Janela ausente/inválida devolve 1: nunca cobrar menos que uma diária.
+ */
+export function diasCobrados(entrega: string | null | undefined, retirada: string | null | undefined): number {
+  const a = parseLocal((entrega ?? "").slice(0, 10));
+  const b = parseLocal((retirada ?? "").slice(0, 10));
+  if (!a || !b) return 1;
+  return Math.max(1, Math.round((b.getTime() - a.getTime()) / 864e5));
+}
+
 /* ------------------------------ diversos ---------------------------- */
 
 export const onlyDigits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");

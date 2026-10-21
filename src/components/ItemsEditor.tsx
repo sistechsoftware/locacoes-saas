@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { money, parseMoney } from "@/lib/format";
+import { diasCobrados, money, parseMoney } from "@/lib/format";
 import { precoUnitario, rotuloFaixa, type Promocao } from "@/lib/promocoes";
 import { Icon } from "./Icons";
 
@@ -16,6 +16,12 @@ export type Product = {
   composition?: string | null;
   /** Promocao por quantidade ativa deste produto, quando existir. */
   promocao?: Promocao | null;
+  /**
+   * Modalidade de cobranca RESOLVIDA (produto > default da empresa > fixo).
+   * 'diaria': o valor digitado é por diária e a linha multiplica pelos dias
+   * de calendário da janela; 'fixo': comportamento atual, sem período.
+   */
+  pricing_mode?: "fixo" | "diaria" | string | null;
 };
 
 export type ItemRow = {
@@ -35,6 +41,27 @@ export type ItemRow = {
 
 export type StockInfo = Record<number, { available: number; requested: number; missing: number }>;
 
+/**
+ * Períodos cobrados de uma linha: 'diaria' multiplica pelos dias de calendário
+ * da janela (mínimo 1); qualquer outra modalidade cobra 1 — a fórmula antiga.
+ * O servidor recalcula sozinho ao gravar (lib/pricing.ts); isto é só exibição.
+ */
+export function periodosDaLinha(
+  modo: "fixo" | "diaria" | string | null | undefined,
+  dias: number,
+): number {
+  return modo === "diaria" ? Math.max(1, dias) : 1;
+}
+
+/** Subtotal de uma linha com período — usado pelo editor e pelos formulários. */
+export function subtotalLinha(
+  i: { qty: number; unit_price_cents: number; discount_cents: number },
+  modo: "fixo" | "diaria" | string | null | undefined,
+  dias: number,
+): number {
+  return Math.max(0, i.qty * periodosDaLinha(modo, dias) * i.unit_price_cents - i.discount_cents);
+}
+
 /** Editor de itens compartilhado por reservas e orcamentos. */
 export default function ItemsEditor({
   products,
@@ -42,6 +69,7 @@ export default function ItemsEditor({
   onChange,
   stock,
   dataReferencia,
+  dias,
 }: {
   products: Product[];
   items: ItemRow[];
@@ -53,16 +81,26 @@ export default function ItemsEditor({
    * precisa ver o preco de novembro.
    */
   dataReferencia?: string;
+  /**
+   * Dias de calendário da janela [entrega, retirada] — multiplicador das
+   * linhas 'diaria'. Calculado pelo formulário com diasCobrados(); o servidor
+   * recomputa da janela gravada, nunca confia neste valor.
+   */
+  dias?: number;
 }) {
   const [picker, setPicker] = useState("");
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const dia = dataReferencia || new Date().toISOString().slice(0, 10);
+  const janelaDias = Math.max(1, dias ?? 1);
 
   /** Preco que a regra manda cobrar por esta linha, com a faixa que o justifica. */
   const calcular = (productId: number, qty: number) => {
     const p = byId.get(productId);
     return precoUnitario(p?.rent_price_cents ?? 0, p?.promocao, qty, dia);
   };
+
+  /** Período cobrado por esta linha (1 para fixo). */
+  const per = (productId: number) => periodosDaLinha(byId.get(productId)?.pricing_mode, janelaDias);
 
   // a promocao muda com a quantidade, entao o preco automatico e recalculado
   // sempre que a linha muda; a linha com preco digitado a mao fica intacta
@@ -105,7 +143,10 @@ export default function ItemsEditor({
 
   const remove = (index: number) => onChange(items.filter((_, idx) => idx !== index));
 
-  const subtotal = items.reduce((s, i) => s + Math.max(0, i.qty * i.unit_price_cents - i.discount_cents), 0);
+  const subtotal = items.reduce(
+    (s, i) => s + subtotalLinha(i, byId.get(i.product_id)?.pricing_mode, janelaDias),
+    0,
+  );
 
   const grouped = useMemo(() => {
     const g = new Map<string, Product[]>();
@@ -127,6 +168,7 @@ export default function ItemsEditor({
                 <option key={p.id} value={p.id}>
                   {p.kind === "kit" ? "[KIT] " : ""}
                   {p.name} · {money(p.rent_price_cents)}
+                  {p.pricing_mode === "diaria" ? "/diária" : ""}
                 </option>
               ))}
             </optgroup>
@@ -143,7 +185,8 @@ export default function ItemsEditor({
           {items.map((item, index) => {
             const p = byId.get(item.product_id);
             const info = stock?.[item.product_id];
-            const line = Math.max(0, item.qty * item.unit_price_cents - item.discount_cents);
+            const per = periodosDaLinha(p?.pricing_mode, janelaDias);
+            const line = subtotalLinha(item, p?.pricing_mode, janelaDias);
             const promo = calcular(item.product_id, item.qty);
             return (
               <div
@@ -207,7 +250,9 @@ export default function ItemsEditor({
                   </label>
 
                   <label className="block">
-                    <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">Valor un.</span>
+                    <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">
+                      {per > 1 ? "Valor/diária" : "Valor un."}
+                    </span>
                     <input
                       key={`${item.product_id}-${item.unit_price_cents}`}
                       defaultValue={(item.unit_price_cents / 100).toFixed(2)}
@@ -233,6 +278,11 @@ export default function ItemsEditor({
                   </label>
                 </div>
 
+                {per > 1 && (
+                  <p className="mt-2 rounded-lg bg-destaque-50 px-2 py-1.5 text-xs font-semibold text-destaque-700">
+                    {item.qty} × {per} diárias × {money(item.unit_price_cents)} = {money(line)}
+                  </p>
+                )}
                 {promo.promocional && !item.preco_manual && (
                   <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
                     <span className="font-bold">Promoção aplicada</span>
@@ -242,7 +292,7 @@ export default function ItemsEditor({
                     {p && p.rent_price_cents > promo.unit_price_cents && (
                       <span className="text-emerald-700">
                         (normal <s>{money(p.rent_price_cents)}</s>, economia de{" "}
-                        {money((p.rent_price_cents - promo.unit_price_cents) * item.qty)})
+                        {money((p.rent_price_cents - promo.unit_price_cents) * item.qty * per)})
                       </span>
                     )}
                   </p>
