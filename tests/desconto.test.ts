@@ -142,6 +142,17 @@ describe("lib/desconto.ts — parse da expressão", () => {
     assert.equal(pctDigitado("150"), null);
   });
 
+  it("ZERO digitado remove o desconto em vez de ser ignorado (regressão do revert)", async () => {
+    const { pctDigitado, descontoDePct, exprDePct } = await desc();
+    // o gesto natural de remover um 10% é digitar "0" — tinha que zerar
+    assert.equal(pctDigitado("0"), 0);
+    assert.equal(pctDigitado("0,0"), 0);
+    assert.equal(pctDigitado("0%"), 0);
+    // e a cadeia inteira do form zera: dinheiro 0 e expressão apagada
+    assert.equal(descontoDePct(15000, 0), 0);
+    assert.equal(exprDePct(0), null);
+  });
+
   it("exprValida só aceita formato de percentual e normaliza", async () => {
     const { exprValida } = await desc();
     assert.equal(exprValida("10%"), "10%");

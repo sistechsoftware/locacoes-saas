@@ -33,14 +33,16 @@ export function exprDePct(pct: number): string | null {
 
 /**
  * Percentual DIGITADO no form ("10", "10,5") -> número, com validação.
- * Vazio ou inválido -> null (o form mantém o valor anterior em vez de
- * aplicar zero em silêncio).
+ * Zero é válido de propósito: digitar "0" é o gesto natural de REMOVER o
+ * desconto, e ele precisa zerar (não ignorar). Vazio ou texto que não é
+ * número -> null, e o form mantém o valor anterior em vez de aplicar zero
+ * em silêncio.
  */
 export function pctDigitado(valor: unknown): number | null {
   const t = String(valor ?? "").trim().replace("%", "").replace(",", ".");
   if (!/^\d{1,3}(\.\d{1,2})?$/.test(t)) return null;
   const pct = Number(t);
-  if (!(pct > 0) || pct > 100) return null;
+  if (!Number.isFinite(pct) || pct > 100) return null;
   return pct;
 }
 
