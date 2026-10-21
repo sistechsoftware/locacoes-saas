@@ -4,7 +4,7 @@ import { tenantCompanyId } from "./tenant";
 import { explodeLine, isKit, loadSpecs } from "./stock";
 
 type Statement = { sql: string; params?: any[] };
-export type RentalItem = { product_id: number; qty: number; unit_price_cents?: number; discount_cents?: number; pricing_mode?: string; period_qty?: number };
+export type RentalItem = { product_id: number; qty: number; unit_price_cents?: number; discount_cents?: number; discount_expr?: string | null; pricing_mode?: string; period_qty?: number };
 export const STOCK_CHANGED = "O estoque ou a reserva mudou durante a verificacao. Nada foi alterado; confira os dados e tente novamente.";
 
 /**
@@ -37,7 +37,8 @@ export async function commitStockBatch(companyId: number, version: number, state
 const HEADER_COLUMNS = new Set([
   "customer_id", "status", "event_date", "event_time", "address", "district", "city", "delivery_at", "pickup_at",
   "needs_delivery", "needs_pickup", "needs_assembly", "needs_disassembly", "freight_cents", "assembly_cents",
-  "disassembly_cents", "other_cents", "discount_cents", "notes", "stock_override", "stock_consider_preparation", "quote_id", "created_by", "company_id",
+  "disassembly_cents", "other_cents", "discount_cents", "discount_expr", "notes", "stock_override", "stock_consider_preparation", "quote_id", "created_by", "company_id",
+  "extension_minutes", "extension_cents",
 ]);
 
 /**
@@ -88,7 +89,7 @@ export async function writeRental(companyId: number, version: number, header: Re
   // o laco abaixo incrementa antes de usar, por isso o -1
   let itemId = (await nextFreeId("reservation_items")) - 1;
   for (const item of precos) {
-    itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,pricing_mode,period_qty,company_id) VALUES(?,?,?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents,item.discount_cents,item.pricing_mode,item.period_qty,companyId] });
+    itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,discount_expr,pricing_mode,period_qty,company_id) VALUES(?,?,?,?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents,item.discount_cents,item.discount_expr ?? null,item.pricing_mode,item.period_qty,companyId] });
     const spec = specs.get(item.product_id);
     for (const part of explodeLine(item, specs)) {
       const perUnit = isKit(spec) ? spec!.components.find(c => c.product_id === part.product_id)!.quantity : 1;

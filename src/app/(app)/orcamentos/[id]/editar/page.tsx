@@ -9,6 +9,7 @@ import { sellableProducts } from "@/lib/stock";
 import { preparationMinutes } from "@/lib/availability-settings";
 import { CUSTOMER_PICK_COLUMNS } from "@/lib/queries";
 import { getOperacao } from "@/lib/operacao-db";
+import { settingsDaEmpresa } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,10 @@ export default async function EditarOrcamentoPage({ params }: { params: Promise<
     qty: i.qty,
     unit_price_cents: i.unit_price_cents,
     discount_cents: i.discount_cents,
+    discount_expr: i.discount_expr,
   }));
   const products = await sellableProducts(cid);
+  const cfg = await settingsDaEmpresa(cid);
   const customers = await all<any>(`SELECT ${CUSTOMER_PICK_COLUMNS} FROM customers c WHERE c.company_id = ? AND c.active = 1 ORDER BY c.name`, [cid]);
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -39,6 +42,14 @@ export default async function EditarOrcamentoPage({ params }: { params: Promise<
         items={items}
         submitLabel="Salvar Alterações"
         operacao={await getOperacao()}
+        extensao={{
+          pickupAnterior: quote.pickup_at ?? "",
+          deliveryAnterior: quote.delivery_at ?? "",
+          precoHoraCents: Number(cfg.extra_hour_price_cents) || 0,
+          limiteHoras: Number(cfg.extra_hours_until_daily) || 0,
+          minutos: quote.extension_minutes ?? 0,
+          cents: quote.extension_cents ?? 0,
+        }}
       />
     </div>
   );

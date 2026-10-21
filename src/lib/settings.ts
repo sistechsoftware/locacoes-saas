@@ -65,6 +65,12 @@ export const DEFAULT_SETTINGS: Settings = {
    * cobra pelo dias de calendário da janela. Entra aqui para a whitelist de
    * setSettings aceitá-la por empresa. */
   pricing_default_mode: "fixo",
+  /* Hora extra na extensão de retirada: enquanto a extensão for menor que
+   * extra_hours_until_daily, o servidor cobra horas cheias ×
+   * extra_hour_price_cents como linha própria (extension_cents). Preço 0 ou
+   * limite 0 desliga o recurso — comportamento atual intacto. */
+  extra_hour_price_cents: "0",
+  extra_hours_until_daily: "6",
   company_name: "",
   company_tagline: "Gestao de Locacoes e Eventos",
   company_doc: "",

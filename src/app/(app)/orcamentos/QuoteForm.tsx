@@ -7,6 +7,8 @@ import ConflictList from "@/components/ConflictList";
 import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { diasCobrados, money, parseMoney } from "@/lib/format";
+import { calcularExtensao, rotuloExtensao, type ExtensaoResultado } from "@/lib/hora-extra";
+import { descontoDePct, exprDePct, pctDeExpr, pctDigitado, rotuloDesconto, type ModoDesconto } from "@/lib/desconto";
 import { sugerirJanelaEvento } from "@/lib/availability-time";
 import { QUOTE_STATUS } from "@/lib/domain";
 import { unicosPorId, type OpcaoSelecionavel } from "@/lib/search-select-utils";
@@ -19,6 +21,9 @@ import { OPERACAO_PADRAO, rotuloOu, type OperacaoConfig } from "@/lib/operacao";
 type Customer = { id: number; name: string; doc?: string; phone?: string; reserva_numeros?: string; address: string; district: string; city: string };
 type Action = (prev: string | null, fd: FormData) => Promise<string | null>;
 
+/** Última forma de desconto usada (R$ ou %) — memória entre documentos. */
+const CHAVE_DESCTO_MODO = "locacoes:desconto-modo";
+
 export default function QuoteForm({
   action,
   products,
@@ -29,6 +34,7 @@ export default function QuoteForm({
   submitLabel = "Salvar Orçamento",
   preparationMinutes = 0,
   operacao = OPERACAO_PADRAO,
+  extensao,
 }: {
   action: Action;
   products: Product[];
@@ -40,6 +46,15 @@ export default function QuoteForm({
   preparationMinutes?: number;
   /** Nomenclaturas e visibilidade configuradas pela empresa (Configurações → Operação). */
   operacao?: OperacaoConfig;
+  /** Extensão de retirada (hora extra): só na edição, com a janela gravada. */
+  extensao?: {
+    pickupAnterior: string;
+    deliveryAnterior: string;
+    precoHoraCents: number;
+    limiteHoras: number;
+    minutos: number;
+    cents: number;
+  };
 }) {
   const { rotulos, vis } = operacao;
   const [error, formAction] = useActionState(action, null);
@@ -64,6 +79,23 @@ export default function QuoteForm({
   const [disassembly, setDisassembly] = useState(cents(quote?.disassembly_cents));
   const [other, setOther] = useState(cents(quote?.other_cents));
   const [discount, setDiscount] = useState(cents(quote?.discount_cents));
+  // Desconto em R$ ou % (migração 0046): o modo GRAVADO no registro manda;
+  // só em documento novo (ou sem desconto) vale a última escolha do operador.
+  const exprDesconto = quote?.discount_expr ?? null;
+  const [modoDesconto, setModoDesconto] = useState<ModoDesconto>(pctDeExpr(exprDesconto) !== null ? "percent" : "money");
+  const [discountPct, setDiscountPct] = useState(() =>
+    pctDeExpr(exprDesconto) !== null ? String(exprDesconto).trim().slice(0, -1) : "",
+  );
+  useEffect(() => {
+    if (quote && (quote.discount_cents ?? 0) > 0) return;
+    const m = window.localStorage.getItem(CHAVE_DESCTO_MODO);
+    if (m === "money" || m === "percent") setModoDesconto(m);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // memória: o próximo orçamento abre na forma que a pessoa acabou de usar
+  useEffect(() => {
+    window.localStorage.setItem(CHAVE_DESCTO_MODO, modoDesconto);
+  }, [modoDesconto]);
   const { conflicts, checking, error: stockError } = useStockCheck(items, deliveryAt, pickupAt, considerPreparation);
 
   // opcoes da busca dinamica: deduplicadas por id, com CPF, telefone e numeros
@@ -117,15 +149,51 @@ export default function QuoteForm({
     [conflicts],
   );
 
+  /* Hora extra (extensão de retirada): o que o SERVIDOR vai gravar, espelhado
+   * aqui só para o operador ver antes de salvar. Retirada não alterada mostra
+   * o valor já gravado; alterada, a prévia da nova extensão. */
+  const [previsaoExtensao, setPrevisaoExtensao] = useState<ExtensaoResultado | null>(null);
+  useEffect(() => {
+    if (!extensao) return;
+    const r =
+      pickupAt === extensao.pickupAnterior
+        ? { minutos: extensao.minutos, horasCobradas: 0, cents: extensao.cents, acimaDoLimite: false }
+        : calcularExtensao({
+            pickupAnterior: extensao.pickupAnterior,
+            pickupNovo: pickupAt,
+            deliveryAnterior: extensao.deliveryAnterior,
+            deliveryNovo: deliveryAt,
+            precoHoraCents: extensao.precoHoraCents,
+            limiteHoras: extensao.limiteHoras,
+          });
+    setPrevisaoExtensao(r.minutos > 0 || r.cents > 0 || r.acimaDoLimite ? r : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickupAt, deliveryAt, extensao]);
+
   // dias de calendário da janela: multiplicador das linhas 'diaria' na
   // exibição — o servidor recalcula da janela gravada ao salvar
   const dias = diasCobrados(deliveryAt, pickupAt);
   const modoDe = (productId: number) => products.find((p) => p.id === productId)?.pricing_mode;
   const itemsTotal = items.reduce((s, i) => s + subtotalLinha(i, modoDe(i.product_id), dias), 0);
-  const total = Math.max(
-    0,
-    itemsTotal + parseMoney(freight) + parseMoney(assembly) + parseMoney(disassembly) + parseMoney(other) - parseMoney(discount),
-  );
+  // Base do desconto percentual: tudo que é somado antes de descontar.
+  const baseDesconto =
+    itemsTotal + parseMoney(freight) + parseMoney(assembly) + parseMoney(disassembly) + parseMoney(other) + (previsaoExtensao?.cents ?? 0);
+  const pctAtual = modoDesconto === "percent" ? pctDigitado(discountPct) : null;
+  const descontoAplicado = modoDesconto === "percent" ? descontoDePct(baseDesconto, pctAtual ?? 0) : parseMoney(discount);
+  const total = Math.max(0, baseDesconto - descontoAplicado);
+
+  // Trocar a forma preserva o valor na tela: % → R$ mostra o equivalente em
+  // reais; R$ → % semeia o percentual correspondente — nada pula no total.
+  const trocarModoDesconto = (novo: ModoDesconto) => {
+    if (novo === modoDesconto) return;
+    if (novo === "percent") {
+      const pct = baseDesconto > 0 ? Math.min(100, Math.round((parseMoney(discount) / baseDesconto) * 10000) / 100) : 0;
+      setDiscountPct(pct > 0 ? String(pct).replace(".", ",") : "");
+    } else {
+      setDiscount((descontoAplicado / 100).toFixed(2));
+    }
+    setModoDesconto(novo);
+  };
 
   return (
     <form action={formAction} className="space-y-4">
@@ -138,7 +206,12 @@ export default function QuoteForm({
       <input type="hidden" name="assembly" value={assembly} />
       <input type="hidden" name="disassembly" value={disassembly} />
       <input type="hidden" name="other" value={other} />
-      <input type="hidden" name="discount" value={discount} />
+      <input type="hidden" name="discount" value={(descontoAplicado / 100).toFixed(2)} />
+      <input
+        type="hidden"
+        name="discount_expr"
+        value={modoDesconto === "percent" && pctAtual !== null ? exprDePct(pctAtual) ?? "" : ""}
+      />
 
       <section className="cartao p-4">
         <div className="space-y-3">
@@ -217,6 +290,16 @@ export default function QuoteForm({
             }} className="campo" />
             </Field>
           </Grid>
+          {previsaoExtensao && previsaoExtensao.cents > 0 && (
+            <p className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+              Extensão {rotuloExtensao(previsaoExtensao.minutos)}: {money(previsaoExtensao.cents)} — cobrada como linha própria ao salvar.
+            </p>
+          )}
+          {previsaoExtensao && previsaoExtensao.acimaDoLimite && (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+              Retirada estendida {rotuloExtensao(previsaoExtensao.minutos)} (limite configurado: {extensao?.limiteHoras}h). Nada é cobrado automaticamente — revise os itens se precisar cobrar uma diária adicional.
+            </p>
+          )}
           {vis.endereco ? (
             <>
               <Field label="Endereço">
@@ -286,8 +369,32 @@ export default function QuoteForm({
           <Field label="Outros (R$)">
             <input value={other} onChange={(e) => setOther(e.target.value)} inputMode="decimal" className="campo" />
           </Field>
-          <Field label="Desconto (R$)">
-            <input value={discount} onChange={(e) => setDiscount(e.target.value)} inputMode="decimal" className="campo" />
+          <Field label={modoDesconto === "percent" ? "Desconto (%)" : "Desconto (R$)"}>
+            <div className="flex gap-2">
+              <input
+                value={modoDesconto === "percent" ? discountPct : discount}
+                onChange={(e) => (modoDesconto === "percent" ? setDiscountPct(e.target.value) : setDiscount(e.target.value))}
+                inputMode="decimal"
+                placeholder={modoDesconto === "percent" ? "ex.: 10" : "ex.: 150,00"}
+                className="campo flex-1"
+              />
+              <div className="flex shrink-0 self-start overflow-hidden rounded-xl border border-nuvem-300">
+                <button
+                  type="button"
+                  onClick={() => trocarModoDesconto("money")}
+                  className={`px-3 py-2 text-xs font-bold ${modoDesconto === "money" ? "bg-marca-600 text-white" : "bg-white text-stone-500"}`}
+                >
+                  R$
+                </button>
+                <button
+                  type="button"
+                  onClick={() => trocarModoDesconto("percent")}
+                  className={`px-3 py-2 text-xs font-bold ${modoDesconto === "percent" ? "bg-marca-600 text-white" : "bg-white text-stone-500"}`}
+                >
+                  %
+                </button>
+              </div>
+            </div>
           </Field>
           <Field label="Válido até">
             <input name="valid_until" type="date" defaultValue={quote?.valid_until ?? ""} className="campo" />
@@ -306,9 +413,17 @@ export default function QuoteForm({
           </Field>
         </Grid>
 
-        <div className="mt-3 flex items-center justify-between rounded-xl bg-nuvem-100 px-3 py-3 text-base font-bold">
-          <span>Total do Orçamento</span>
-          <span>{money(total)}</span>
+        <div className="mt-3 space-y-1 rounded-xl bg-nuvem-100 px-3 py-3 text-sm">
+          {previsaoExtensao && previsaoExtensao.cents > 0 && (
+            <div className="flex items-center justify-between text-stone-600">
+              <span>Extensão {rotuloExtensao(previsaoExtensao.minutos)}</span>
+              <span className="font-medium text-tinta-900">{money(previsaoExtensao.cents)}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-base font-bold">
+            <span>Total do Orçamento</span>
+            <span>{money(total)}</span>
+          </div>
         </div>
       </section>
 

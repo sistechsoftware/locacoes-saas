@@ -23,10 +23,13 @@ import { aoConcluirLocacao, devolverRecompensaDaReserva, reverterReserva } from 
 import { criarAdiantamento } from "@/lib/receber";
 import { HOLDING_STATUSES } from "@/lib/domain";
 import { money, parseMoney, addDays, today } from "@/lib/format";
+import { calcularExtensao } from "@/lib/hora-extra";
+import { settingsDaEmpresa } from "@/lib/settings";
 import { dataEventoOuInicio } from "@/lib/operacao";
 import { getOperacao } from "@/lib/operacao-db";
+import { exprValida } from "@/lib/desconto";
 
-export type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
+export type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number; discount_expr?: string | null };
 
 function readItems(fd: FormData): ItemInput[] {
   try {
@@ -37,6 +40,8 @@ function readItems(fd: FormData): ItemInput[] {
         qty: Math.max(0, Number(i.qty) || 0),
         unit_price_cents: Number(i.unit_price_cents) || 0,
         discount_cents: Number(i.discount_cents) || 0,
+        // forma do desconto ("10%" ou NULL = R$): só exibição, migração 0046
+        discount_expr: exprValida(i.discount_expr),
       }))
       .filter((i) => i.product_id && i.qty > 0);
   } catch {
@@ -76,6 +81,7 @@ function readHeader(fd: FormData, opts: { derivarEvento?: boolean } = {}) {
     disassembly_cents: parseMoney(String(fd.get("disassembly") ?? "")),
     other_cents: parseMoney(String(fd.get("other") ?? "")),
     discount_cents: parseMoney(String(fd.get("discount") ?? "")),
+    discount_expr: exprValida(fd.get("discount_expr")),
     notes: String(fd.get("notes") ?? "").trim(),
     status: String(fd.get("status") ?? "pre_reserva"),
     deposit_cents: parseMoney(String(fd.get("deposit") ?? "")),
@@ -163,9 +169,25 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
     const conflicts = await checkConflicts(items, h.delivery_at, h.pickup_at, id, options, companyId);
     if (conflicts.length && !override) return conflictMessage(conflicts);
   }
+  /* Hora extra da extensão de retirada (migração 0045): comparar a retirada
+   * GRAVADA com a nova, no servidor — o cliente não envia valor. Retirada não
+   * alterada preserva o já combinado: reabrir e salvar não apaga a cobrança. */
+  const cfg = await settingsDaEmpresa(companyId);
+  const ext =
+    String(h.pickup_at) === String(current.pickup_at)
+      ? { minutos: current.extension_minutes ?? 0, cents: current.extension_cents ?? 0 }
+      : calcularExtensao({
+          pickupAnterior: current.pickup_at,
+          pickupNovo: h.pickup_at,
+          deliveryAnterior: current.delivery_at,
+          deliveryNovo: h.delivery_at,
+          precoHoraCents: Number(cfg.extra_hour_price_cents) || 0,
+          limiteHoras: Number(cfg.extra_hours_until_daily) || 0,
+        });
   try {
     await writeRental(companyId, version, { ...h, stock_override: override ? 1 : current.stock_override,
-      stock_consider_preparation: options.considerPreparation ? 1 : 0 }, items, id);
+      stock_consider_preparation: options.considerPreparation ? 1 : 0,
+      extension_minutes: ext.minutos, extension_cents: ext.cents }, items, id);
   } catch (e) { if ((e as Error).message === STOCK_CHANGED) return STOCK_CHANGED; throw e; }
   const dep = await one<any>("SELECT id FROM deposits WHERE reservation_id=? ORDER BY id DESC LIMIT 1", [id]);
   if (dep) await run("UPDATE deposits SET amount_cents=? WHERE id=?", [h.deposit_cents,dep.id]);

@@ -33,10 +33,12 @@ export async function recalcReservation(id: number) {
     `SELECT COALESCE(SUM(subtotal_cents),0) FROM reservation_items WHERE reservation_id = ?`,
     [id],
   );
+  // extension_cents = hora extra da extensão de retirada (migração 0045).
+  // Default 0 em toda linha antiga: total idêntico ao de antes.
   await run(
     `UPDATE reservations
         SET items_cents = ?,
-            total_cents = MAX(0, ? + freight_cents + assembly_cents + disassembly_cents + other_cents - discount_cents),
+            total_cents = MAX(0, ? + freight_cents + assembly_cents + disassembly_cents + other_cents + extension_cents - discount_cents),
             updated_at  = datetime('now','localtime')
       WHERE id = ?`,
     [items, items, id],
@@ -52,7 +54,7 @@ export async function recalcQuote(id: number) {
   await run(
     `UPDATE quotes
         SET items_cents = ?,
-            total_cents = MAX(0, ? + freight_cents + assembly_cents + disassembly_cents + other_cents - discount_cents),
+            total_cents = MAX(0, ? + freight_cents + assembly_cents + disassembly_cents + other_cents + extension_cents - discount_cents),
             updated_at  = datetime('now','localtime')
       WHERE id = ?`,
     [items, items, id],

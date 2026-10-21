@@ -31,6 +31,8 @@ import {
   statusLabel,
 } from "@/lib/domain";
 import { dateBR, dateTimeBR, dateUtcBR, mapsLink, money, phoneBR, timeBR, today, utcParaLocal } from "@/lib/format";
+import { rotuloDesconto } from "@/lib/desconto";
+import { rotuloExtensao } from "@/lib/hora-extra";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, Stat, StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -396,7 +398,7 @@ export default async function ReservaPage({
                       {i.pricing_mode === "diaria" && i.period_qty > 1
                         ? `${money(i.unit_price_cents)} × ${i.period_qty} diárias`
                         : `${money(i.unit_price_cents)} cada`}
-                      {i.discount_cents > 0 ? ` · desconto ${money(i.discount_cents)}` : ""}
+                      {i.discount_cents > 0 ? ` · desconto ${rotuloDesconto(i.discount_cents, i.discount_expr)}` : ""}
                     </span>
                   </span>
                   <span className="shrink-0 text-sm font-bold">{money(i.subtotal_cents)}</span>
@@ -412,7 +414,10 @@ export default async function ReservaPage({
             {(operacao.vis.montagem || r.assembly_cents > 0) && <Row label="Montagem" value={money(r.assembly_cents)} />}
             {(operacao.vis.montagem || r.disassembly_cents > 0) && <Row label="Desmontagem" value={money(r.disassembly_cents)} />}
             <Row label="Outros" value={money(r.other_cents)} />
-            <Row label="Desconto" value={"- " + money(r.discount_cents)} />
+            {(r.extension_cents ?? 0) > 0 && (
+              <Row label={`Extensão ${rotuloExtensao(r.extension_minutes)}`} value={money(r.extension_cents)} />
+            )}
+            <Row label="Desconto" value={"- " + rotuloDesconto(r.discount_cents, r.discount_expr)} />
             <div className="flex items-center justify-between pt-1 text-base font-bold">
               <span>Total</span>
               <span>{money(r.total_cents)}</span>

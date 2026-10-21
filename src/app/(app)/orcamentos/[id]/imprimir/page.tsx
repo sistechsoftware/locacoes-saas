@@ -9,6 +9,8 @@ import { rotuloOu } from "@/lib/operacao";
 import { quoteItems } from "@/lib/reservations";
 import { QUOTE_STATUS, statusLabel } from "@/lib/domain";
 import { dateBR, dateUtcBR, docBR, money, phoneBR, timeBR } from "@/lib/format";
+import { rotuloDesconto } from "@/lib/desconto";
+import { rotuloExtensao } from "@/lib/hora-extra";
 import PrintButton from "@/app/(app)/contratos/[id]/PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +73,7 @@ export default async function OrcamentoImprimirPage({ params }: { params: Promis
     { rotulo: "Montagem", valor: q.assembly_cents },
     { rotulo: "Desmontagem", valor: q.disassembly_cents },
     { rotulo: "Outros serviços", valor: q.other_cents },
+    { rotulo: `Extensão de retirada ${rotuloExtensao(q.extension_minutes)}`, valor: q.extension_cents },
   ].filter((l) => l.valor > 0);
 
   const temDesconto = q.discount_cents > 0;
@@ -196,7 +199,7 @@ export default async function OrcamentoImprimirPage({ params }: { params: Promis
             {temDesconto && (
               <>
                 <Linha rotulo="Subtotal" valor={money(subtotal)} />
-                <Linha rotulo="Desconto" valor={`- ${money(q.discount_cents)}`} />
+                <Linha rotulo="Desconto" valor={`- ${rotuloDesconto(q.discount_cents, q.discount_expr)}`} />
               </>
             )}
             <div className="mt-1 flex items-center justify-between rounded-lg bg-marca-600 px-3 py-2.5 text-white">

@@ -215,6 +215,32 @@ export default async function ConfiguracoesPage({
                   <option value="diaria">Por diária</option>
                 </select>
               </Field>
+              <Field
+                label="Valor da hora extra (R$)"
+                hint="Cobrado por hora cheia quando a retirada é estendida na edição, até o limite abaixo. Em 0 desliga."
+              >
+                <input
+                  name="extra_hour_price"
+                  defaultValue={(Number(s.extra_hour_price_cents || 0) / 100).toFixed(2)}
+                  inputMode="decimal"
+                  className="campo"
+                  disabled={!admin}
+                />
+              </Field>
+              <Field
+                label="Horas extras que viram nova diária"
+                hint="Extensão igual ou maior que isto não cobra hora extra automaticamente: a tela avisa e você decide se cobra diária adicional."
+              >
+                <input
+                  name="extra_hours_until_daily"
+                  type="number"
+                  min={1}
+                  step={1}
+                  defaultValue={s.extra_hours_until_daily || "6"}
+                  className="campo"
+                  disabled={!admin}
+                />
+              </Field>
             </Grid>
             <Field label="Dados bancários">
               <textarea name="bank_info" defaultValue={s.bank_info} rows={2} className="campo" disabled={!admin} />
