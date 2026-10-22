@@ -1,6 +1,6 @@
 import "server-only";
 import { getDb, run, scalar } from "./db";
-import { getSettings } from "./settings";
+import { getSettings, settingsDaEmpresa } from "./settings";
 import { logAction } from "./audit";
 import type { SessionUser } from "./auth";
 import { removeFileByUrl } from "./uploads";
@@ -33,9 +33,13 @@ export type AssinaturaEmpresa = {
  * A leitura e barata: uma chave de settings e um scalar. Falta de assinatura
  * nunca e erro — contratos e recibos nascem normalmente, sem o bloco da
  * empresa.
+ *
+ * `companyId` existe para os chamadores SEM sessao (assinatura publica do
+ * contrato): sem ele a leitura cai no fallback de tenant e pode devolver a
+ * assinatura de OUTRA empresa — a assinatura de um locador no contrato de outro.
  */
-export async function getCompanySignature(): Promise<AssinaturaEmpresa | null> {
-  const s = await getSettings();
+export async function getCompanySignature(companyId?: number): Promise<AssinaturaEmpresa | null> {
+  const s = companyId !== undefined ? await settingsDaEmpresa(companyId) : await getSettings();
   const fileId = (s.company_signature_file_id ?? "").trim();
   if (!fileId) return null;
   const criadoEm = await scalar<string | null>(`SELECT created_at FROM files WHERE id = ?`, [fileId]);

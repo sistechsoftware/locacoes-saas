@@ -1,6 +1,6 @@
 import "server-only";
 import { insert, nextNumber, one } from "./db";
-import { getSettings, renderTemplate, renderTemplateHtml, type Settings } from "./settings";
+import { getSettings, renderTemplate, renderTemplateHtml, settingsDaEmpresa, type Settings } from "./settings";
 import { getCompanySignature } from "./assinatura-empresa";
 import { contractUsesHtml, itensParaHtml, marcaConfiavel } from "./contract-html";
 import { getReservation, reservationItems, reservationMoney } from "./reservations";
@@ -58,12 +58,23 @@ export async function buildContractBody(reservationId: number, contractNumber: s
 export async function buildContractBodyDigital(
   reservationId: number,
   contractNumber: string,
+  /**
+   * Empresa dona do contrato, quando o chamador ja a conhece.
+   *
+   * O caminho PUBLICO (/assinar/[token]) abre sem sessao, entao o fallback de
+   * tenant resolvia a empresa PADRAO do banco e a leitura da reserva valhava
+   * para a empresa errada — "Reserva não encontrada" e o link do cliente
+   * quebrando na primeira abertura. A pagina publica le o company_id do
+   * registro pelo token e passa ele aqui; os fluxos autenticados continuam sem
+   * argumento e usam a sessao, exatamente como antes.
+   */
+  companyId?: number,
 ): Promise<string> {
-  const s = await getSettings();
-  const r = await getReservation(reservationId);
+  const s = companyId !== undefined ? await settingsDaEmpresa(companyId) : await getSettings();
+  const r = await getReservation(reservationId, companyId);
   if (!r) throw new Error("Reserva não encontrada");
-  const items = await reservationItems(reservationId);
-  const m = await reservationMoney(reservationId);
+  const items = await reservationItems(reservationId, companyId);
+  const m = await reservationMoney(reservationId, companyId);
 
   if (!contractUsesHtml(s.contract_template_digital)) {
     const itensTexto = items
