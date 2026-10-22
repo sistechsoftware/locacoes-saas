@@ -167,7 +167,12 @@ function execWrangler(args) {
 function consultarPainel(ambiente, databaseName) {
   const sql =
     "SELECT key, value FROM platform_settings WHERE key IN ('asaas_api_key','asaas_environment','asaas_webhook_token')";
-  const r = execWrangler(["wrangler", "d1", "execute", databaseName, "--env", ambiente, "--json", "--command", sql]);
+  /*
+   * --remote é obrigatório aqui: sem ele o wrangler lê o D1 LOCAL (.wrangler/state),
+   * que não tem as linhas do painel — o trio aparecia como ausente e o pré-deploy
+   * reprovava produção mesmo com as credenciais gravadas no banco do ambiente.
+   */
+  const r = execWrangler(["wrangler", "d1", "execute", databaseName, "--remote", "--env", ambiente, "--json", "--command", sql]);
   const bruto = String(r.stdout || "").trim();
   if (r.status !== 0) {
     const detalhe =

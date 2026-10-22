@@ -96,7 +96,14 @@ export async function congelarCorpoAoAbrir(registro: any): Promise<any> {
   if (!contrato || contrato.status === "assinado") return registro;
 
   // fuso do negocio: a data entra no formato "Uberlândia, 12 de setembro de 2026"
-  const corpoDigital = await buildContractBodyDigital(contrato.reservation_id, contrato.number);
+  // company_id EXPLICITO: esta página é pública e não tem sessão, então tudo o
+  // que o corpo digital lê (modelo, reserva, itens, totais) é da empresa do
+  // REGISTRO — nunca da empresa padrão do banco.
+  const corpoDigital = await buildContractBodyDigital(
+    contrato.reservation_id,
+    contrato.number,
+    registro.company_id,
+  );
   const agora = nowLocal();
 
   const marcou = await run(
@@ -183,7 +190,9 @@ export async function assinar(
   // so grava se ainda estiver pendente: e isso que impede a assinatura dupla
   // A assinatura da empresa acompanha o documento se ja estava cadastrada no
   // momento em que o cliente assinou (veja company_signature_included).
-  const temAssinaturaEmpresa = (await getCompanySignature()) !== null;
+  // company_id EXPLICITO: esta rota é pública, sem sessão, e a assinatura lida
+  // é a da empresa dona do contrato — o fallback de tenant apontava para outra.
+  const temAssinaturaEmpresa = (await getCompanySignature(registro.company_id)) !== null;
   const marcou = await run(
     `UPDATE contract_signatures
         SET status='assinado', body_snapshot=?, signer_name=?, signature_file_id=?, document_hash=?,

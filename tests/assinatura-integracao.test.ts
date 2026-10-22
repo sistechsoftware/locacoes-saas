@@ -9,6 +9,7 @@ import { all, insert, one, run, scalar } from "../src/lib/db.ts";
 import {
   assinar,
   assinaturasDoContrato,
+  congelarCorpoAoAbrir,
   documentoAssinado,
   documentosDoCliente,
   gerarLink,
@@ -16,6 +17,7 @@ import {
   revogarLink,
 } from "../src/lib/assinatura-db.ts";
 import { sha256 } from "../src/lib/assinatura.ts";
+import { setSettings } from "../src/lib/settings.ts";
 
 /** PNG 1x1 valido, do jeito que o canvas manda. */
 const PNG =
@@ -291,5 +293,67 @@ describe("contratos antigos", () => {
     assert.equal(c.status, "pendente");
     assert.equal((await assinaturasDoContrato(contrato)).length, 0);
     assert.equal((await documentosDoCliente(cliente)).length, 0);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Empresa dona do registro — pagina publica sem sessao                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O link e aberto SEM login: o unico escopo possivel e o company_id gravado
+ * no registro. Sem ele, o caminho publico cai no fallback de tenant e le a
+ * empresa PADRAO do banco — o contrato de qualquer outra empresa estourava
+ * "Reserva não encontrada" na primeira abertura (link quebrado em producao).
+ */
+describe("link publico de empresa que nao e a padrao do banco", () => {
+  async function cenarioEmpresa2() {
+    await cenario();
+    await run(`INSERT OR IGNORE INTO companies (id, name, active) VALUES (2, 'Empresa ZB', 1)`);
+    await run(`INSERT OR IGNORE INTO stock_revision (id, revision) VALUES (2, 0)`);
+  }
+
+  /** Reserva e contrato da empresa 2 — a padrao do banco continua sendo a 1. */
+  async function contratoDaEmpresa2() {
+    const reserva2 = await insert(
+      `INSERT INTO reservations (number, customer_id, status, event_date, total_cents, company_id)
+       VALUES ('ZB-001', ?, 'confirmada', '2026-10-10', 50000, 2)`,
+      [cliente],
+    );
+    return await insert(
+      `INSERT INTO contracts (number, reservation_id, status, body, company_id)
+       VALUES ('CTR-ZB', ?, 'pendente', 'PAPEL ZB', 2)`,
+      [reserva2],
+    );
+  }
+
+  beforeEach(cenarioEmpresa2);
+
+  it("abrir o link congela o corpo com o modelo da empresa dona do registro", async () => {
+    await setSettings({ contract_template_digital: "DIGITAL ZB {{contrato}}" }, 2);
+    const contrato2 = await contratoDaEmpresa2();
+    const criado = await gerarLink(contrato2, 1);
+    const aberto = await congelarCorpoAoAbrir(await porToken(criado!.token));
+    assert.ok(aberto.body.startsWith("DIGITAL ZB CTR-ZB"), `corpo: ${aberto.body}`);
+    assert.ok(aberto.body_frozen_at, "corpo congelado na primeira abertura");
+  });
+
+  it("assinar olha a assinatura da empresa do contrato, nao a da padrao", async () => {
+    await run(
+      `INSERT INTO files (id, mime, size, data) VALUES ('11111111111111111111111111111111','image/png',4,x'89504E47')`,
+    );
+    await run(
+      `INSERT INTO company_settings (company_id, key, value)
+       VALUES (1, 'company_signature_file_id', '11111111111111111111111111111111')`,
+    );
+    const contrato2 = await contratoDaEmpresa2();
+    const criado = await gerarLink(contrato2, 1);
+    const r = await assinar(criado!.token, ENTRADA, CONTEXTO);
+    assert.equal(r.ok, true, r.erro);
+
+    // a empresa 2 nao tem assinatura cadastrada: a de outra empresa nao pode
+    // entrar no documento deste cliente
+    const a = await one<any>(`SELECT company_signature_included FROM contract_signatures WHERE id=?`, [criado!.id]);
+    assert.ok(!a.company_signature_included, `flag: ${a.company_signature_included}`);
   });
 });
