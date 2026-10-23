@@ -186,6 +186,15 @@ export const DEFAULT_SETTINGS: Settings = {
   op_vis_endereco: "1",
   op_vis_montagem: "1",
   op_vis_caucao: "1",
+  /*
+   * Layout de navegacao (Configuracoes > Navegacao). "classico" preserva o
+   * menu plano de sempre; "agrupado" organiza os mesmos destinos em grupos
+   * (ver src/lib/nav.ts). Vive em company_settings como os demais ajustes:
+   * nenhuma migration, nenhum dado existente alterado — empresas sem a chave
+   * continuam no classico. Entra aqui para a whitelist de setSettings aceita-la
+   * por empresa.
+   */
+  nav_layout: "classico",
 };
 
 const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);

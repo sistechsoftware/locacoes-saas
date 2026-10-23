@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "./Icons";
 import ChatBell from "./ChatBell";
 import Avatar from "./Avatar";
-import { EXTRA_NAV, MOBILE_NAV, NAV, comRotuloOperacoes, itensParaPlano, visivelParaPlano, type AjustesMenu } from "@/lib/nav";
+import { EXTRA_NAV, MOBILE_NAV, NAV, NAV_GRUPOS, ACOES_AGRUPADO, ACOES_SHEET_AGRUPADO, comRotuloOperacoes, gruposParaPlano, itensParaPlano, visivelParaPlano, type AjustesMenu, type NavGroup, type NavLayout } from "@/lib/nav";
 import { pokeUnread } from "@/lib/chat-unread";
 import { useUnread } from "@/lib/use-unread";
 
@@ -23,6 +23,82 @@ const active = (pathname: string, href: string) =>
 
 /* --------------------------- barra lateral (desktop) --------------------------- */
 
+/** Modo Classico: a lista plana de sempre, item apos item. */
+function NavPlano({
+  pathname,
+  operacaoLabel,
+  planoSlug,
+  ajustes,
+}: {
+  pathname: string;
+  operacaoLabel?: string;
+  planoSlug?: string | null;
+  ajustes?: AjustesMenu | null;
+}) {
+  return (
+    <div className="space-y-0.5">
+      {itensParaPlano(comRotuloOperacoes(NAV, operacaoLabel), planoSlug, ajustes).map((n) => (
+        <Link
+          key={n.href}
+          href={n.href}
+          className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+            active(pathname, n.href)
+              ? "bg-marca-600 text-white"
+              : "text-tinta-700 hover:bg-nuvem-100"
+          }`}
+        >
+          <Icon name={n.icon} className="h-[18px] w-[18px] shrink-0" />
+          <span className="truncate">{n.label}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** Modo Agrupado: mesmos destinos em grupos com subtitulo; grupos com um
+ *  unico item nem exibem o rotulo (Dashboard fala por si). */
+function NavGrupos({
+  pathname,
+  operacaoLabel,
+  planoSlug,
+  ajustes,
+}: {
+  pathname: string;
+  operacaoLabel?: string;
+  planoSlug?: string | null;
+  ajustes?: AjustesMenu | null;
+}) {
+  return (
+    <div className="space-y-1">
+      {gruposParaPlano(NAV_GRUPOS, planoSlug, ajustes, operacaoLabel).map((g) => (
+        <div key={g.titulo}>
+          {g.itens.length > 1 && (
+            <p className="px-3 pb-1 pt-3 text-[0.62rem] font-black uppercase tracking-widest text-stone-400">
+              {g.titulo}
+            </p>
+          )}
+          <div className="space-y-0.5">
+            {g.itens.map((n) => (
+              <Link
+                key={n.href}
+                href={n.href}
+                className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                  active(pathname, n.href)
+                    ? "bg-marca-600 text-white"
+                    : "text-tinta-700 hover:bg-nuvem-100"
+                }`}
+              >
+                <Icon name={n.icon} className="h-[18px] w-[18px] shrink-0" />
+                <span className="truncate">{n.label}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar({
   company,
   logo,
@@ -30,6 +106,7 @@ export function Sidebar({
   planoSlug,
   ajustes,
   platformAdmin,
+  layout = "classico",
 }: {
   company: string;
   logo?: string;
@@ -41,6 +118,8 @@ export function Sidebar({
   ajustes?: AjustesMenu | null;
   /** Só o operador da plataforma (dono do SaaS) vê o atalho para /saas. */
   platformAdmin?: boolean;
+  /** Layout de navegação da empresa (Configurações > Navegação). */
+  layout?: NavLayout;
 }) {
   const pathname = usePathname();
   // No desktop a lateral fica fixa (sticky) com a altura da viewport: quando os
@@ -64,21 +143,12 @@ export function Sidebar({
       </Link>
       {/* min-h-0: dentro do flex, permite a navegacao encolher ate a altura
           disponivel — sem isso o overflow-y-auto nunca ativa. */}
-      <nav className="navegacao-lateral min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
-        {itensParaPlano(comRotuloOperacoes(NAV, operacaoLabel), planoSlug, ajustes).map((n) => (
-          <Link
-            key={n.href}
-            href={n.href}
-            className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-              active(pathname, n.href)
-                ? "bg-marca-600 text-white"
-                : "text-tinta-700 hover:bg-nuvem-100"
-            }`}
-          >
-            <Icon name={n.icon} className="h-[18px] w-[18px] shrink-0" />
-            <span className="truncate">{n.label}</span>
-          </Link>
-        ))}
+      <nav className="navegacao-lateral min-h-0 flex-1 overflow-y-auto p-2">
+        {layout === "agrupado" ? (
+          <NavGrupos pathname={pathname} operacaoLabel={operacaoLabel} planoSlug={planoSlug} ajustes={ajustes} />
+        ) : (
+          <NavPlano pathname={pathname} operacaoLabel={operacaoLabel} planoSlug={planoSlug} ajustes={ajustes} />
+        )}
       </nav>
 
       {/*
@@ -247,12 +317,15 @@ export function BottomNav({
   operacaoLabel,
   planoSlug,
   ajustes,
+  layout = "classico",
 }: {
   operacaoLabel?: string;
   /** Plano contratado: itens pagos (Mensagens, Fretes...) ficam fora do "Mais". */
   planoSlug?: string | null;
   /** Personalizações da empresa (liberações/bloqueios/cortesia) — só apresentação. */
   ajustes?: AjustesMenu | null;
+  /** Layout de navegação da empresa (Configurações > Navegação). */
+  layout?: NavLayout;
 }) {
   const pathname = usePathname();
   const [sheet, setSheet] = useState(false);
@@ -269,7 +342,15 @@ export function BottomNav({
   // são recursos fundamentais (Dashboard, Agenda, Reservas, Operação) e nunca
   // caem por plano. O filtro de plano vale para os itens do menu "Mais".
   const extras = itensParaPlano(comRotuloOperacoes(EXTRA_NAV, operacaoLabel), planoSlug, ajustes);
-  const noMais = extras.some((n) => active(pathname, n.href));
+  // "Mais" destacado quando o destino atual mora fora da barra: no classico
+  // é qualquer item do sheet; no agrupado, os itens de grupo que nao estao
+  // na barra (os 4 diretos nao contam).
+  const noMais =
+    layout === "classico"
+      ? extras.some((n) => active(pathname, n.href))
+      : gruposParaPlano(NAV_GRUPOS, planoSlug, ajustes, operacaoLabel).some((g) =>
+          g.itens.some((n) => !MOBILE_NAV.some((m) => m.href === n.href) && active(pathname, n.href)),
+        );
 
   return (
     <>
@@ -279,26 +360,37 @@ export function BottomNav({
         <div className="fixed inset-0 z-50 md:hidden" onClick={() => setSheet(false)}>
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]"
+            className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl bg-white p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-nuvem-300" />
-            <div className="grid grid-cols-3 gap-2">
-              {extras.map((n) => (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center text-[0.7rem] font-semibold ${
-                    active(pathname, n.href)
-                      ? "border-marca-200 bg-marca-50 text-marca-700"
-                      : "border-nuvem-200 text-tinta-700"
-                  }`}
-                >
-                  <Icon name={n.icon} className="h-5 w-5 text-marca-600" />
-                  <span className="leading-tight">{n.label}</span>
-                </Link>
-              ))}
-            </div>
+            {layout === "agrupado" ? (
+              <MaisAgrupado
+                pathname={pathname}
+                operacaoLabel={operacaoLabel}
+                planoSlug={planoSlug}
+                ajustes={ajustes}
+                chatLiberado={chatLiberado}
+                unread={unread}
+              />
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {extras.map((n) => (
+                  <Link
+                    key={n.href}
+                    href={n.href}
+                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center text-[0.7rem] font-semibold ${
+                      active(pathname, n.href)
+                        ? "border-marca-200 bg-marca-50 text-marca-700"
+                        : "border-nuvem-200 text-tinta-700"
+                    }`}
+                  >
+                    <Icon name={n.icon} className="h-5 w-5 text-marca-600" />
+                    <span className="leading-tight">{n.label}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -368,6 +460,75 @@ export function BottomNav({
   );
 }
 
+/** Sheet "Mais" no modo Agrupado: acoes rapidas no topo e grupos rotulados
+ *  com os mesmos titulos da sidebar — a logica de organizacao e a mesma
+ *  (gruposParaPlano aplica filtro de plano e rotulo da operacao), muda so a
+ *  apresentacao. Itens diretos da barra inferior nao se repetem aqui. */
+function MaisAgrupado({
+  pathname,
+  operacaoLabel,
+  planoSlug,
+  ajustes,
+  chatLiberado,
+  unread,
+}: {
+  pathname: string;
+  operacaoLabel?: string;
+  planoSlug?: string | null;
+  ajustes?: AjustesMenu | null;
+  chatLiberado: boolean;
+  unread: number;
+}) {
+  const naBarra = new Set(MOBILE_NAV.map((n) => n.href));
+  return (
+    <div>
+      <p className="mb-2 mt-1 text-[0.62rem] font-black uppercase tracking-widest text-stone-400">Ações rápidas</p>
+      <div className="grid grid-cols-3 gap-2">
+        {itensParaPlano(ACOES_SHEET_AGRUPADO, planoSlug, ajustes).map((a) => (
+          <Link
+            key={a.href}
+            href={a.href}
+            className="flex flex-col items-center gap-1.5 rounded-xl border border-marca-600 bg-marca-600 px-2 py-3 text-center text-[0.7rem] font-semibold text-white"
+          >
+            <Icon name={a.icon} className="h-5 w-5" />
+            <span className="leading-tight">{a.label}</span>
+          </Link>
+        ))}
+      </div>
+      {gruposParaPlano(NAV_GRUPOS, planoSlug, ajustes, operacaoLabel).map((g: NavGroup) => {
+        const itens = g.itens.filter((n) => !naBarra.has(n.href));
+        if (itens.length === 0) return null;
+        return (
+          <div key={g.titulo}>
+            <p className="mb-2 mt-4 text-[0.62rem] font-black uppercase tracking-widest text-stone-400">{g.titulo}</p>
+            <div className="grid grid-cols-3 gap-2">
+              {itens.map((n) => (
+                <Link
+                  key={n.href}
+                  href={n.href}
+                  className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center text-[0.7rem] font-semibold ${
+                    active(pathname, n.href)
+                      ? "border-marca-200 bg-marca-50 text-marca-700"
+                      : "border-nuvem-200 text-tinta-700"
+                  }`}
+                >
+                  <Icon name={n.icon} className="h-5 w-5 text-marca-600" />
+                  <span className="leading-tight">{n.label}</span>
+                  {n.href === "/chat" && unread > 0 && chatLiberado && (
+                    <span className="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[0.58rem] font-bold leading-none text-white">
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ------------------------------ botao flutuante ------------------------------- */
 
 const ACOES = [
@@ -379,18 +540,19 @@ const ACOES = [
   { href: "/fretes/novo", label: "Novo Frete", icon: "fretes" },
   { href: "/compras/nova", label: "Nova Compra", icon: "estoque" },
   { href: "/fretes/calculadora", label: "Calcular Frete", icon: "financeiro" },
-];
-
-export function FloatingAction({
+];export function FloatingAction({
   novaOperacaoLabel,
   planoSlug,
   ajustes,
+  layout = "classico",
 }: {
   novaOperacaoLabel?: string;
   /** Plano contratado: atalhos de recursos pagos (Mensagens, Fretes...) saem do +. */
   planoSlug?: string | null;
   /** Personalizações da empresa (liberações/bloqueios/cortesia) — só apresentação. */
   ajustes?: AjustesMenu | null;
+  /** Layout de navegação da empresa (Configurações > Navegação). */
+  layout?: NavLayout;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -399,8 +561,12 @@ export function FloatingAction({
   const chatLiberado = visivelParaPlano("/chat", planoSlug, ajustes);
   useEffect(() => setOpen(false), [pathname]);
 
-  /* No chat a tela usa a altura inteira e o composer (anexo/mic/enviar) ocupa a
-     base: o botao flutuante cobria o microfone e roubava toques. Fora do chat
+  // No modo Agrupado o + perde o atalho Mensagens: conversa nao e criacao de
+  // registro — o chat continua no sino do topo e no menu (Sistema).
+  const acoes = layout === "agrupado" ? ACOES_AGRUPADO(ACOES) : ACOES;
+
+  /* No chat a tela usa a altura inteira e o composer (anexo/mic/enviar) ocupa
+     a base: o botao flutuante cobria o microfone e roubava toques. Fora do chat
      ele continua igual, com as mesmas acoes de sempre — agora incluindo
      Mensagens, que saiu da barra inferior e trocou de lugar com a Agenda. */
   if (pathname === "/chat") return null;
@@ -411,7 +577,7 @@ export function FloatingAction({
       {/* Acima da barra inferior (cartao + margem), em qualquer aparelho. */}
       <div className="nao-imprimir fixed bottom-28 right-4 z-40 flex flex-col items-end gap-2 md:bottom-6">
         {open &&
-          itensParaPlano(ACOES, planoSlug, ajustes).map((a) =>
+          itensParaPlano(acoes, planoSlug, ajustes).map((a) =>
             a.href === "/operacao/nova" && novaOperacaoLabel ? { ...a, label: novaOperacaoLabel } : a,
           ).map((a) => (
             <Link
@@ -434,8 +600,9 @@ export function FloatingAction({
           className="relative flex h-14 w-14 items-center justify-center rounded-full bg-marca-500 text-tinta-900 shadow-xl transition hover:bg-marca-600 hover:text-white active:scale-95"
         >
           <Icon name={open ? "fechar" : "mais"} className="h-7 w-7" />
-          {/* Ponto discreto de nao lidas: da pra saber sem abrir o menu. */}
-          {!open && unread > 0 && chatLiberado && (
+          {/* Ponto discreto de nao lidas: da pra saber sem abrir o menu. Vale
+              so no Classico, onde o + tem o atalho Mensagens. */}
+          {!open && layout === "classico" && unread > 0 && chatLiberado && (
             <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
           )}
         </button>

@@ -10,6 +10,7 @@ import { unreadCounters } from "@/lib/chat";
 import { seedUnread } from "@/lib/chat-unread";
 import { getOperacao } from "@/lib/operacao-db";
 import { pluralizar, tituloOperacoes } from "@/lib/operacao";
+import { resolverNavLayout, type NavLayout } from "@/lib/nav";
 import { BottomNav, FloatingAction, Sidebar, TopBar } from "@/components/Shell";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +75,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
    * platform_admin opera sem restrição de plano (mesma exceção do gate).
    */
   const planoSlug: string | null | undefined = user.platform_admin ? undefined : (estado?.plano?.slug ?? null);
+  /*
+   * Layout de navegacao escolhido (Configuracoes > Navegacao): "classico"
+   * preserva o menu de sempre; "agrupado" organiza os mesmos destinos em
+   * grupos. Valor fora da lista (ausente, vazio ou lixo) cai no classico —
+   * empresas existentes continuam vendo exatamente o menu de hoje.
+   */
+  const navLayout: NavLayout = resolverNavLayout(settings.nav_layout);
   // Primeiro quadro: o contador ja nasce preenchido no servidor, sem piscar
   // de zero nem esperar a primeira consulta do ciclo compartilhado. A partir
   // daqui, apenas essa fonte alimenta topo, menu e tela do chat.
@@ -93,13 +101,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         planoSlug={planoSlug}
         ajustes={ajustes}
         platformAdmin={user.platform_admin}
+        layout={navLayout}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar user={user} company={settings.company_name} logo={settings.company_logo} planoSlug={planoSlug} ajustes={ajustes} />
         <main className="com-barra-inferior mx-auto w-full max-w-6xl flex-1 p-3 sm:p-5">{children}</main>
       </div>
-      <BottomNav operacaoLabel={tituloOperacoes(operacao)} planoSlug={planoSlug} ajustes={ajustes} />
-      <FloatingAction novaOperacaoLabel={`Nova ${pluralizar(operacao.rotulos.operacao_inicio)}`} planoSlug={planoSlug} ajustes={ajustes} />
+      <BottomNav operacaoLabel={tituloOperacoes(operacao)} planoSlug={planoSlug} ajustes={ajustes} layout={navLayout} />
+      <FloatingAction
+        novaOperacaoLabel={`Nova ${pluralizar(operacao.rotulos.operacao_inicio)}`}
+        planoSlug={planoSlug}
+        ajustes={ajustes}
+        layout={navLayout}
+      />
       {estado?.avisoVencimento && <AvisoVencimento dias={estado.diasRestantes} />}
     </div>
   );

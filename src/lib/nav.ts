@@ -116,3 +116,115 @@ export function comRotuloOperacoes<T extends { href: string; label: string }>(
   if (!label) return itens as T[];
   return itens.map((n) => (n.href === "/operacao" ? { ...n, label } : n));
 }
+
+/* ==================== MODO AGRUPADO (opcional) ==================== */
+
+/** Layout de navegacao escolhido pela empresa (Configuracoes > Navegacao).
+ *  "classico" e o padrao: menu plano de sempre, byte a byte. "agrupado"
+ *  organiza os mesmos destinos em grupos conceituais — nenhuma rota muda. */
+export type NavLayout = "classico" | "agrupado";
+
+/**
+ * Normaliza o valor vindo do formulario/ banco.
+ *
+ * Unica fonte da regra: so "agrupado" liga o modo agrupado; qualquer outro
+ * valor (lixo, chave antiga, vazio) cai no classico — comportamento atual do
+ * SaaS preservado para empresas existentes. Pura e sem sessao: a action de
+ * salvar e os testes usam a MESMA funcao.
+ */
+export function resolverNavLayout(valor: unknown): NavLayout {
+  return valor === "agrupado" ? "agrupado" : "classico";
+}
+
+/** Grupo de navegacao do modo Agrupado (desktop e mobile compartilham). */
+export type NavGroup = { titulo: string; itens: NavItem[] };
+
+/**
+ * Mesmos destinos do NAV, agora em grupos. A pergunta que organiza: "onde eu
+ * procuraria?" — operacao do dia em Operacao, quem contrata em Comercial, o
+ * que alugamos em Estoque, dinheiro/controle em Gestao (inclui a assinatura
+ * do SaaS, em /faturamento) e ajustes/comunicacao interna em Sistema. Cada
+ * href do NAV aparece EXATAMENTE uma vez aqui (travado em teste): nenhum
+ * destino novo e nenhum destino some no modo agrupado.
+ */
+export const NAV_GRUPOS: NavGroup[] = [
+  { titulo: "Início", itens: [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" }] },
+  {
+    titulo: "Operação",
+    itens: [
+      { href: "/agenda", label: "Agenda", icon: "agenda" },
+      { href: "/orcamentos", label: "Orçamentos", icon: "orcamento" },
+      { href: "/reservas", label: "Reservas", icon: "reservas" },
+      { href: "/operacao", label: "Entregas e Retiradas", icon: "operacao" },
+      { href: "/fretes", label: "Fretes", icon: "fretes" },
+    ],
+  },
+  {
+    titulo: "Comercial",
+    itens: [
+      { href: "/clientes", label: "Clientes", icon: "clientes" },
+      { href: "/contratos", label: "Contratos", icon: "contratos" },
+      { href: "/promocoes", label: "Promoções", icon: "estoque" },
+      { href: "/fidelidade", label: "Fidelidade", icon: "clientes" },
+      { href: "/aniversarios", label: "Aniversariantes", icon: "agenda" },
+    ],
+  },
+  {
+    titulo: "Estoque",
+    itens: [
+      { href: "/estoque", label: "Estoque", icon: "estoque" },
+      { href: "/disponibilidade", label: "Disponibilidade", icon: "disponibilidade" },
+      { href: "/compras", label: "Compras", icon: "estoque" },
+    ],
+  },
+  {
+    titulo: "Gestão",
+    itens: [
+      { href: "/financeiro", label: "Financeiro", icon: "financeiro" },
+      { href: "/faturamento", label: "Assinatura", icon: "assinatura" },
+      { href: "/relatorios", label: "Relatórios", icon: "relatorios" },
+      { href: "/historico", label: "Histórico", icon: "historico" },
+    ],
+  },
+  {
+    titulo: "Sistema",
+    itens: [
+      { href: "/configuracoes", label: "Configurações", icon: "configuracoes" },
+      { href: "/suporte", label: "Suporte", icon: "suporte" },
+      { href: "/chat", label: "Mensagens", icon: "chat" },
+      { href: "/erros", label: "Diário de erros", icon: "configuracoes", adminOnly: true },
+    ],
+  },
+];
+
+/**
+ * Grupos já aplicados ao SaaS: rótulo da operação + filtro de plano
+ * (mesmos filtros do modo classico — a organização em grupos nunca muda
+ * quem pode ver o quê). Grupos que ficaram vazios saem, como na referência.
+ */
+export function gruposParaPlano(
+  grupos: NavGroup[],
+  planoSlug: string | null | undefined,
+  ajustes?: AjustesMenu | null,
+  operacaoLabel?: string,
+): NavGroup[] {
+  return grupos
+    .map((g) => ({ ...g, itens: comRotuloOperacoes(itensParaPlano(g.itens, planoSlug, ajustes), operacaoLabel) }))
+    .filter((g) => g.itens.length > 0);
+}
+
+/** Acao rapida do botao flutuante +. */
+export type AcaoRapida = { href: string; label: string; icon: string };
+
+/** Botao + no modo Agrupado: sem "Mensagens" — conversa nao e criacao de
+ *  registro. O chat segue acessivel pelo sino do topo e pelo menu. */
+export const ACOES_AGRUPADO = (acoes: readonly AcaoRapida[]): AcaoRapida[] =>
+  acoes.filter((a) => a.href !== "/chat");
+
+/** Acoes rapidas do topo do sheet "Mais" no modo Agrupado (mobile): as
+ *  criacoes mais comuns do dia a dia, uma tela a menos de distancia. */
+export const ACOES_SHEET_AGRUPADO: AcaoRapida[] = [
+  { href: "/reservas/nova", label: "+ Reserva", icon: "reservas" },
+  { href: "/orcamentos/novo", label: "+ Orçamento", icon: "orcamento" },
+  { href: "/clientes/novo", label: "+ Cliente", icon: "clientes" },
+];
