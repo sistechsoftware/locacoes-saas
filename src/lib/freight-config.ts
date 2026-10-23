@@ -6,9 +6,19 @@ export type ConfigFrete = {
   roundingCents: number; laborCents: number;
 };
 export function freightConfig(s: Record<string, string>, tipo: TipoFrete): ConfigFrete {
-  const read = (key: string) => s[`freight_${tipo}_${key}`] ?? s[`freight_${key}`] ?? "";
+  /*
+   * Especifica do tipo quando preenchida; vazia ou ausente cai no generico
+   * (freight_*), que e o padrao historico salvo pelas empresas. Tratar ""
+   * como ausente e o que preserva esse fallback depois que as chaves por tipo
+   * passaram a ser gravadas em company_settings.
+   */
+  const especifica = (key: string) => {
+    const v = s[`freight_${tipo}_${key}`];
+    return typeof v === "string" && v !== "" ? v : undefined;
+  };
+  const read = (key: string) => especifica(key) ?? s[`freight_${key}`] ?? "";
   return {
-    baseAddress: s[`freight_${tipo}_base_address`] ?? "",
+    baseAddress: especifica("base_address") ?? "",
     fuelType: read("fuel_type"), fuelPriceCents: Number(read("fuel_price_cents")),
     consumption: Number(read("consumption")), costPerKmCents: Number(read("cost_per_km_cents")),
     marginPercent: Number(read("margin_percent")), minimumCents: Number(read("minimum_cents")),

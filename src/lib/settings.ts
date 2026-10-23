@@ -96,6 +96,32 @@ export const DEFAULT_SETTINGS: Settings = {
   freight_minimum_cents: "3000",
   freight_rounding_cents: "500",
   freight_labor_cents: "0",
+  /*
+   * Configuração de frete POR TIPO (comum/locacao), gravada pela aba Frete de
+   * Configurações e pela calculadora. Sem estas chaves na whitelist, o
+   * setSettings descartava silenciosamente tudo o que a tela de frete salvava
+   * (nenhuma alteração persistia). Vazias, não sobrescrevem o fallback para as
+   * chaves genéricas freight_* acima — empresas que já salvaram o padrão
+   * continuam lendo exatamente o mesmo valor.
+   */
+  freight_comum_base_address: "",
+  freight_locacao_base_address: "",
+  freight_comum_fuel_type: "",
+  freight_locacao_fuel_type: "",
+  freight_comum_fuel_price_cents: "",
+  freight_locacao_fuel_price_cents: "",
+  freight_comum_consumption: "",
+  freight_locacao_consumption: "",
+  freight_comum_cost_per_km_cents: "",
+  freight_locacao_cost_per_km_cents: "",
+  freight_comum_margin_percent: "",
+  freight_locacao_margin_percent: "",
+  freight_comum_minimum_cents: "",
+  freight_locacao_minimum_cents: "",
+  freight_comum_rounding_cents: "",
+  freight_locacao_rounding_cents: "",
+  freight_comum_labor_cents: "",
+  freight_locacao_labor_cents: "",
   wa_confirm:
     "Ola, {{cliente}}! Sua locacao na {{empresa}} esta confirmada para o dia {{data_evento}}. Reserva {{reserva}}. Qualquer duvida e so chamar!",
   wa_delivery:
