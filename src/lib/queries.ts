@@ -5,6 +5,7 @@ import { all, one, scalar } from "./db";
 import { addDays, cutoff3h, endOfMonth, startOfMonth, startOfWeek, today } from "./format";
 import { availabilityAll, kitsFromPhysical } from "./stock";
 import { ACTIVE_STATUSES, HOLDING_STATUSES, OPEN_OPERATION_STATUS } from "./domain";
+import { SQL_NAO_TRANSFERENCIA } from "./financeiro";
 
 const list = (arr: readonly string[]) => arr.map((s) => `'${s}'`).join(",");
 const HOLD = list(HOLDING_STATUSES);
@@ -249,7 +250,7 @@ export async function dashboardStats(query: AvailabilityQuery = availabilityQuer
     ),
     one<any>(
     `SELECT
-       (SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE company_id = ?3 AND paid_at BETWEEN ?1 AND ?2) AS recebido,
+       (SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE company_id = ?3 AND paid_at BETWEEN ?1 AND ?2 AND ${SQL_NAO_TRANSFERENCIA}) AS recebido,
        (SELECT COALESCE(SUM(total_cents),0) FROM reservations
          WHERE company_id = ?3 AND event_date BETWEEN ?1 AND ?2 AND status IN (${ACTIVE})) AS faturamento,
        (SELECT COALESCE(SUM(amount_cents),0) FROM freights
