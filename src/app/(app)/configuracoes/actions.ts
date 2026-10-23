@@ -14,6 +14,30 @@ import { normalizarUnidade } from "@/lib/fidelidade";
 import { restaurarOperacaoConfig, salvarOperacaoConfig } from "@/lib/operacao-db";
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
 import { validarDimensoesRecibo } from "@/lib/recibo-visual";
+import { resolverNavLayout } from "@/lib/nav";
+
+/**
+ * Layout de navegacao (Configuracoes > Navegacao): "classico" (menu plano de
+ * sempre) ou "agrupado" (grupos conceituais — ver src/lib/nav.ts). Nao e
+ * permissao nem dado de negocio: e uma preferencia visual da empresa, guarda
+ * em company_settings como os demais ajustes (escopo: empresa da SESSAO via
+ * setSettings) e vale para todo mundo da empresa. A validacao roda aqui no
+ * servidor (resolverNavLayout e a mesma funcao que os testes travam).
+ */
+export async function saveNavLayout(fd: FormData) {
+  const user = await assertAdmin();
+  const layout = resolverNavLayout(fd.get("nav_layout"));
+  await setSettings({ nav_layout: layout });
+  await logAction(user, "editar", "configuracao", null, `${user.name} alternou o layout de navegacao para ${layout}`);
+  /*
+   * Mesmo precedente do saveOperacaoSettings: NADA de revalidatePath("/",
+   * "layout") — invalidar o layout inteiro forçava o cliente a refazer a
+   * navegação toda. O shell do (app) é force-dynamic e lê o banco a cada
+   * request, então o novo layout aparece na próxima navegação sem qualquer
+   * invalidação global.
+   */
+  revalidatePath("/configuracoes");
+}
 
 export async function saveStockSettings(fd: FormData) {
   const user = await assertAdmin();

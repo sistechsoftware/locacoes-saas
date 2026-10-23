@@ -18,7 +18,7 @@ import { Tabs } from "@/components/List";
 import { SubmitButton } from "@/components/SubmitButton";
 import ImageInput from "@/components/ImageInput";
 import EditorContrato from "@/components/EditorContrato";
-import { addCategory, removeCategory, resetPassword, saveCompanySettings, saveFreightSettings, saveTemplates, toggleUser, updateUser, deleteUser } from "./actions";
+import { addCategory, removeCategory, resetPassword, saveCompanySettings, saveFreightSettings, saveNavLayout, saveTemplates, toggleUser, updateUser, deleteUser } from "./actions";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
 import AssinaturaEmpresa from "@/components/AssinaturaEmpresa";
 import AvatarForm from "./AvatarForm";
@@ -118,6 +118,7 @@ export default async function ConfiguracoesPage({
 
   const ABAS = [
     { value: "empresa", label: "Empresa" },
+    { value: "navegacao", label: "Navegação" },
     { value: "modelos", label: "Modelos" },
     { value: "categorias", label: "Categorias" },
     { value: "veiculos", label: "Veículos" },
@@ -138,7 +139,6 @@ export default async function ConfiguracoesPage({
   return (
     <div className="space-y-4">
       <PageHeader title="Configurações" subtitle="Dados da empresa, modelos, usuários e permissões" />
-      <Link href="/notificacoes/preferencias" className="inline-block text-sm text-marca-600 underline">Notificações: dispositivos, funções operacionais e antecedentes</Link>
       {erro && <Alerta tone="vermelho">{erro}</Alerta>}
       {ok && <Alerta tone="verde">{ok}</Alerta>}
       {!admin && aba !== "conta" && (
@@ -149,6 +149,66 @@ export default async function ConfiguracoesPage({
       )}
 
       <Tabs items={ABAS} current={aba} base="/configuracoes" />
+
+      {aba === "navegacao" && (
+        <Section title="Layout de navegação">
+          {/* O link de preferencias de notificacoes segue visivel para todos:
+              era texto solto no topo desta pagina, aqui vira acesso da
+              aba — ninguem perde o caminho. */}
+          <p className="mb-3">
+            <Link href="/notificacoes/preferencias" className="text-sm text-marca-600 underline">
+              Notificações: dispositivos, funções operacionais e antecedentes
+            </Link>
+          </p>
+          {admin ? (
+            <>
+              <p className="text-sm text-stone-600">
+                Escolha como o menu principal é apresentado para toda a equipe. A troca é instantânea e pode ser
+                revertida a qualquer momento — nenhum acesso, cadastro ou dado é afetado.
+              </p>
+              <form action={saveNavLayout} className="mt-3 space-y-3">
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-nuvem-300 bg-white px-3 py-3">
+                  <input
+                    type="radio"
+                    name="nav_layout"
+                    value="classico"
+                    defaultChecked={s.nav_layout !== "agrupado"}
+                    className="mt-1 h-4 w-4"
+                  />
+                  <span className="text-sm">
+                    <b>Clássico</b> — menu único, como sempre foi
+                    <span className="block text-xs text-stone-500">
+                      Lista simples de Dashboard a Configurações, igual à versão atual do sistema.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-nuvem-300 bg-white px-3 py-3">
+                  <input
+                    type="radio"
+                    name="nav_layout"
+                    value="agrupado"
+                    defaultChecked={s.nav_layout === "agrupado"}
+                    className="mt-1 h-4 w-4"
+                  />
+                  <span className="text-sm">
+                    <b>Agrupado</b> — menu organizado por contexto
+                    <span className="block text-xs text-stone-500">
+                      Mesmos destinos em grupos: Início, Operação (agenda, orçamentos, reservas, entregas, fretes),
+                      Comercial (clientes, contratos, promoções, fidelidade, aniversários), Estoque, Gestão
+                      (financeiro, assinatura, relatórios, histórico) e Sistema. No celular, o menu "Mais" ganha as
+                      mesmas seções e o botão + deixa de ter o atalho Mensagens — o chat continua no sino do topo e
+                      no menu.
+                    </span>
+                  </span>
+                </label>
+                <SubmitButton>Salvar Layout</SubmitButton>
+              </form>
+            </>
+          ) : (
+            <Alerta tone="ambar">A escolha do layout de navegação é exclusiva do administrador.</Alerta>
+          )}
+        </Section>
+      )}
 
       {aba === "operacao" && operacaoOperacional && <OperacaoSettings inicial={operacaoOperacional} />}
 
