@@ -5,7 +5,7 @@ import { all, insert, nextNumber, one, run, scalar } from "@/lib/db";
 import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { recalcPurchase, syncPurchaseEntries, syncPurchaseStock, vencimentoPadrao } from "@/lib/compras";
-import { money, parseMoney, today } from "@/lib/format";
+import { money, parseMoney, today, valorValido } from "@/lib/format";
 
 type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number };
 
@@ -289,22 +289,103 @@ export async function createSupplier(fd: FormData) {
   revalidatePath("/compras");
 }
 
+/** Aba Contas da Configurações: feedback de erro/sucesso sem silêncio. */
+function destinoContas(extra: Record<string, string>): string {
+  const params = new URLSearchParams({ aba: "contas" });
+  for (const [k, v] of Object.entries(extra)) if (v) params.set(k, v);
+  return `/configuracoes?${params}`;
+}
+
+/** kind fora do whitelist do CHECK vira 'banco' (nunca um erro bruto de SQL). */
+function kindValido(bruto: unknown): string {
+  const k = String(bruto ?? "banco");
+  return ["banco", "dinheiro", "digital", "poupanca", "outro"].includes(k) ? k : "banco";
+}
+
+/**
+ * Cria uma conta financeira da EMPRESA DA SESSÃO (nunca de outro tenant).
+ * Saldo inicial ilegível é recusado com mensagem clara — parseMoney de um
+ * texto qualquer viraria 0 em silêncio, exatamente o tipo de perda que a
+ * auditoria apontou.
+ */
 export async function createAccount(fd: FormData) {
   const user = await assertAdmin();
   const name = String(fd.get("name") ?? "").trim();
-  if (!name) return;
+  if (!name) redirect(destinoContas({ erro: "Informe um nome para a conta." }));
+  const inicialBruto = String(fd.get("initial_balance") ?? "").trim();
+  if (inicialBruto && !valorValido(inicialBruto)) {
+    redirect(destinoContas({ erro: `Não consegui ler o saldo inicial "${inicialBruto}". Use por exemplo 0,00 ou 1.234,56.` }));
+  }
   const id = await insert(
-    `INSERT INTO financial_accounts (name, kind, bank, initial_balance_cents, notes, company_id) VALUES (?,?,?,?,?,?)`,
+    `INSERT INTO financial_accounts (name, kind, bank, initial_balance_cents, notes, is_cash_account, company_id) VALUES (?,?,?,?,?,?,?)`,
     [
       name,
-      String(fd.get("kind") ?? "banco"),
+      kindValido(fd.get("kind")),
       String(fd.get("bank") ?? "").trim(),
-      parseMoney(String(fd.get("initial_balance") ?? "")),
+      parseMoney(inicialBruto),
       String(fd.get("notes") ?? "").trim(),
+      fd.get("is_cash_account") === "1" ? 1 : 0,
       user.company_id,
     ],
   );
   await logAction(user, "criar", "conta", id, `${user.name} cadastrou a conta ${name}`);
   revalidatePath("/configuracoes");
   revalidatePath("/financeiro");
+  redirect(destinoContas({ ok: `Conta "${name}" criada.` }));
+}
+
+/**
+ * Edição do cadastro de conta, incluindo a natureza "dinheiro em espécie" —
+ * espelho da origem (compras/actions.ts da Lima's) com escopo de tenant.
+ *
+ * Alterar cadastro nao reescreve lancamento nenhum: o saldo continua sendo
+ * inicial + movimentacoes, e o que muda aqui e so o cadastro. O checkbox tem
+ * um marcador escondido no formulario: sem ele, um checkbox desmarcado nao
+ * viajaria no POST e a conta nunca conseguiria deixar de ser dinheiro em
+ * especie.
+ *
+ * O UPDATE é limitado ao company_id da sessão: adulterar o id no formulário
+ * não alcança a conta de outra empresa (a action responde "não encontrada").
+ */
+export async function updateAccount(fd: FormData) {
+  const user = await assertAdmin();
+  const id = Number(fd.get("id"));
+  const conta = await one<any>(`SELECT * FROM financial_accounts WHERE id = ? AND company_id = ?`, [id, user.company_id]);
+  if (!conta) redirect(destinoContas({ erro: "Conta não encontrada." }));
+
+  const name = String(fd.get("name") ?? "").trim() || conta.name;
+  const inicialBruto = String(fd.get("initial_balance") ?? "").trim();
+  if (inicialBruto && !valorValido(inicialBruto)) {
+    redirect(destinoContas({ erro: `Não consegui ler o saldo inicial "${inicialBruto}". Use por exemplo 0,00 ou 1.234,56.` }));
+  }
+  const isCash = fd.has("is_cash_account_presente") ? (fd.get("is_cash_account") === "1" ? 1 : 0) : conta.is_cash_account ? 1 : 0;
+  await run(
+    `UPDATE financial_accounts
+        SET name = ?, kind = ?, bank = ?, initial_balance_cents = ?, notes = ?, is_cash_account = ?
+      WHERE id = ? AND company_id = ?`,
+    [
+      name,
+      kindValido(fd.get("kind") || conta.kind),
+      String(fd.get("bank") ?? "").trim(),
+      parseMoney(inicialBruto),
+      String(fd.get("notes") ?? "").trim(),
+      isCash,
+      id,
+      user.company_id,
+    ],
+  );
+
+  const mudouNatureza = (conta.is_cash_account ? 1 : 0) !== isCash;
+  await logAction(
+    user,
+    "editar",
+    "conta",
+    id,
+    mudouNatureza
+      ? `${user.name} editou a conta ${name}${isCash ? " e marcou como dinheiro em espécie" : " e desmarcou dinheiro em espécie"}`
+      : `${user.name} editou a conta ${name}`,
+  );
+  revalidatePath("/configuracoes");
+  revalidatePath("/financeiro");
+  redirect(destinoContas({ ok: `Conta "${name}" atualizada. O saldo continua sendo o inicial mais as movimentações — nada antigo foi reescrito.` }));
 }

@@ -7,6 +7,7 @@ import { Card, Empty, PageHeader, Section, Stat } from "@/components/ui";
 import { Tabs } from "@/components/List";
 import { getOperacao } from "@/lib/operacao-db";
 import { nomeOperacoesPlural, pluralizar } from "@/lib/operacao";
+import { SQL_NAO_TRANSFERENCIA } from "@/lib/financeiro";
 
 export const dynamic = "force-dynamic";
 const ACTIVE = ACTIVE_STATUSES.map((s) => `'${s}'`).join(",");
@@ -65,7 +66,7 @@ export default async function RelatoriosPage({
     inativos,
     meses,
   ] = await Promise.all([
-    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE company_id = ? AND paid_at BETWEEN ? AND ?`, [cid, de, ate]),
+    scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE company_id = ? AND paid_at BETWEEN ? AND ? AND ${SQL_NAO_TRANSFERENCIA}`, [cid, de, ate]),
     scalar<number>(
       `SELECT COALESCE(SUM(total_cents),0) FROM reservations WHERE company_id = ? AND event_date BETWEEN ? AND ? AND status IN (${ACTIVE})`,
       [cid, de, ate],

@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { insert, one, run, scalar } from "@/lib/db";
-import { assertAdmin, requireModuleEdit } from "@/lib/auth";
+import { assertAdmin, PermissionError, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { gerarRecebiveis } from "@/lib/receber";
 import { money, parseMoney, today } from "@/lib/format";
@@ -112,6 +112,13 @@ export async function estornarRecebimento(fd: FormData) {
   const paymentId = Number(fd.get("payment_id"));
   const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ?`, [paymentId, user.company_id]);
   if (!p) return;
+
+  // Um lado de transferência não é recebimento: estornar por aqui criaria um
+  // negativo SEM transfer_group (contando como receita nos indicadores) e
+  // deixaria o evento pela metade. O caminho certo é Financeiro > Transferências.
+  if (p.transfer_group != null) {
+    throw new PermissionError("Transferência entre contas não é estornável por aqui. Use Financeiro › Transferências.");
+  }
 
   await insert(
     `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by, company_id)

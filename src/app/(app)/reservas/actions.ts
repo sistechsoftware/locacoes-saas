@@ -289,9 +289,13 @@ export async function deletePayment(fd: FormData) {
   const { user, companyId } = await requireModuleEdit("reservas");
   if (!ehAdmin(user.role)) throw new PermissionError();
   const paymentId = Number(fd.get("payment_id"));
-  const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ?`, [paymentId, companyId]);
+  // transfer_group IS NULL: um lado de transferência não é um "pagamento de
+  // reserva" — apagá-lo sozinho deixaria o evento incompleto e o saldo das
+  // duas contas errado. Transferência só é removida pelo fluxo próprio
+  // (Financeiro > Transferências), que apaga os dois lados em transação.
+  const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ? AND transfer_group IS NULL`, [paymentId, companyId]);
   if (!p) return;
-  await run(`DELETE FROM payments WHERE id = ? AND company_id = ?`, [paymentId, companyId]);
+  await run(`DELETE FROM payments WHERE id = ? AND company_id = ? AND transfer_group IS NULL`, [paymentId, companyId]);
   await logAction(user, "excluir", "reserva", p.reservation_id, `${user.name} removeu um pagamento de ${money(p.amount_cents)}`);
   revalidatePath(`/reservas/${p.reservation_id}`);
 }
