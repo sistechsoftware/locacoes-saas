@@ -43,7 +43,10 @@ export function ordenar(faixas: Faixa[]): Faixa[] {
  */
 export function vigente(p: Pick<Promocao, "active" | "starts_on" | "ends_on">, dataISO: string): boolean {
   if (!p.active) return false;
-  const dia = dataISO.slice(0, 10);
+  const dia = String(dataISO ?? "").slice(0, 10);
+  // data desconhecida nao habilita nada: uma promocao que so termina em data
+  // X nao pode valer "para sempre" so porque a tela ainda nao tinha data
+  if (!dia) return false;
   if (p.starts_on && dia < p.starts_on) return false;
   if (p.ends_on && dia > p.ends_on) return false;
   return true;
@@ -71,6 +74,42 @@ export function precoPromocional(
   if (!promocao || !vigente(promocao, dataISO)) return null;
   const faixa = faixaPara(ordenar(promocao.tiers), qty);
   return faixa ? { unit_price_cents: faixa.unit_price_cents, faixa } : null;
+}
+
+/**
+ * Entre varias promocoes CANDIDATAS do mesmo produto, a que cobra o melhor
+ * preco nesta data e quantidade (ou null quando nenhuma serve).
+ *
+ * O cadastro recusa sobreposicao de periodo E quantidade na MESMA promocao,
+ * mas autoriza duas promocoes do mesmo produto com periodos diferentes
+ * (dezembro e janeiro) ou faixas de quantidade diferentes (1 a 4 e 5+). Por
+ * isso escolher "a primeira da lista" deixava a promocao certa de fora: o
+ * sistema avaliava a promocao errada, nao achava vigencia/faixa e cobrava o
+ * preco normal. Aqui TODAS as candidatas sao avaliadas e a melhor vence.
+ */
+export function precoPromocionalEntre(
+  promocoes: (Promocao | null | undefined)[] | null | undefined,
+  qty: number,
+  dataISO: string,
+): { unit_price_cents: number; faixa: Faixa } | null {
+  let melhor: { unit_price_cents: number; faixa: Faixa } | null = null;
+  for (const p of promocoes ?? []) {
+    const r = precoPromocional(p, qty, dataISO);
+    if (r && (!melhor || r.unit_price_cents < melhor.unit_price_cents)) melhor = r;
+  }
+  return melhor;
+}
+
+/** Preco que vale para a linha entre varias promocoes candidatas. */
+export function precoUnitarioEntre(
+  precoNormalCents: number,
+  promocoes: (Promocao | null | undefined)[] | null | undefined,
+  qty: number,
+  dataISO: string,
+): { unit_price_cents: number; promocional: boolean; faixa: Faixa | null } {
+  const promo = precoPromocionalEntre(promocoes, qty, dataISO);
+  if (!promo) return { unit_price_cents: precoNormalCents, promocional: false, faixa: null };
+  return { unit_price_cents: promo.unit_price_cents, promocional: true, faixa: promo.faixa };
 }
 
 /** Preco que vale para a linha: promocional quando existir, normal quando nao. */

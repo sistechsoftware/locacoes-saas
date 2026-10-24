@@ -28,8 +28,17 @@ import { settingsDaEmpresa } from "@/lib/settings";
 import { dataEventoOuInicio } from "@/lib/operacao";
 import { getOperacao } from "@/lib/operacao-db";
 import { exprValida } from "@/lib/desconto";
+import { aplicarPromocaoNosItens } from "@/lib/promocoes-db";
 
-export type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number; discount_expr?: string | null };
+export type ItemInput = {
+  product_id: number;
+  qty: number;
+  unit_price_cents: number;
+  discount_cents: number;
+  discount_expr?: string | null;
+  /** O operador digitou este preco a mao? Se sim, a promocao nao mexe nele. */
+  preco_manual?: boolean;
+};
 
 function readItems(fd: FormData): ItemInput[] {
   try {
@@ -42,12 +51,17 @@ function readItems(fd: FormData): ItemInput[] {
         discount_cents: Number(i.discount_cents) || 0,
         // forma do desconto ("10%" ou NULL = R$): só exibição, migração 0046
         discount_expr: exprValida(i.discount_expr),
+        preco_manual: i.preco_manual === true,
       }))
       .filter((i) => i.product_id && i.qty > 0);
   } catch {
     return [];
   }
 }
+
+/** Data que decide a vigência da promoção: a da locação (evento ou início). */
+const dataDaLocacao = (h: { event_date?: string | null; delivery_at?: string | null }) =>
+  dataEventoOuInicio(h.event_date, h.delivery_at);
 
 function readHeader(fd: FormData, opts: { derivarEvento?: boolean } = {}) {
   const event_time = String(fd.get("event_time") ?? "");
@@ -111,14 +125,20 @@ export async function createReservation(_prev: string | null, fd: FormData): Pro
   if (!items.length) return "Adicione ao menos um item a reserva.";
   const invalid = windowError(h.delivery_at, h.pickup_at);
   if (invalid) return invalid;
+  /* Promoções decididas no SERVIDOR pela data da locação (evento ou início):
+   * vigente e cobrindo a quantidade, o preço promocional substitui o que veio
+   * do navegador; sem promoção aplicável, vale o valor enviado. Linha com
+   * preço digitado a mão passa intacta. A conversão de orçamento em reserva
+   * NÃO passa por aqui — ela preserva o que já foi negociado. */
+  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
   if ((HOLDING_STATUSES as readonly string[]).includes(h.status)) {
-    const conflicts = await checkConflicts(items, h.delivery_at, h.pickup_at, null, options, companyId);
+    const conflicts = await checkConflicts(itens, h.delivery_at, h.pickup_at, null, options, companyId);
     if (conflicts.length && !override) return conflictMessage(conflicts);
   }
   let saved: { id: number; number: string };
   try {
     saved = await writeRental(companyId, version, { ...h, stock_override: override ? 1 : 0,
-      stock_consider_preparation: options.considerPreparation ? 1 : 0, created_by: user.id }, items);
+      stock_consider_preparation: options.considerPreparation ? 1 : 0, created_by: user.id }, itens);
   } catch (e) { if ((e as Error).message === STOCK_CHANGED) return STOCK_CHANGED; throw e; }
   const { id, number } = saved;
   // Pendência #04: company_id explícito — sem isto a caução nascia com o
@@ -126,7 +146,7 @@ export async function createReservation(_prev: string | null, fd: FormData): Pro
   await insert("INSERT INTO deposits (reservation_id, amount_cents, status, company_id) VALUES (?,?,'nao_recebida',?)", [id, h.deposit_cents, companyId]);
   await recalcReservation(id);
   await syncOperations(id);
-  await logAction(user, "criar", "reserva", id, `${user.name} criou a reserva ${number}`, { items: items.length });
+  await logAction(user, "criar", "reserva", id, `${user.name} criou a reserva ${number}`, { items: itens.length });
 
   // adiantamento e opcional na criacao: a reserva ja esta gravada quando isto
   // roda, entao um valor invalido aqui nunca pode custar a reserva inteira —
@@ -165,8 +185,11 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
   if (!items.length) return "A reserva precisa ter ao menos um item.";
   const invalid = windowError(h.delivery_at, h.pickup_at);
   if (invalid) return invalid;
+  // Reavaliar promoções a cada salvamento: data da locação, quantidade e
+  // vigência são do servidor — o valor gravado nunca sai só da tela.
+  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
   if ((HOLDING_STATUSES as readonly string[]).includes(h.status)) {
-    const conflicts = await checkConflicts(items, h.delivery_at, h.pickup_at, id, options, companyId);
+    const conflicts = await checkConflicts(itens, h.delivery_at, h.pickup_at, id, options, companyId);
     if (conflicts.length && !override) return conflictMessage(conflicts);
   }
   /* Hora extra da extensão de retirada (migração 0045): comparar a retirada
@@ -187,7 +210,7 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
   try {
     await writeRental(companyId, version, { ...h, stock_override: override ? 1 : current.stock_override,
       stock_consider_preparation: options.considerPreparation ? 1 : 0,
-      extension_minutes: ext.minutos, extension_cents: ext.cents }, items, id);
+      extension_minutes: ext.minutos, extension_cents: ext.cents }, itens, id);
   } catch (e) { if ((e as Error).message === STOCK_CHANGED) return STOCK_CHANGED; throw e; }
   const dep = await one<any>("SELECT id FROM deposits WHERE reservation_id=? ORDER BY id DESC LIMIT 1", [id]);
   if (dep) await run("UPDATE deposits SET amount_cents=? WHERE id=?", [h.deposit_cents,dep.id]);
