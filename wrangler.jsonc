@@ -35,7 +35,13 @@
     "NOMINATIM_URL": "https://nominatim.openstreetmap.org/",
     "OSRM_URL": "https://routing.openstreetmap.de/routed-car",
     "VAPID_SUBJECT": "mailto:uericlislima@gmail.com",
-    "PUBLIC_URL": ""
+    "PUBLIC_URL": "",
+    // Chave PÚBLICA do Google Maps (restrita por origem no Console) só para
+    // carregar o mapa da calculadora de frete no navegador. Opcional: vazia =
+    // calculadora funciona sem mapa (provedor OSM). A chave server-side
+    // GOOGLE_MAPS_API_KEY é SECRET do Worker (wrangler secret put) e não
+    // pode entrar aqui.
+    "GOOGLE_MAPS_CLIENT_KEY": ""
   },
   "triggers": { "crons": ["* * * * *"] },
   // o guarda do Next nao se aplica ao Worker e impedia o cron de rodar
@@ -82,7 +88,9 @@
         // Domínio público do Locô (Cloudflare -> Worker). Usado nos links dos
         // e-mails gerados pelo cron (fim de trial, cobrança gerada) — em request
         // os links saem do host que o usuário acessou.
-        "PUBLIC_URL": "https://locogestao.com.br"
+        "PUBLIC_URL": "https://locogestao.com.br",
+        // Mapa da calculadora de frete (opcional; vazia = sem mapa).
+        "GOOGLE_MAPS_CLIENT_KEY": ""
       },
       "triggers": { "crons": ["* * * * *"] },
       "secrets": {
@@ -127,7 +135,9 @@
         "VAPID_SUBJECT": "mailto:uericlislima@gmail.com",
         // Domínio público do Locô (Cloudflare -> Worker): origem dos links dos
         // e-mails enviados pelo cron.
-        "PUBLIC_URL": "https://locogestao.com.br"
+        "PUBLIC_URL": "https://locogestao.com.br",
+        // Mapa da calculadora de frete (opcional; vazia = sem mapa).
+        "GOOGLE_MAPS_CLIENT_KEY": ""
       },
       "triggers": { "crons": ["* * * * *"] },
       "secrets": {

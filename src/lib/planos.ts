@@ -213,11 +213,15 @@ export function recursoDoCaminho(caminho: string): Recurso | null {
  * compartilhado entre reservas/orçamentos (base) e o módulo de Fretes —
  * decisão registrada na correção de planos. `/api/portal/*` é autenticado
  * pelo próprio portal (não por apiUser) e é barrado nas rotas.
+ *
+ * `/api/geocode` e `/api/routes/opcoes` são da calculadora de frete (Menu + >
+ * Calcular Frete) e seguem o mesmo portão do módulo de Fretes.
  */
 export function recursoDaApi(caminho: string): Recurso | null {
   const p = caminho.split("?")[0];
   if (p === "/api/chat" || p.startsWith("/api/chat/")) return "chat";
   if (p.startsWith("/api/portal/")) return "portal";
+  if (p === "/api/geocode" || p === "/api/routes/opcoes") return "fretes";
   return null;
 }
 

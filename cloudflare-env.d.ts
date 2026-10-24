@@ -23,6 +23,14 @@ interface __BaseEnv_CloudflareEnv {
 	RESEND_API_KEY: string;
 	RESEND_FROM: string;
 	PUBLIC_URL: string;
+	/* Google Maps para a calculadora de frete (feat/calcular-frete-mapa-e-enderecos).
+	   GOOGLE_MAPS_API_KEY e SECRET do Worker (wrangler secret put) e alimenta as
+	   chamadas server-side: Places API (New) Autocomplete, Geocoding e Routes.
+	   GOOGLE_MAPS_CLIENT_KEY e var PUBLICA (wrangler.jsonc) restrita por origem
+	   e usada só pelo navegador para carregar o mapa. Vazias = provedor OSM
+	   (Nominatim + OSRM) e mapa desabilitado. */
+	GOOGLE_MAPS_API_KEY: string;
+	GOOGLE_MAPS_CLIENT_KEY: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
