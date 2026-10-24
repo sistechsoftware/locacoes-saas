@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { diasCobrados, money, parseMoney } from "@/lib/format";
+import { diasCobrados, money, parseMoney, today } from "@/lib/format";
 import { descontoDePct, exprDePct, pctDeExpr, pctDigitado, type ModoDesconto } from "@/lib/desconto";
-import { precoUnitario, rotuloFaixa, type Promocao } from "@/lib/promocoes";
+import { precoUnitarioEntre, rotuloFaixa, type Promocao } from "@/lib/promocoes";
 import { Icon } from "./Icons";
 
 export type Product = {
@@ -17,6 +17,15 @@ export type Product = {
   composition?: string | null;
   /** Promocao por quantidade ativa deste produto, quando existir. */
   promocao?: Promocao | null;
+  /**
+   * TODAS as promocoes ativas do produto, na ordem do cadastro.
+   *
+   * Uma promocao so nao basta: o cadastro aceita duas promocoes do mesmo
+   * produto em periodos diferentes (meses distintos) ou faixas de quantidade
+   * diferentes (1 a 4 e 5+), e a regra escolhe entre elas pela data da
+   * locacao e pela quantidade da linha.
+   */
+  promocoes?: Promocao[];
   /**
    * Modalidade de cobranca RESOLVIDA (produto > default da empresa > fixo).
    * 'diaria': o valor digitado é por diária e a linha multiplica pelos dias
@@ -104,13 +113,23 @@ export default function ItemsEditor({
     window.localStorage.setItem(CHAVE_DESCTO_MODO, modoDesconto);
   }, [modoDesconto]);
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
-  const dia = dataReferencia || new Date().toISOString().slice(0, 10);
+  /* Sem data escolhida, "hoje" no fuso do NEGOCIO (America/Sao_Paulo) — o
+   * mesmo today() das telas de promocao. O toISOString() antigo era UTC: depois
+   * das 21h de Brasilia ja era o dia seguinte, e a promocao caia fora da
+   * vigencia (ou entrava) um dia adiantado. */
+  const dia = dataReferencia?.slice(0, 10) || today();
   const janelaDias = Math.max(1, dias ?? 1);
+
+  /** Promocoes candidatas desta linha: a lista completa ou a unica (legado). */
+  const candidatasDe = (productId: number): Promocao[] => {
+    const p = byId.get(productId);
+    return p?.promocoes ?? (p?.promocao ? [p.promocao] : []);
+  };
 
   /** Preco que a regra manda cobrar por esta linha, com a faixa que o justifica. */
   const calcular = (productId: number, qty: number) => {
     const p = byId.get(productId);
-    return precoUnitario(p?.rent_price_cents ?? 0, p?.promocao, qty, dia);
+    return precoUnitarioEntre(p?.rent_price_cents ?? 0, candidatasDe(productId), qty, dia);
   };
 
   /** Período cobrado por esta linha (1 para fixo). */
@@ -392,7 +411,7 @@ export default function ItemsEditor({
                     )}
                   </p>
                 )}
-                {item.preco_manual && p?.promocao && (
+                {item.preco_manual && candidatasDe(item.product_id).length > 0 && (
                   <p className="mt-2 text-xs text-stone-500">
                     Preço digitado à mão: a promoção não está sendo aplicada nesta linha.
                   </p>

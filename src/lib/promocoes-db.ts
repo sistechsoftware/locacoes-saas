@@ -1,7 +1,8 @@
 import "server-only";
 import { all } from "./db";
 import { tenantCompanyId } from "./tenant";
-import { ordenar, precoUnitario, type Faixa, type Promocao } from "./promocoes";
+import { today } from "./format";
+import { ordenar, precoPromocionalEntre, precoUnitarioEntre, type Faixa, type Promocao } from "./promocoes";
 
 /** Empresa do contexto (sessão) ou padrão do banco (cron/testes). */
 async function empresa(companyId?: number): Promise<number> {
@@ -106,13 +107,17 @@ export async function promocoesDoProduto(productId: number, exceto?: number, com
 }
 
 /**
- * Promocao vigente de cada produto na data, em duas consultas.
+ * Promocoes vigentes de cada produto na data, em duas consultas.
  *
- * Devolve no maximo uma promocao por produto: o cadastro ja recusa promocoes
- * conflitantes, entao aqui basta pegar a que vale.
+ * Devolve a LISTA completa por produto, nao so a primeira: o cadastro recusa
+ * sobreposicao de periodo E quantidade, mas aceita duas promocoes do mesmo
+ * produto com periodos diferentes (meses distintos) ou faixas de quantidade
+ * diferentes (1 a 4 e 5+). Guardar so a de menor id escondia a promocao certa
+ * e o preco promocional nunca saia. A escolha entre elas acontece na regra
+ * (precoPromocionalEntre), contra a data da locacao.
  */
-export async function promocoesVigentes(dataISO: string, companyId?: number): Promise<Map<number, Promocao>> {
-  const dia = dataISO.slice(0, 10);
+export async function promocoesVigentes(dataISO: string, companyId?: number): Promise<Map<number, Promocao[]>> {
+  const dia = String(dataISO ?? "").slice(0, 10);
   const cid = await empresa(companyId);
   const linhas = await all<any>(
     `${SELECT}
@@ -120,7 +125,7 @@ export async function promocoesVigentes(dataISO: string, companyId?: number): Pr
         AND (pr.starts_on IS NULL OR pr.starts_on <= ?)
         AND (pr.ends_on IS NULL OR pr.ends_on >= ?)
       ORDER BY pr.id`,
-    [cid, dia, dia],
+    [cid, dia || "", dia || ""],
   );
   const faixas = linhas.length
     ? await all<any>(
@@ -128,23 +133,14 @@ export async function promocoesVigentes(dataISO: string, companyId?: number): Pr
         linhas.map((l) => l.id),
       )
     : [];
-  const porProduto = new Map<number, Promocao>();
-  for (const promocao of montar(linhas, faixas).values()) {
-    if (promocao.tiers.length > 0 && !porProduto.has(promocao.product_id)) {
-      porProduto.set(promocao.product_id, promocao);
-    }
-  }
-  return porProduto;
+  return agrupar(montar(linhas, faixas).values());
 }
 
 /**
- * Promocoes ativas por produto, sem filtrar por data.
- *
- * A vigencia fica para quem chama avaliar com a data certa: o formulario de
- * reserva usa a data do evento, que pode ser daqui a dois meses, e nao a de
- * hoje. Uma promocao por produto, porque o cadastro ja recusa conflitos.
+ * Todas as promocoes ATIVAS de cada produto, SEM filtro de data — a vigencia
+ * e avaliada depois, contra a data da locacao que o operador escolher.
  */
-export async function promocoesAtivasPorProduto(companyId?: number): Promise<Map<number, Promocao>> {
+export async function promocoesAtivasAgrupadas(companyId?: number): Promise<Map<number, Promocao[]>> {
   const cid = await empresa(companyId);
   const linhas = await all<any>(`${SELECT} WHERE pr.company_id = ? AND pr.active = 1 ORDER BY pr.id`, [cid]);
   if (linhas.length === 0) return new Map();
@@ -152,11 +148,34 @@ export async function promocoesAtivasPorProduto(companyId?: number): Promise<Map
     `SELECT * FROM promotion_tiers WHERE promotion_id IN (${linhas.map(() => "?").join(",")}) ORDER BY min_qty`,
     linhas.map((l) => l.id),
   );
+  return agrupar(montar(linhas, faixas).values());
+}
+
+/** Uma lista por produto: nenhuma promocao se perde, nenhuma e contada duas vezes. */
+function agrupar(promocoes: Iterable<PromocaoComProduto>): Map<number, Promocao[]> {
+  const porProduto = new Map<number, Promocao[]>();
+  for (const promocao of promocoes) {
+    if (promocao.tiers.length === 0) continue;
+    const lista = porProduto.get(promocao.product_id) ?? [];
+    lista.push(promocao);
+    porProduto.set(promocao.product_id, lista);
+  }
+  return porProduto;
+}
+
+/**
+ * SOMENTE para quem precisa de UMA promocao por produto (telas de listagem).
+ *
+ * Nao serve para precificar: entre duas promocoes do mesmo produto em periodos
+ * ou faixas diferentes, esta funcao devolve sempre a de menor id e esconde a
+ * que valeria na data da locacao. Para preco use promocoesVigentes /
+ * promocoesAtivasAgrupadas com a lista inteira.
+ */
+export async function promocoesAtivasPorProduto(companyId?: number): Promise<Map<number, Promocao>> {
+  const agrupadas = await promocoesAtivasAgrupadas(companyId);
   const porProduto = new Map<number, Promocao>();
-  for (const promocao of montar(linhas, faixas).values()) {
-    if (promocao.tiers.length > 0 && !porProduto.has(promocao.product_id)) {
-      porProduto.set(promocao.product_id, promocao);
-    }
+  for (const [productId, lista] of agrupadas) {
+    if (lista[0]) porProduto.set(productId, lista[0]);
   }
   return porProduto;
 }
@@ -170,5 +189,39 @@ export async function precoSugerido(productId: number, qty: number, dataISO: str
   const cid = await empresa(companyId);
   const [produto] = await all<any>(`SELECT rent_price_cents FROM products WHERE id = ? AND company_id = ?`, [productId, cid]);
   const vigentes = await promocoesVigentes(dataISO, cid);
-  return precoUnitario(produto?.rent_price_cents ?? 0, vigentes.get(productId), qty, dataISO);
+  return precoUnitarioEntre(produto?.rent_price_cents ?? 0, vigentes.get(productId) ?? [], qty, dataISO);
+}
+
+/**
+ * Preco unitario que o SERVIDOR exige para a linha, segundo as promocoes.
+ *
+ * E a validacao das regras de negocio no backend: o valor vindo do navegador
+ * e aceito apenas quando nenhuma promocao se aplica; havendo promocao vigente
+ * cobrindo a quantidade na data da locacao, manda o preco promocional. Linha
+ * com preco digitado a mao pelo operador (preco_manual) passa intacta — e a
+ * mesma precedencia que o formulario ja usa.
+ *
+ * A data e sempre a da locacao/evento (nao a de criacao do documento): um
+ * orcamento feito em outubro para uma locacao de novembro vale pelo preco de
+ * novembro, e um orcamento feito durante a promocao para uma locacao fora da
+ * vigencia nao leva desconto.
+ */
+export async function aplicarPromocaoNosItens<T extends {
+  product_id: number;
+  qty: number;
+  unit_price_cents: number;
+  preco_manual?: boolean | null;
+}>(itens: T[], dataISO: string, companyId?: number): Promise<T[]> {
+  if (!itens.length) return itens;
+  const cid = await empresa(companyId);
+  const dia = String(dataISO ?? "").slice(0, 10) || today();
+  const vigentes = await promocoesVigentes(dia, cid);
+  if (vigentes.size === 0) return itens;
+  return itens.map((i) => {
+    if (i.preco_manual) return i;
+    const candidatas = vigentes.get(i.product_id);
+    if (!candidatas?.length) return i;
+    const promo = precoPromocionalEntre(candidatas, i.qty, dia);
+    return promo ? { ...i, unit_price_cents: promo.unit_price_cents } : i;
+  });
 }

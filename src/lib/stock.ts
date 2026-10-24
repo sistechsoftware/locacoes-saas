@@ -1,5 +1,5 @@
 import "server-only";
-import { promocoesAtivasPorProduto } from "./promocoes-db";
+import { promocoesAtivasAgrupadas } from "./promocoes-db";
 import { all, one, run, batch, scalar } from "./db";
 import { settingsDaEmpresa } from "./settings";
 import { tenantCompanyId } from "./tenant";
@@ -142,10 +142,12 @@ export async function sellableProducts(companyId?: number) {
         ORDER BY p.name`,
       [cid],
     ),
-    // a promocao viaja junto com o produto para o formulario decidir o preco
-    // sem uma consulta por linha; a vigencia por data e avaliada la, contra a
-    // data do evento que o operador escolheu
-    promocoesAtivasPorProduto(),
+    // as promocoes viajam COM o produto para o formulario decidir o preco sem
+    // uma consulta por linha; a vigencia por data e avaliada la, contra a data
+    // do evento que o operador escolheu. A LISTA INTEIRA do produto viaja —
+    // duas promocoes em periodos ou faixas diferentes convivem, e escolher so
+    // a primeira escondia a que valia na data da locacao
+    promocoesAtivasAgrupadas(cid),
     settingsDaEmpresa(cid),
   ]);
   // Modalidade de cobrança RESOLVIDA (produto > default da empresa > fixo) para
@@ -161,7 +163,9 @@ export async function sellableProducts(companyId?: number) {
     ...r,
     pricing_mode: r.pricing_mode === "fixo" || r.pricing_mode === "diaria" ? r.pricing_mode : padrao,
     composition: r.kind === "kit" ? (byParent.get(r.id) ?? []).join(" + ") || null : null,
-    promocao: promocoes.get(r.id) ?? null,
+    // lista completa (a que a regra usa) + a primeira para quem so quer uma
+    promocoes: promocoes.get(r.id) ?? [],
+    promocao: (promocoes.get(r.id) ?? [])[0] ?? null,
   }));
 }
 

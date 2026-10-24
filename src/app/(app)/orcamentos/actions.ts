@@ -17,8 +17,17 @@ import { settingsDaEmpresa } from "@/lib/settings";
 import { dataEventoOuInicio } from "@/lib/operacao";
 import { getOperacao } from "@/lib/operacao-db";
 import { exprValida } from "@/lib/desconto";
+import { aplicarPromocaoNosItens } from "@/lib/promocoes-db";
 
-type ItemInput = { product_id: number; qty: number; unit_price_cents: number; discount_cents: number; discount_expr?: string | null };
+type ItemInput = {
+  product_id: number;
+  qty: number;
+  unit_price_cents: number;
+  discount_cents: number;
+  discount_expr?: string | null;
+  /** O operador digitou este preco a mao? Se sim, a promocao nao mexe nele. */
+  preco_manual?: boolean;
+};
 
 function readItems(fd: FormData): ItemInput[] {
   try {
@@ -31,12 +40,17 @@ function readItems(fd: FormData): ItemInput[] {
         discount_cents: Number(i.discount_cents) || 0,
         // forma do desconto ("10%" ou NULL = R$): só exibição, migração 0046
         discount_expr: exprValida(i.discount_expr),
+        preco_manual: i.preco_manual === true,
       }))
       .filter((i) => i.product_id && i.qty > 0);
   } catch {
     return [];
   }
 }
+
+/** Data que decide a vigência da promoção: a da locação (evento ou início). */
+const dataDaLocacao = (h: { event_date?: string | null; delivery_at?: string | null }) =>
+  dataEventoOuInicio(h.event_date, h.delivery_at);
 
 function readHeader(fd: FormData, opts: { derivarEvento?: boolean } = {}) {
   const event_time = String(fd.get("event_time") ?? "");
@@ -80,8 +94,11 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
   if (!h.customer_id) return "Selecione o cliente.";
   if (!items.length) return "Adicione ao menos um item.";
   // Modalidade e período resolvidos no servidor pela janela do orçamento;
-  // o formulário não envia período (lib/pricing.ts).
-  const precos = await aplicarPrecos(items, h, companyId);
+  // o formulário não envia período (lib/pricing.ts). As promoções também são
+  // decididas AQUI: o servidor consulta as vigentes na data da locação e só
+  // aceita o valor do navegador quando nenhuma promocao se aplica.
+  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
+  const precos = await aplicarPrecos(itens, h, companyId);
 
   let id = 0;
   await tx(async () => {
@@ -151,7 +168,10 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
   if (!q) return "Orçamento não encontrado.";
   if (q.status === "convertido") return "Orçamento já convertido em reserva não pode ser alterado.";
   if (!items.length) return "Adicione ao menos um item.";
-  const precos = await aplicarPrecos(items, h, companyId);
+  // Reavaliar a cada salvamento: mudou a data da locação, as quantidades ou a
+  // vigência da promocao, o servidor recalcula pela regra e não pela tela.
+  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
+  const precos = await aplicarPrecos(itens, h, companyId);
 
   /* Hora extra da extensão de retirada (mesma regra da reserva): comparar a
    * retirada gravada com a nova, no servidor. Retirada não alterada preserva
