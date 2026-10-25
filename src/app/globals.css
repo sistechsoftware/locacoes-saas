@@ -208,6 +208,32 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * Altura minima do shell com FALLBACK: 100dvh primeiro (viewport dinamico =
+ * area realmente visivel quando a barra de endereco do navegador mobile esta
+ * mostrada), 100vh depois (navegadores sem suporte a dvh, ~2022).
+ *
+ * Por que nao 100vh puro: no mobile 100vh = viewport GRANDE (barra escondida),
+ * entao toda pagina curta nasce com ~100px de rolagem fantasma. Rolar esse
+ * excesso faz a barra de endereco mostrar/esconder e redimensionar o viewport
+ * durante a rolagem — o cenario em que a camada `fixed` da barra inferior pode
+ * ser pintada um quadro atrasada (menu no meio dos cards). Desktop nao muda:
+ * dvh === vh sem chrome dinamico.
+ *
+ * Fora de camada de proposito (mesma regra classica de .com-barra-inferior):
+ * vence os utilitarios min-h-* do Tailwind, e as duas declaracoes na MESMA
+ * regra garantem a ordem correta do fallback (nao depende da ordem de emissao
+ * dos utilitarios, que sai alfabética: min-h-dvh antes de min-h-screen).
+ */
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 body {
   overscroll-behavior-y: none;
 }
