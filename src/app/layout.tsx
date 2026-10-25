@@ -88,6 +88,19 @@ export const viewport: Viewport = {
   // env(safe-area-inset-bottom) = 0 e a barra inferior encosta na Home Bar do
   // iPhone — toques na borda caem na area reservada aos gestos do iOS.
   viewportFit: "cover",
+  /*
+   * Teclado virtual: força `resizes-visual` — o teclado apenas SOBREPÕE a
+   * pagina e NUNCA redimensiona o viewport de layout. A barra inferior e o
+   * botao + sao `fixed; bottom:0`: quando um navegador (OEMs/WebView que ainda
+   * usam o comportamento antigo de redimensionar o CONTEUDO) fecha o teclado,
+   * o layout volta de ~570px para a tela inteira e a camada fixa pode ser
+   * pintada um quadro atrasada — o menu flutua entao no MEIO da tela sobre os
+   * cards ate o proximo repaint (o bug da foto). Com o resize de layout
+   * proibido, essa janela nao existe: o menu nao acompanha o teclado.
+   * No Chrome moderno esta e a comportamento padrao desde a 108, entao a
+   * chave explicita nao muda nada la; Safari/iOS ignoram a chave (inalterado).
+   */
+  interactiveWidget: "resizes-visual",
   // Barra de status/PWA: tinta da marca, a mesma do icone — instalado, o
   // chrome escuro e a continuidade visual do app icon sobre o creme do app.
   themeColor: "#14161B",
@@ -96,7 +109,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body className="min-h-screen antialiased">
+      {/*
+       * A altura minima do shell (body e .app-shell) vive em globals.css com
+       * fallback 100vh -> 100dvh: a pagina nao termina antes/alem da area
+       * visivel quando a barra de endereco mobile esta mostrada — sem rolagem
+       * fantasma que dispara transicoes de viewport durante a rolagem.
+       */}
+      <body className="antialiased">
         {/*
          * Meta legada de modo standalone: o Next 15 emite so a variante sem
          * prefixo (mobile-web-app-capable), que o iOS moderno aceita — mas

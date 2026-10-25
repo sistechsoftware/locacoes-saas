@@ -92,7 +92,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   });
 
   return (
-    <div className="flex min-h-screen">
+    /* .app-shell = min-height com fallback 100vh -> 100dvh (globals.css):
+       a altura minima acompanha o viewport dinamico no mobile, sem rolagem
+       fantasma que dispara transicoes de viewport durante a rolagem. */
+    <div className="flex app-shell">
       <PushRegistration />
       <Sidebar
         company={settings.company_name}
