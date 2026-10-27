@@ -220,3 +220,59 @@ describe("permissões das telas de e-mail", () => {
     assert.ok(pagina.includes("<EmailSettings"), "aba sem conteúdo");
   });
 });
+
+/*
+ * Regressão do bug de staging: o interruptor geral morava num cartão
+ * ANTES do <form>, então o hidden `email_enabled` nunca era enviado, a
+ * action não gravava a chave e o interruptor voltava a "desligado" na
+ * atualização da página — com a tela mostrando "salvo". O mesmo valia
+ * para as antecedências: a action pedia `fd.has("email_...")`, nome que
+ * a tela nunca envia (ela envia `antec_reserva`/`antec_operacao`).
+ */
+describe("regressão: o que a tela exibe como editável é o que a action grava", () => {
+  const raiz = process.cwd();
+  const ler = (p: string) => fs.readFileSync(path.join(raiz, p), "utf8");
+
+  it("todos os campos salváveis ficam DENTRO do formulário enviado", () => {
+    const tela = ler("src/app/(app)/configuracoes/EmailSettings.tsx");
+    const abre = tela.indexOf("<form action={submit}");
+    const fecha = tela.indexOf("</form>", abre);
+    assert.ok(abre > 0 && fecha > abre, "formulário de salvamento não encontrado");
+
+    const campos = [
+      "email_enabled",
+      "email_grupo_reservas",
+      "email_grupo_operacoes",
+      "email_grupo_fidelidade",
+      "email_hora_envio",
+      "email_fuso",
+      "email_cor",
+      "email_instrucoes",
+      "email_fidelidade_quase_la_limite",
+    ];
+    for (const campo of campos) {
+      /* Os interruptores recebem o nome via propriedade — `interruptor("email_enabled", …)` —
+         e os demais são `<input name="…">` literal: os dois caminhos contam. */
+      const dinamico = tela.match(new RegExp(`interruptor\\(\\s*"${campo}"`));
+      const literal = tela.indexOf(`name="${campo}"`);
+      const i = dinamico?.index ?? literal;
+      assert.ok(i >= 0, `${campo} não tem input na tela`);
+      assert.ok(i > abre && i < fecha, `${campo} está fora do <form> — nunca seria enviado`);
+    }
+
+    /* O e-mail de teste é um formulário próprio: precisa começar DEPOIS do
+       fechamento do de salvamento (form não pode ser aninhado). */
+    const teste = tela.indexOf("<form action={sendTestEmail}");
+    assert.ok(teste > fecha, "formulário de teste aninhado no de salvamento");
+  });
+
+  it("a action lê exatamente os nomes de campo que a tela envia", () => {
+    const acoes = ler("src/app/(app)/configuracoes/actions.ts");
+    assert.ok(acoes.includes('fd.has("antec_reserva")'), "guard de antecedência de reserva não lê `antec_reserva`");
+    assert.ok(acoes.includes('fd.has("antec_operacao")'), "guard de antecedência de operação não lê `antec_operacao`");
+    assert.ok(!acoes.includes('fd.has("email_reserva_lembrete_antecedencias")'), "guard antigo lê um campo que a tela nunca envia");
+
+    const tela = ler("src/app/(app)/configuracoes/EmailSettings.tsx");
+    assert.ok(tela.includes('"antec_reserva"') && tela.includes('"antec_operacao"'), "nomes dos hidden inputs de antecedência mudaram");
+  });
+});
