@@ -29,6 +29,7 @@ import { dataEventoOuInicio } from "@/lib/operacao";
 import { getOperacao } from "@/lib/operacao-db";
 import { exprValida } from "@/lib/desconto";
 import { aplicarPromocaoNosItens } from "@/lib/promocoes-db";
+import { reservaAlterada, reservaCancelada, reservaCriada } from "@/lib/email-gatilhos";
 
 export type ItemInput = {
   product_id: number;
@@ -147,6 +148,8 @@ export async function createReservation(_prev: string | null, fd: FormData): Pro
   await recalcReservation(id);
   await syncOperations(id);
   await logAction(user, "criar", "reserva", id, `${user.name} criou a reserva ${number}`, { items: itens.length });
+  // intenção de confirmação na fila de e-mails (fail-open, sem envio aqui)
+  await reservaCriada(companyId, id, h.status);
 
   // adiantamento e opcional na criacao: a reserva ja esta gravada quando isto
   // roda, entao um valor invalido aqui nunca pode custar a reserva inteira —
@@ -218,6 +221,9 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
   await recalcReservation(id);
   await syncOperations(id);
   await logAction(user, "editar", "reserva", id, `${user.name} alterou a reserva ${current.number}`);
+  // alterou data/horário/status? os lembretes antigos saem da fila e o aviso
+  // de alteração é registrado com o que mudou (a validação de tenant é na fila)
+  await reservaAlterada(companyId, id, current, h);
   revalidatePath("/", "layout");
   redirect(`/reservas/${id}`);
 }
@@ -272,6 +278,14 @@ export async function changeStatus(fd: FormData) {
   }
 
   await logAction(user, "status", "reserva", id, `${user.name} alterou o status da reserva ${r.number} para ${status}`);
+  /* E-mails: cancelamento limpa a fila antes de avisar; confirmação é um tipo
+     próprio; as demais transições viram "alteração" com o status novo. Sem
+     transição (mesmo status reenviado), nada é enfileirado. */
+  if (r.status !== status) {
+    if (status === "cancelada") await reservaCancelada(companyId, id);
+    else if (status === "confirmada") await reservaCriada(companyId, id, status);
+    else await reservaAlterada(companyId, id, { status: r.status }, { status });
+  }
   revalidatePath(`/reservas/${id}`);
   revalidatePath("/dashboard");
   revalidatePath(`/clientes/${r.customer_id}`);
@@ -393,6 +407,10 @@ export async function deleteReservation(fd: FormData) {
   for (const a of anexos) await removeAttachment(a.id);
   const anexosDano = await all<any>(`SELECT id FROM attachments WHERE entity = 'dano' AND entity_id = ?`, [id]);
   for (const a of anexosDano) await removeAttachment(a.id);
+
+  // Notificações pendentes desta reserva saem da fila ANTES da exclusão:
+  // depois que a linha some, não há mais como vincular o histórico ao dono certo.
+  await reservaCancelada(companyId, id, false);
 
   await run(`DELETE FROM reservations WHERE id = ? AND company_id = ?`, [id, companyId]);
   await logAction(

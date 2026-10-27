@@ -195,6 +195,46 @@ export const DEFAULT_SETTINGS: Settings = {
    * por empresa.
    */
   nav_layout: "classico",
+  /*
+   * E-mails transacionais ao CLIENTE (Configuracoes > Notificações > E-mails).
+   * Chaves `email_*` no MESMO company_settings multi-tenant dos demais ajustes:
+   * nenhuma tabela nova de configuração, e uma empresa nunca enxerga a outra.
+   *
+   * O master nasce DESLIGADO ("0"): habilitar envio é decisão explícita do
+   * administrador daquela empresa, nunca um efeito colateral de deploy. Os
+   * demais valores vazios significam "padrão documentado em
+   * src/lib/email-notificacoes.ts" — o resolver ignora vazio, então nenhuma
+   * linha gravada altera o comportamento de quem nunca abriu a tela.
+   */
+  email_enabled: "0",
+  email_grupo_reservas: "1",
+  email_grupo_operacoes: "1",
+  email_grupo_fidelidade: "1",
+  email_reserva_confirmacao: "",
+  email_reserva_lembrete: "",
+  /* antecedências em minutos, separadas por vírgula (ex.: 4320,1440) */
+  email_reserva_lembrete_antecedencias: "",
+  email_reserva_alteracao: "",
+  email_reserva_cancelamento: "",
+  email_operacao_lembrete: "",
+  email_operacao_lembrete_antecedencias: "",
+  email_operacao_saida: "",
+  email_operacao_concluida: "",
+  email_operacao_alteracao: "",
+  email_operacao_atrasada: "",
+  email_fidelidade_progresso: "",
+  email_fidelidade_quase_la: "",
+  /* quantas unidades faltando ainda contam como proximidade (padrão 1) */
+  email_fidelidade_quase_la_limite: "",
+  email_fidelidade_conquista: "",
+  email_fidelidade_uso: "",
+  email_fidelidade_vencendo: "",
+  /* hora mínima de envio (HH:MM), fuso dos agendamentos e cor de destaque */
+  email_hora_envio: "",
+  email_fuso: "",
+  email_cor: "",
+  /* orientações comerciais da locadora repetidas no rodapé dos e-mails */
+  email_instrucoes: "",
 };
 
 const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);

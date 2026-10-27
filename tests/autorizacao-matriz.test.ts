@@ -421,6 +421,7 @@ const PAGINAS: Record<string, string> = {
   "src/app/(app)/notificacoes/page.tsx": "notificacoes",
   "src/app/(app)/notificacoes/alertas/page.tsx": "notificacoes",
   "src/app/(app)/notificacoes/atividades/page.tsx": "notificacoes",
+  "src/app/(app)/notificacoes/emails/page.tsx": "notificacoes",
   "src/app/(app)/notificacoes/preferencias/page.tsx": "notificacoes",
   "src/app/(app)/operacao/page.tsx": "operacao",
   "src/app/(app)/operacao/nova/page.tsx": "operacao",
