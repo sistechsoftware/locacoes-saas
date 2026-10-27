@@ -5,9 +5,9 @@ import { listarPlanos } from "@/lib/billing";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Locô — Gestão para locações",
+  title: "Sistema para Locadoras | Locô - Gestão para Locações",
   description:
-    "Reservas, orçamentos, contratos, estoque, financeiro e portal do cliente em um só sistema. Teste grátis por 14 dias, sem cartão de crédito.",
+    "Gerencie reservas, orçamentos, contratos, estoque e financeiro em um só lugar. Experimente o Locô grátis por 14 dias, sem cartão de crédito.",
 };
 
 /**
