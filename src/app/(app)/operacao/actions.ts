@@ -9,6 +9,7 @@ import { parseMoney, nowLocal, today } from "@/lib/format";
 import { stamp } from "@/lib/stock";
 import { checklistFor } from "@/lib/checklists";
 import { completeDamageMaintenance, resolveDamage as resolverDanoCore, revertDamageWriteOff, validarQuantidadeDoDano } from "@/lib/danos";
+import { operacaoAlterada, operacaoCancelada, operacaoStatus } from "@/lib/email-gatilhos";
 
 /* ------------------------------- criar / editar ------------------------------- */
 
@@ -43,6 +44,9 @@ export async function createOperation(_prev: string | null, fd: FormData): Promi
   );
   const r = await one<any>(`SELECT number FROM reservations WHERE id = ? AND company_id = ?`, [reservationId, companyId]);
   await logAction(user, "criar", "operacao", id, `${user.name} agendou ${kind} de ${r?.number} para ${scheduled}`);
+  // criação já em status que comunica ao cliente (saída/concluída) entra na fila;
+  // "pendente"/"confirmada" não têm e-mail — o lembrete é capturado pelo cron
+  await operacaoStatus(companyId, id, "pendente", String(fd.get("status") ?? "pendente"), reservationId);
   revalidatePath("/operacao");
   revalidatePath("/agenda");
   redirect(`/operacao/${id}`);
@@ -63,6 +67,9 @@ export async function updateOperation(fd: FormData) {
     [scheduled, String(fd.get("assignee") ?? ""), Number(fd.get("vehicle_id")) || null, String(fd.get("notes") ?? ""), assigneeId, id, companyId],
   );
   await logAction(user, "editar", "operacao", id, `${user.name} atualizou a ${op.kind} agendada para ${scheduled}`);
+  // horário mudou → lembretes do horário antigo saem da fila e o aviso de
+  // alteração é registrado (fail-open, sem envio na request)
+  await operacaoAlterada(companyId, id, op, { scheduled_at: scheduled, status: op.status }, op.reservation_id);
   revalidatePath(`/operacao/${id}`);
   revalidatePath("/agenda");
 }
@@ -95,6 +102,9 @@ export async function setOperationStatus(fd: FormData) {
   }
 
   await logAction(user, "status", "operacao", id, `${user.name} marcou a ${op.kind} de ${op.number ?? "-"} como ${status}`);
+  // transição confirmada → saída/conclusão/cancelamento vira e-mail na fila;
+  // repetir o MESMO status não enfileira nada (sem e-mails idênticos em série)
+  await operacaoStatus(companyId, id, op.status, status, op.reservation_id);
   revalidatePath(`/operacao/${id}`);
   revalidatePath("/operacao");
   revalidatePath("/dashboard");
@@ -107,6 +117,7 @@ export async function cancelOperation(fd: FormData) {
   if (!op) return;
   await run(`UPDATE operations SET status = 'cancelada' WHERE id = ? AND company_id = ?`, [id, user.company_id]);
   await logAction(user, "cancelar", "operacao", id, `${user.name} cancelou a ${op.kind}`);
+  await operacaoCancelada(user.company_id, id, op.reservation_id);
   revalidatePath(`/operacao/${id}`);
 }
 

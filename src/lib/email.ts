@@ -37,7 +37,31 @@ export type EmailMensagem = {
   html: string;
   /** Texto simples como fallback de clientes sem HTML. */
   text?: string;
+  /**
+   * Nome do REMETENTE exibido no cliente de e-mail (a locadora que enviou).
+   * O endereço continua sendo o domínio verificado da conta (RESEND_FROM):
+   * só o nome muda, então o Resend continua aceitando o envio.
+   */
+  deNome?: string;
 };
+
+/**
+ * "Nome da locadora <dominio@verificado>" — o nome vem do tenant, o endereço
+ * é sempre o remetente verificado da conta. Nome com caracteres especiais é
+ * entre aspas; quebras de linha e `<>` nunca entram (injeção de cabeçalho).
+ */
+export function montarRemetente(remetente: string, nome?: string): string {
+  const base = String(remetente ?? "").trim();
+  const nomeLimpo = String(nome ?? "")
+    .replace(/[\r\n<>"\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  if (!nomeLimpo) return base;
+  const endereco = base.includes("<") ? base.slice(base.indexOf("<") + 1, base.lastIndexOf(">")) || base : base;
+  const precisaAspas = /[^A-Za-z0-9 ._-]/.test(nomeLimpo);
+  return `${precisaAspas ? `\"${nomeLimpo}\"` : nomeLimpo} <${endereco}>`;
+}
 
 export type EmailConfig = {
   apiKey: string;
@@ -186,10 +210,38 @@ async function avisarConfigAusente(motivo: MotivoEmail, msg: EmailMensagem): Pro
  * se registra algo — a operação que motivou o envio segue em qualquer caso.
  */
 export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
+  const r = await enviarEmailDetalhado(msg);
+  if (!r.ok && r.motivoConfig) await avisarConfigAusente(r.motivoConfig, msg);
+  return r.ok;
+}
+
+/* ------------------------------------------------------------------ */
+/* Envio detalhado — usado pela fila transacional (email-scheduler)     */
+/* ------------------------------------------------------------------ */
+
+export type ResultadoEnvio = {
+  ok: boolean;
+  /** id devolvido pelo provedor (aceitação, não caixa postal) */
+  id: string | null;
+  /** status HTTP quando houve resposta */
+  status: number | null;
+  /** true = vale a pena tentar de novo (rede, 429, 5xx) */
+  temporaria: boolean;
+  /** causa resumida, sem corpo completo de resposta */
+  erro: string | null;
+  /** config ausente (segredo/remetente) — não é falha de rede */
+  motivoConfig: MotivoEmail | null;
+};
+
+/**
+ * Mesmo envio de `enviarEmail`, devolvendo o detalhe que a fila precisa:
+ * id do provedor (histórico), se a falha é temporária (retry) e a causa.
+ * Nunca lança e nunca vaza a chave da API nos textos de erro.
+ */
+export async function enviarEmailDetalhado(msg: EmailMensagem): Promise<ResultadoEnvio> {
   const { config: cfg, motivo } = await lerConfig();
   if (!cfg) {
-    await avisarConfigAusente(motivo ?? "sem_contexto", msg);
-    return false;
+    return { ok: false, id: null, status: null, temporaria: false, erro: motivo ?? "sem_contexto", motivoConfig: motivo ?? "sem_contexto" };
   }
   if (emailTeste) __emailsEnviados.push(msg);
 
@@ -201,13 +253,14 @@ export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: cfg.from,
+        from: montarRemetente(cfg.from, msg.deNome),
         to: [msg.to],
         subject: msg.subject,
         html: msg.html,
         text: msg.text,
       }),
     });
+    const corpo = await res.text().catch(() => "");
     if (!res.ok) {
       /*
        * Fail-open NÃO é fail-silent: a falha fica registrada no diário de
@@ -216,7 +269,6 @@ export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
        * Resend recusa com 403 e ninguém percebia (tela de sucesso, e-mail
        * que nunca chega).
        */
-      const corpo = await res.text().catch(() => "");
       console.error(
         `[email] falha no envio (${res.status}) para ${msg.to} — assunto: "${msg.subject}" — resposta: ${corpo.slice(0, 300)}`,
       );
@@ -231,11 +283,38 @@ export async function enviarEmail(msg: EmailMensagem): Promise<boolean> {
       } catch {
         // diagnóstico nunca compete com o fluxo original
       }
+      // Temporário = provedor pode voltar a aceitar (rede instável, limite de
+      // taxa, erro interno). 4xx restantes (chave inválida, remetente não
+      // verificado, endereço rejeitado) não melhoram com nova tentativa.
+      const temporaria = res.status === 429 || res.status >= 500;
+      return {
+        ok: false,
+        id: null,
+        status: res.status,
+        temporaria,
+        erro: `HTTP ${res.status}: ${corpo.slice(0, 180) || res.statusText}`,
+        motivoConfig: null,
+      };
     }
-    return res.ok;
+    let id: string | null = null;
+    try {
+      const json = JSON.parse(corpo || "{}") as { id?: string };
+      if (json && typeof json.id === "string") id = json.id;
+    } catch {
+      // provedor sem JSON reconhecido: aceito, apenas sem id
+    }
+    return { ok: true, id, status: res.status, temporaria: false, erro: null, motivoConfig: null };
   } catch (e) {
     console.error("[email] falha de rede ao enviar para", msg.to, ":", (e as Error)?.message ?? e);
-    return false;
+    // rede/crash do provedor: recupera com nova tentativa
+    return {
+      ok: false,
+      id: null,
+      status: null,
+      temporaria: true,
+      erro: `Falha de rede: ${String((e as Error)?.message ?? e).slice(0, 160)}`,
+      motivoConfig: null,
+    };
   }
 }
 

@@ -4,6 +4,7 @@ import { runWithDb } from "./src/lib/db";
 import { comContextoDeInvocacao, contextoAtual, marcarConsulta } from "./src/lib/perf";
 import { runNotificationScheduler, webPushSender } from "./src/lib/push-scheduler";
 import { runBirthdayDaily, runFidelityDaily, paraCadaEmpresa } from "./src/lib/fidelidade-cron";
+import { runEmailScheduler } from "./src/lib/email-scheduler";
 import { mensagemDeErro, podarErrosAntigos, registrarErro } from "./src/lib/error-log";
 import { definirEnvDoAgendador } from "./src/lib/worker-env";
 
@@ -159,6 +160,33 @@ export default {
               route: "cron/aniversarios",
               companyId: null, // global: falha do loop, sem empresa atribuível
               context: { rotina: "runBirthdayDaily" },
+            }),
+          );
+        }),
+    );
+    // e-mails transacionais ao CLIENTE: captura de lembretes (janela de 5 min)
+    // + fila com retry. Um tenant desligado ou quebrado nao afeta os demais:
+    // cada empresa roda isolada dentro de paraCadaEmpresa, como as rotinas acima.
+    // O envio em si acontece AQUI (cron), nunca dentro da action que salva a
+    // reserva — falha de provedor nunca custa uma operacao de negocio.
+    agendar(
+      runWithDb(env.DB, async () => {
+        const resultados = await paraCadaEmpresa(env.DB, (cid, nome) =>
+          runEmailScheduler(env.DB, now).then((r) => {
+            console.log(JSON.stringify({ event: "email_cron", company: cid, empresa: nome, ...r }));
+          }),
+        );
+        for (const r of resultados) if (!r.ok) await registrarFalhaDeEmpresa("email_cron", "cron/emails", r);
+      })
+        .catch((e) => {
+          console.error("email_cron_error:", e);
+          return runWithDb(env.DB, () =>
+            registrarErro({
+              source: "cron", kind: "server",
+              message: mensagemDeErro(e),
+              route: "cron/emails",
+              companyId: null,
+              context: { rotina: "runEmailScheduler" },
             }),
           );
         }),

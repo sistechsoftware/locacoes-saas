@@ -24,6 +24,7 @@ import {
   type Unidade,
 } from "./fidelidade";
 import { resolverOperacao, type PerfilOperacional } from "./operacao";
+import { fidelidadeAviso } from "./email-gatilhos";
 
 /**
  * Fidelidade: pontuacao, recompensas e avisos.
@@ -366,6 +367,13 @@ export async function prepararMensagem(
   rewardId?: number,
 ): Promise<number | null> {
   const s = await getSettings();
+  /*
+   * E-mail ao cliente: mesma situação, interruptor PRÓPRIO (email_fidelidade_*
+   * em Configurações > Notificações). Entra ANTES do interruptor do aviso por
+   * WhatsApp — desligar um canal não desliga o outro — e usa a mesma chave de
+   * idempotência (chaveEvento), então reprocesar nunca duplica o envio.
+   */
+  await fidelidadeAviso(evento, customerId, referencia, rewardId ?? null);
   const ligado: Record<string, string> = {
     progresso: "fidelity_notify_progress",
     quase_la: "fidelity_notify_almost",
@@ -530,11 +538,18 @@ export async function aoConcluirLocacao(reservationId: number, userId?: number) 
   }
 
   if (recompensasNovas.length === 0 && pontuou) {
-    // avisa "falta 1" uma unica vez por ciclo, e nao a cada visita a tela
-    if (p.faltam === 1) {
+    /*
+     * Proximidade da recompensa: limite CONFIGURÁVEL por empresa (chave
+     * email_fidelidade_quase_la_limite, Configurações > Notificações > E-mails).
+     * O valor vazio/ausente cai em 1 — o comportamento de sempre. A chave de
+     * dedupe do aviso é por CICLO, então o "está quase" sai uma vez por ciclo,
+     * não a cada ponto que o cliente soma depois.
+     */
+    const limite = await limiteDeProximidade();
+    if (p.faltam > 0 && p.faltam <= limite) {
       await avisarEquipe(
         "quase_la",
-        `${primeiroNome} está a 1 locação de ganhar até ${quantidadeUnidade(regra.kits, regra.unidade)} grátis`,
+        `${primeiroNome} está a ${p.faltam} locação${p.faltam > 1 ? "es" : ""} de ganhar até ${quantidadeUnidade(regra.kits, regra.unidade)} grátis`,
         reserva.customer_id,
         p.ciclosCompletos + 1,
       );
@@ -543,6 +558,16 @@ export async function aoConcluirLocacao(reservationId: number, userId?: number) 
       await prepararMensagem("progresso", reserva.customer_id, `${p.ciclosCompletos}:${p.noCiclo}`, base);
     }
   }
+}
+
+/**
+ * Limite de proximidade da empresa (quantas unidades faltando ainda avisa).
+ * Padrão 1 — idêntico ao valor que estava fixo em código.
+ */
+async function limiteDeProximidade(): Promise<number> {
+  const s = await getSettings();
+  const v = Math.trunc(Number(s.email_fidelidade_quase_la_limite));
+  return Number.isFinite(v) && v >= 1 ? Math.min(v, 999) : 1;
 }
 
 /**

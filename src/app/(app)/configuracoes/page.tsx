@@ -31,6 +31,9 @@ import PasswordForm from "./PasswordForm";
 import CompletarCadastroForm from "./CompletarCadastroForm";
 import { one } from "@/lib/db";
 import { saveStockSettings } from "./actions";
+import EmailSettings from "./EmailSettings";
+import { resolverConfigEmail } from "@/lib/email-notificacoes";
+import { emailEstado } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +78,9 @@ export default async function ConfiguracoesPage({
   if (aba === "frete" && !temFretes) bloquearRecurso("fretes", user, "configuracoes");
   if (aba === "fidelidade" && !temFidelidade) bloquearRecurso("fidelidade", user, "configuracoes");
   const s = await getSettings();
+  /* Estado do provedor de e-mail (segredos RESEND_* no Worker) — só é consultado
+     na aba Notificações, para o resumo mostrar o que impediria o envio. */
+  const emailOk = aba === "notificacoes" ? (await emailEstado()) === "ok" : false;
   /* Configuração operacional (rótulos/visibilidade/perfil) — a aba Operação e a
      aba Fidelidade, que deriva o termo da recompensa do perfil selecionado. */
   const operacaoOperacional = aba === "operacao" || aba === "fidelidade" ? await getOperacao() : null;
@@ -128,6 +134,7 @@ export default async function ConfiguracoesPage({
     ...(temFretes ? [{ value: "frete", label: "Frete" }] : []),
     { value: "recibos", label: "Recibos" },
     { value: "disponibilidade", label: "Disponibilidade" },
+    { value: "notificacoes", label: "Notificações" },
     ...(temFidelidade ? [{ value: "fidelidade", label: "Fidelidade" }] : []),
     ...(admin ? [{ value: "assinatura", label: "Assinatura" }] : []),
     { value: "aniversarios", label: "Aniversários" },
@@ -221,6 +228,15 @@ export default async function ConfiguracoesPage({
           {admin && <SubmitButton>Salvar Configuração</SubmitButton>}
         </form>
       </Section>}
+
+      {aba === "notificacoes" && (
+        <EmailSettings
+          inicial={resolverConfigEmail(s)}
+          admin={admin}
+          emailConfigurado={emailOk}
+          temFidelidade={temFidelidade}
+        />
+      )}
 
       {aba === "empresa" && (
         <Section title="Dados da empresa">

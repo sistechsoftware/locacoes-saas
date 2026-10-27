@@ -53,6 +53,11 @@ import { saveUpload, UploadError, removeFileByUrl } from "@/lib/uploads";
 import { parseMoney } from "@/lib/format";
 import { salvarAssinaturaEmpresa, removerAssinaturaEmpresa } from "@/lib/assinatura-empresa";
 import { documentoDoTipo, emailValido, normalizarEmail, tipoPessoaValido } from "@/lib/identidade";
+import { antecedenciasValidas, corValida, horaValida, MAX_ANTECEDENCIAS } from "@/lib/email-notificacoes";
+import { fusoValido } from "@/lib/email-tempo";
+import { identidadeDaEmpresa } from "@/lib/email-dados";
+import { emailTeste } from "@/lib/email-templates";
+import { enviarEmailDetalhado } from "@/lib/email";
 import { documentoJaUsado, emailJaUsado } from "@/lib/contas";
 
 export async function saveCompanySettings(fd: FormData): Promise<void> {
@@ -632,4 +637,171 @@ export async function saveBirthdaySettings(fd: FormData) {
   await logAction(user, "editar", "configuracao", null, `${user.name} atualizou os avisos de aniversario`);
   revalidatePath("/configuracoes");
   revalidatePath("/aniversarios");
+}
+
+/* ------------------------------------------------------------------ */
+/* E-mails transacionais (Configurações > Notificações > E-mails)       */
+/* ------------------------------------------------------------------ */
+
+export type ResultadoEmailSave = { ok: true } | { ok: false; erro: string };
+
+/** Interruptores que o formulário envia SEMPRE (oculto "0"/"1" ao lado de cada checkbox). */
+const INTERRUPTORES_EMAIL = [
+  "email_enabled",
+  "email_grupo_reservas",
+  "email_grupo_operacoes",
+  "email_grupo_fidelidade",
+  "email_reserva_confirmacao",
+  "email_reserva_lembrete",
+  "email_reserva_alteracao",
+  "email_reserva_cancelamento",
+  "email_operacao_lembrete",
+  "email_operacao_saida",
+  "email_operacao_concluida",
+  "email_operacao_alteracao",
+  "email_operacao_atrasada",
+  "email_fidelidade_progresso",
+  "email_fidelidade_quase_la",
+  "email_fidelidade_conquista",
+  "email_fidelidade_uso",
+  "email_fidelidade_vencendo",
+] as const;
+
+/**
+ * Salva a configuração de e-mails da EMPRESA DA SESSÃO (assertAdmin +
+ * setSettings escopado). Toda validação roda AQUI: a tela nunca é a barreira.
+ * Campos ausentes do FormData não são tocados (abas/opções que a tela não
+ * exibiu preservam o que já estava gravado).
+ */
+export async function saveEmailSettings(
+  _prev: ResultadoEmailSave | null,
+  fd: FormData,
+): Promise<ResultadoEmailSave> {
+  const user = await assertAdmin();
+  const values: Record<string, string> = {};
+
+  for (const campo of INTERRUPTORES_EMAIL) {
+    if (fd.has(campo)) values[campo] = String(fd.get(campo)) === "1" ? "1" : "0";
+  }
+
+  /** Lista de antecedências enviada como itens repetidos (minutos). */
+  const antecedencias = (campo: string): string | { ok: false; erro: string } => {
+    const bruto = fd.getAll(campo).map((v) => String(v ?? "").trim()).filter(Boolean);
+    if (!bruto.length) return ""; // em branco = voltar ao padrão documentado
+    if (bruto.some((v) => !/^\d+$/.test(v))) return { ok: false, erro: "Antecedência inválida: use apenas números (minutos)." };
+    const csv = bruto.join(",");
+    if (!antecedenciasValidas(csv)) {
+      return {
+        ok: false,
+        erro: `Antecedência inválida: de 1 a ${MAX_ANTECEDENCIAS} lembretes, entre 5 minutos e 14 dias cada.`,
+      };
+    }
+    return csv;
+  };
+
+  if (fd.has("email_reserva_lembrete_antecedencias")) {
+    const r = antecedencias("antec_reserva");
+    if (typeof r === "object") return r;
+    values.email_reserva_lembrete_antecedencias = r;
+  }
+  if (fd.has("email_operacao_lembrete_antecedencias")) {
+    const r = antecedencias("antec_operacao");
+    if (typeof r === "object") return r;
+    values.email_operacao_lembrete_antecedencias = r;
+  }
+
+  if (fd.has("email_hora_envio")) {
+    const hora = String(fd.get("email_hora_envio") ?? "").trim();
+    if (!horaValida(hora)) return { ok: false, erro: "Hora de envio inválida — use o formato HH:MM (ex.: 08:00)." };
+    values.email_hora_envio = hora;
+  }
+  if (fd.has("email_fuso")) {
+    const fuso = String(fd.get("email_fuso") ?? "").trim();
+    if (fuso && !fusoValido(fuso)) return { ok: false, erro: "Fuso horário inválido — use um identificador IANA (ex.: America/Sao_Paulo)." };
+    values.email_fuso = fuso;
+  }
+  if (fd.has("email_cor")) {
+    const cor = String(fd.get("email_cor") ?? "").trim();
+    if (cor && !corValida(cor)) return { ok: false, erro: "Cor inválida — use o formato #RRGGBB (ex.: #C94F00)." };
+    values.email_cor = cor;
+  }
+  if (fd.has("email_fidelidade_quase_la_limite")) {
+    const n = Math.trunc(Number(fd.get("email_fidelidade_quase_la_limite")));
+    if (!Number.isFinite(n) || n < 1 || n > 999) {
+      return { ok: false, erro: "Limite de proximidade deve ser um número entre 1 e 999." };
+    }
+    values.email_fidelidade_quase_la_limite = String(n);
+  }
+  if (fd.has("email_instrucoes")) {
+    values.email_instrucoes = String(fd.get("email_instrucoes") ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 500);
+  }
+
+  await setSettings(values);
+  await logAction(user, "editar", "configuracao", null, `${user.name} atualizou a configuração de e-mails`);
+  revalidatePath("/configuracoes");
+  return { ok: true };
+}
+
+/**
+ * E-mail de teste: monta a amostra com dados FICTÍCIOS e envia na hora para o
+ * endereço informado. Não consulta nenhum cliente, não cria reserva e não passa
+ * pela fila — é a única leitura síncrona do provedor, feita de propósito para
+ * o administrador ver o resultado imediatamente.
+ */
+export async function sendTestEmail(fd: FormData): Promise<void> {
+  const user = await assertAdmin();
+  const destino = normalizarEmail(fd.get("destino"));
+  if (!emailValido(destino)) {
+    redirect(`/configuracoes?aba=notificacoes&erro=${encodeURIComponent("Informe um e-mail válido para receber o teste.")}`);
+  }
+
+  const ident = await identidadeDaEmpresa(user.company_id);
+  const m = emailTeste(ident, destino);
+  const r = await enviarEmailDetalhado({ to: destino, subject: m.assunto, html: m.html, text: m.texto, deNome: ident.nome });
+
+  const agora = Math.floor(Date.now() / 1000);
+  const status = r.ok
+    ? "enviado"
+    : r.motivoConfig
+      ? "ignorado"
+      : r.temporaria
+        ? "falha_temporaria"
+        : "falha_definitiva";
+  const motivo = r.motivoConfig ? "provedor_sem_configuracao" : null;
+  await insert(
+    `INSERT INTO email_notifications
+       (company_id, type, source, source_id, context, recipient, subject, status, motivo,
+        scheduled_at, next_attempt, attempts, last_error, provider_id, sent_at, created_at, updated_at, dedupe_key)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      user.company_id,
+      "email_teste",
+      "configuracao",
+      null,
+      "{}",
+      destino,
+      m.assunto,
+      status,
+      motivo,
+      agora,
+      agora,
+      r.ok ? 1 : 0,
+      r.ok ? null : String(r.motivoConfig ?? r.erro ?? "").slice(0, 300),
+      r.id,
+      r.ok ? agora : null,
+      agora,
+      agora,
+      `c${user.company_id}:email_teste:${agora}:${Math.random().toString(36).slice(2, 8)}`,
+    ],
+  );
+  // Sem endereço no log de auditoria: o histórico já guarda o destinatário.
+  await logAction(user, "editar", "configuracao", null, `${user.name} enviou um e-mail de teste (${status})`);
+
+  if (r.ok) {
+    redirect(`/configuracoes?aba=notificacoes&ok=${encodeURIComponent("E-mail de teste enviado para o endereço informado.")}`);
+  }
+  const motivoTexto = r.motivoConfig
+    ? "Provedor não configurado no Worker (RESEND_API_KEY / RESEND_FROM)."
+    : `Falha no envio: ${String(r.erro ?? "erro desconhecido").slice(0, 200)}`;
+  redirect(`/configuracoes?aba=notificacoes&erro=${encodeURIComponent(motivoTexto)}`);
 }
