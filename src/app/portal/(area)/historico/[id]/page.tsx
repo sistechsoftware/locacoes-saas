@@ -158,7 +158,7 @@ function TOM(tone: string): string {
     azul: "bg-sky-50 text-sky-800 border-sky-300",
     roxo: "bg-violet-50 text-violet-800 border-violet-300",
     vermelho: "bg-red-50 text-red-800 border-red-300",
-    terracota: "bg-destaque-100 text-destaque-700 border-destaque-300",
+    terracota: "bg-terracota-100 text-terracota-700 border-terracota-300",
   };
   return map[tone] ?? map.cinza;
 }
