@@ -156,6 +156,12 @@ export default function EmailSettings({
 
   return (
     <div className="space-y-4">
+      {/* O formulário precisa envolver TUDO o que é salvo — inclusive o
+          interruptor geral do cartão de cabeçalho. Ele estava para fora do
+          <form>: o hidden `email_enabled` nunca era enviado, a action não
+          gravava a chave e o interruptor voltava a "desligado" a cada
+          atualização da página, mesmo com a tela mostrando "salvo". */}
+      <form action={submit} className="space-y-4">
       <section className="cartao p-4">
         <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-stone-500">E-mails para os clientes</h2>
         <p className="mb-3 text-sm text-stone-600">
@@ -189,11 +195,10 @@ export default function EmailSettings({
       {resultado && !resultado.ok && <Alerta tone="vermelho">{resultado.erro}</Alerta>}
       {resultado && resultado.ok && <Alerta tone="verde">Configuração de e-mails salva.</Alerta>}
 
-      <form action={submit} className="space-y-4">
-        <section className="cartao p-4">
-          <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">
-            Reservas
-          </h3>
+      <section className="cartao p-4">
+        <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">
+          Reservas
+        </h3>
           <p className="mb-2 text-xs text-stone-500">{GRUPOS_EMAIL.reservas.descricao}</p>
           {interruptor(
             "email_grupo_reservas",

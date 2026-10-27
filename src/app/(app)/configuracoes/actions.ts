@@ -699,12 +699,16 @@ export async function saveEmailSettings(
     return csv;
   };
 
-  if (fd.has("email_reserva_lembrete_antecedencias")) {
+  /* Os hidden inputs da tela se chamam `antec_reserva` / `antec_operacao` (itens
+     repetidos, um por lembrete). Antes o guard lia `fd.has("email_...")`, que
+     nunca existia no FormData: as antecedências digitadas NÃO eram gravadas e
+     a tela voltava aos padrões na próxima atualização — perda silenciosa. */
+  if (fd.has("antec_reserva")) {
     const r = antecedencias("antec_reserva");
     if (typeof r === "object") return r;
     values.email_reserva_lembrete_antecedencias = r;
   }
-  if (fd.has("email_operacao_lembrete_antecedencias")) {
+  if (fd.has("antec_operacao")) {
     const r = antecedencias("antec_operacao");
     if (typeof r === "object") return r;
     values.email_operacao_lembrete_antecedencias = r;
