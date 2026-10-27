@@ -196,6 +196,15 @@ export const DEFAULT_SETTINGS: Settings = {
    */
   nav_layout: "classico",
   /*
+   * Identidade visual (Configuracoes > Identidade visual): ID da paleta de
+   * src/lib/temas.ts. Chave unica gravada em company_settings — a MESMA
+   * estrutura por empresa que os demais ajustes, portanto nenhuma migration e
+   * nenhum risco para tenants existentes: sem linha, o resolver cai no tema
+   * padrao do Locô. O valor e SEMPRE um id conhecido da biblioteca, nunca cor
+   * livre enviada pelo navegador (a validacao roda na server action).
+   */
+  identidade_tema: "",
+  /*
    * E-mails transacionais ao CLIENTE (Configuracoes > Notificações > E-mails).
    * Chaves `email_*` no MESMO company_settings multi-tenant dos demais ajustes:
    * nenhuma tabela nova de configuração, e uma empresa nunca enxerga a outra.

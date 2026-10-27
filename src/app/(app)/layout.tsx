@@ -11,6 +11,7 @@ import { seedUnread } from "@/lib/chat-unread";
 import { getOperacao } from "@/lib/operacao-db";
 import { pluralizar, tituloOperacoes } from "@/lib/operacao";
 import { resolverNavLayout, type NavLayout } from "@/lib/nav";
+import { TEMA_PADRAO, cssDoTema, resolverTema } from "@/lib/temas";
 import { BottomNav, FloatingAction, Sidebar, TopBar } from "@/components/Shell";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +83,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
    * empresas existentes continuam vendo exatamente o menu de hoje.
    */
   const navLayout: NavLayout = resolverNavLayout(settings.nav_layout);
+  /*
+   * Identidade visual da empresa (Configuracoes > Identidade visual).
+   *
+   * O valor vem do company_settings da SESSAO, nunca do navegador, e passa por
+   * resolverTema — id desconhecido vira o tema padrao. A folha de estilo e
+   * emitida AQUI, no server component da area autenticada (force-dynamic): ela
+   * nasce dentro do HTML inicial, depois dos stylesheets do head, entao nao ha
+   * flash de cor nem divergencia de hidratacao — o cliente nao calcula nada.
+   *
+   * So o grupo (app) emite o override: /login, /planos, /portal e o painel
+   * /saas continuam com o tema do produto, como manda o escopo.
+   */
+  const tema = resolverTema(settings.identidade_tema);
   // Primeiro quadro: o contador ja nasce preenchido no servidor, sem piscar
   // de zero nem esperar a primeira consulta do ciclo compartilhado. A partir
   // daqui, apenas essa fonte alimenta topo, menu e tela do chat.
@@ -92,10 +106,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   });
 
   return (
-    /* .app-shell = min-height com fallback 100vh -> 100dvh (globals.css):
-       a altura minima acompanha o viewport dinamico no mobile, sem rolagem
-       fantasma que dispara transicoes de viewport durante a rolagem. */
-    <div className="flex app-shell">
+    <>
+      {/*
+       * Override de :root com a paleta da empresa. Nao existe quando o tema e
+       * o padrao: o CSS do Tailwind ja traz esses valores, entao restaurar o
+       * Locô nao deixa nenhum residuo de estilo no documento.
+       */}
+      {tema.id !== TEMA_PADRAO && <style data-tema-tenant="1">{cssDoTema(tema)}</style>}
+      {/* .app-shell = min-height com fallback 100vh -> 100dvh (globals.css):
+          a altura minima acompanha o viewport dinamico no mobile, sem rolagem
+          fantasma que dispara transicoes de viewport durante a rolagem. */}
+      <div className="flex app-shell">
       <PushRegistration />
       <Sidebar
         company={settings.company_name}
@@ -118,7 +139,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         layout={navLayout}
       />
       {estado?.avisoVencimento && <AvisoVencimento dias={estado.diasRestantes} />}
-    </div>
+      </div>
+    </>
   );
   });
 }

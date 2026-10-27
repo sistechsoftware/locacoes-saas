@@ -15,6 +15,7 @@ import { restaurarOperacaoConfig, salvarOperacaoConfig } from "@/lib/operacao-db
 import { contractUsesHtml, sanitizeContractHtml } from "@/lib/contract-html";
 import { validarDimensoesRecibo } from "@/lib/recibo-visual";
 import { resolverNavLayout } from "@/lib/nav";
+import { TEMA_PADRAO, resolverTema, temaConhecido } from "@/lib/temas";
 
 /**
  * Layout de navegacao (Configuracoes > Navegacao): "classico" (menu plano de
@@ -36,6 +37,47 @@ export async function saveNavLayout(fd: FormData) {
    * request, então o novo layout aparece na próxima navegação sem qualquer
    * invalidação global.
    */
+  revalidatePath("/configuracoes");
+}
+
+/**
+ * Identidade visual (Configuracoes > Identidade visual): troca a paleta de
+ * cores da empresa.
+ *
+ * MESMO desenho do saveNavLayout: preferencia visual, sem permissao nova e sem
+ * dado de negocio. A seguranca tem tres camadas:
+ *
+ *  1. assertAdmin() — so owner/admin da propria empresa alteram (viewer,
+ *     financeiro e operacional recebem PermissionError, nao escondido na UI);
+ *  2. temaConhecido() — so IDs da biblioteca de src/lib/temas.ts passam. O
+ *     cliente NUNCA envia cor, CSS ou estilo livre: validamos um identificador
+ *     estavel de uma lista fixa, entao nao ha como injetar regra de estilo nem
+ *     apontar para outro tema inexistente;
+ *  3. setSettings() grava SEM company_id explicito, ou seja, sempre na empresa
+ *     do contexto AUTENTICADO — o tenant vem da sessao, nunca do formulario.
+ *
+ * Restaurar o Locô e gravar o mesmo valor do padrao: uma acao simples, sem
+ * apagar nada mais, e a leitura volta ao tema original de src/lib/temas.ts.
+ */
+export async function saveIdentidadeVisual(fd: FormData) {
+  const user = await assertAdmin();
+  const id = String(fd.get("tema") ?? "").trim();
+  if (!temaConhecido(id)) {
+    redirect(`/configuracoes?aba=identidade&erro=${encodeURIComponent("Paleta inválida: escolha uma das combinações disponíveis.")}`);
+  }
+  await setSettings({ identidade_tema: id });
+  await logAction(
+    user,
+    "editar",
+    "configuracao",
+    null,
+    id === TEMA_PADRAO
+      ? `${user.name} restaurou o tema original do Locô`
+      : `${user.name} aplicou o tema ${resolverTema(id).nome} na identidade visual`,
+  );
+  /* Mesmo precedente do saveNavLayout: o shell do (app) é force-dynamic e
+     relê o banco a cada request, entao a nova paleta vale na próxima
+     navegação sem invalidar o roteiro inteiro. */
   revalidatePath("/configuracoes");
 }
 

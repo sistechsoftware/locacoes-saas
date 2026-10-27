@@ -178,6 +178,22 @@
   --color-tinta-800: #2A2D34;
   --color-tinta-900: #14161B;
 
+  /*
+   * Tom SEMÂNTICO fixo "terracota" (badges de Investimento, Kit, Prioritário,
+   * papel admin, aguardando_empresa). Antes ele lia --color-destaque-*, que
+   * agora faz parte da identidade personalizavel por empresa — o mesmo badge
+   * ficaria verde num tema de menta e colidiria com o tom `verde`.
+   *
+   * Por isso ganhou variaveis PROPRIAS, fora de src/lib/temas.ts: nenhum tema
+   * as sobrescreve, entao o tom continua distinguivel em qualquer paleta.
+   * Tambem corrige a duplicidade pre-existente: o antigo terracota (ouro
+   * #FDF1D8/#8A6314) era quase identico ao tom `ambar`.
+   */
+  --color-terracota-100: #FBE7DC;
+  --color-terracota-300: #EFC3AC;
+  --color-terracota-500: #C25A32;
+  --color-terracota-700: #8F3B1E;
+
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 

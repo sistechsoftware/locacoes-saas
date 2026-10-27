@@ -32,6 +32,8 @@ import CompletarCadastroForm from "./CompletarCadastroForm";
 import { one } from "@/lib/db";
 import { saveStockSettings } from "./actions";
 import EmailSettings from "./EmailSettings";
+import IdentidadeVisual from "./IdentidadeVisual";
+import { resolverTema } from "@/lib/temas";
 import { resolverConfigEmail } from "@/lib/email-notificacoes";
 import { emailEstado } from "@/lib/email";
 
@@ -125,6 +127,7 @@ export default async function ConfiguracoesPage({
   const ABAS = [
     { value: "empresa", label: "Empresa" },
     { value: "navegacao", label: "Navegação" },
+    ...(admin ? [{ value: "identidade", label: "Identidade visual" }] : []),
     { value: "modelos", label: "Modelos" },
     { value: "categorias", label: "Categorias" },
     { value: "veiculos", label: "Veículos" },
@@ -216,6 +219,8 @@ export default async function ConfiguracoesPage({
           )}
         </Section>
       )}
+
+      {aba === "identidade" && admin && <IdentidadeVisual temaAtual={resolverTema(s.identidade_tema).id} />}
 
       {aba === "operacao" && operacaoOperacional && <OperacaoSettings inicial={operacaoOperacional} />}
 

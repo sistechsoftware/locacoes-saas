@@ -160,6 +160,14 @@ export function statusDef(defs: StatusDef[], value: string): StatusDef {
 
 export const statusLabel = (defs: StatusDef[], value: string) => statusDef(defs, value).label;
 
+/**
+ * Cores de STATUS. Nenhuma delas vem de marca/destaque/nuvem/tinta: esses
+ * quatro papéis são a identidade visual personalizável por empresa
+ * (src/lib/temas.ts) e mudam de tema para tema, enquanto "verde = sucesso" e
+ * "vermelho = erro" precisam valer em TODA paleta. O tom `terracota` usava
+ * --color-destaque-* e foi desacoplado para variáveis próprias (ver o bloco
+ * `terracota-*` em globals.css). Travado em tests/temas.test.ts.
+ */
 export const TONE_CLASS: Record<Tone, string> = {
   cinza: "bg-stone-200 text-stone-700 border-stone-300",
   ambar: "bg-amber-100 text-amber-800 border-amber-300",
@@ -167,7 +175,7 @@ export const TONE_CLASS: Record<Tone, string> = {
   azul: "bg-sky-100 text-sky-800 border-sky-300",
   roxo: "bg-violet-100 text-violet-800 border-violet-300",
   vermelho: "bg-red-100 text-red-800 border-red-300",
-  terracota: "bg-destaque-100 text-destaque-700 border-destaque-300",
+  terracota: "bg-terracota-100 text-terracota-700 border-terracota-300",
 };
 
 export const TONE_DOT: Record<Tone, string> = {
@@ -177,7 +185,7 @@ export const TONE_DOT: Record<Tone, string> = {
   azul: "bg-sky-500",
   roxo: "bg-violet-500",
   vermelho: "bg-red-500",
-  terracota: "bg-marca-600",
+  terracota: "bg-terracota-500",
 };
 
 /** Rotulo de pagamento a partir do total e do valor pago. */
