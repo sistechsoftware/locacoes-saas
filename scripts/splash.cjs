@@ -3,7 +3,9 @@
  * splash: usa <link rel="apple-touch-startup-image"> com uma imagem por
  * modelo de iPhone, filtrada por media query).
  *
- * Fonte: public/icones/icone-512.png (o simbolo do Locô, sem altera-lo).
+ * Fonte: public/icones/loco-logo.png (o lockup horizontal oficial — mesmo
+ * arquivo de brand/loco-logo.png, recortado da margem transparente pelo
+ * scripts/loco-assets.mjs, entao o conteudo ocupa a imagem inteira).
  * Fundo: --color-nuvem-100 (#F6F3EC), o mesmo creme do app, para a transicao
  * splash -> tela nao dar "pulo" de cor.
  *
@@ -19,7 +21,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
 
-const SRC = path.join(__dirname, "..", "public", "icones", "icone-512.png");
+const SRC = path.join(__dirname, "..", "public", "icones", "loco-logo.png");
 const OUT_DIR = path.join(__dirname, "..", "public", "splash");
 const FUNDO = [0xf6, 0xf3, 0xec]; // --color-nuvem-100 (globals.css)
 
@@ -127,9 +129,16 @@ function encodePng(w, h, rgb) {
 
 /* --------------------------- composicao do splash ----------------------- */
 
-/** Desenha o logo (RGBA) sobre o fundo, centralizado, na altura pedida. */
-function compose(srcW, srcH, src, W, H, logoMax, centroY) {
-  const escala = Math.min(logoMax / srcW, logoMax / srcH);
+/**
+ * Desenha o logo (RGBA) sobre o fundo: centralizado na largura e com o CENTRO
+ * geometrico do desenho em `centroY` da altura (0.5 = centro exato da tela).
+ *
+ * O lockup horizontal (3,3:1) e dimensionado pela LARGURA — 72% da tela —
+ * com teto de 28% da altura: no retrato a largura manda; no paisagem a altura
+ * manda, senao o lockup ocuparia quase a tela inteira.
+ */
+function compose(srcW, srcH, src, W, H, centroY) {
+  const escala = Math.min((W * 0.72) / srcW, (H * 0.28) / srcH);
   const lw = Math.max(1, Math.round(srcW * escala));
   const lh = Math.max(1, Math.round(srcH * escala));
   const x0 = Math.round((W - lw) / 2);
@@ -187,15 +196,14 @@ let soma = 0;
 
 for (const a of APARELHOS) {
   const pw = a.w * a.dpr, ph = a.h * a.dpr;
-  const logo = Math.round(Math.min(pw, ph) * 0.3); // ~30% da menor dimensao
-
-  // Retrato: marca um pouco acima do centro (34%), folga para a status bar
-  const retrato = compose(sw, sh, data, pw, ph, logo, 0.34);
+  // Retrato: centro EXATO da tela (50%). Antes era 34% "com folga para a
+  // status bar" e no iPhone a marca aparecia claramente acima do centro.
+  const retrato = compose(sw, sh, data, pw, ph, 0.5);
   const f1 = path.join(OUT_DIR, `apple-splash-${pw}-${ph}.png`);
   fs.writeFileSync(f1, encodePng(pw, ph, retrato));
 
   // Paisagem: dimensoes trocadas, marca no centro (corte do iOS na rotacao)
-  const paisagem = compose(sw, sh, data, ph, pw, logo, 0.5);
+  const paisagem = compose(sw, sh, data, ph, pw, 0.5);
   const f2 = path.join(OUT_DIR, `apple-splash-${ph}-${pw}.png`);
   fs.writeFileSync(f2, encodePng(ph, pw, paisagem));
 
