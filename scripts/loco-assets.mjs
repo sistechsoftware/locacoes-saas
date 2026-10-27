@@ -13,7 +13,7 @@
  *   public/favicon.ico                   -> fallback que o navegador pede sozinho
  *
  * Rodar com: node scripts/loco-assets.mjs
- * Depois:    node scripts/splash.cjs   (regenera as splash a partir do icone 512)
+ * Depois:    node scripts/splash.cjs   (regenera as splash a partir do logo horizontal)
  *
  * Coleta da marca (lidas das imagens oficiais):
  *   tinta   #14161B   laranja #FE7316   creme #F6F3EC
