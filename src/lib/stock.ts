@@ -224,8 +224,8 @@ export async function holdsForProduct(
  */
 async function loadHoldsInner(from: string, to: string, options: StockOptions = {}, excludeId?: number | null, productId?: number | null, maxId?: number | null, companyId?: number) {
   const w = timeWindow(from, to, true);
-  const config = await stockOptions(options);
   const cid = await empresa(companyId);
+  const config = await stockOptions(options, cid);
   const rows = await all<Hold & { product_id: number; event_date: string; delivery_at: string; pickup_at: string; stock_override: number }>(
     `SELECT ric.product_id, r.id AS reservation_id, r.number, c.name AS customer, r.status,
             ric.qty, prod.name AS via_product, ri.product_id AS via_product_id, ri.id AS via_item_id, ri.qty AS via_qty, r.event_date, r.delivery_at, r.pickup_at, r.stock_override
@@ -645,8 +645,8 @@ export async function checkConflicts(
   companyId?: number,
 ): Promise<Conflict[]> {
   ({ from, to } = timeWindow(from, to));
-  const config = await stockOptions(options);
   const cid = await empresa(companyId);
+  const config = await stockOptions(options, cid);
   // A proposed rental also needs preparation before the NEXT commitment.
   // Generic availability queries never extend their requested interval.
   to = addMinutes(to, config.preparationMinutes);

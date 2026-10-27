@@ -67,8 +67,11 @@ async function nextFreeId(table: "reservations" | "reservation_items"): Promise<
  */
 export async function writeRental(companyId: number, version: number, header: Record<string, any>, items: RentalItem[], existingId?: number, quoteId?: number) {
   const id = existingId ?? (await nextFreeId("reservations"));
-  const { getSettings } = await import("./settings");
-  const prefix = (await getSettings()).doc_prefix_reservations || "LIMA";
+  // Prefixo da PRÓPRIA empresa da escrita (não da sessão): uma reserva criada
+  // em contexto sem sessão (Loja Virtual) ou de OUTRO tenant nunca herda o
+  // prefixo documental de outra empresa.
+  const { settingsDaEmpresa } = await import("./settings");
+  const prefix = (await settingsDaEmpresa(companyId)).doc_prefix_reservations || "LIMA";
   const number = existingId ? (await one<any>("SELECT number FROM reservations WHERE id=?", [id]))?.number : await nextNumber("reservations", prefix);
   header = { ...header, company_id: companyId };
   const fields = Object.entries(header).filter(([key]) => HEADER_COLUMNS.has(key));

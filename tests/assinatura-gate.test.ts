@@ -427,6 +427,12 @@ const foraDoGate = (arq: string) =>
   arq.startsWith("src/app/api/portal/") ||
   arq.startsWith("src/app/api/publico/") ||
   arq.startsWith("src/app/api/webhooks/") ||
+  // Loja Virtual PÚBLICA: endpoints anônimos do cliente final (submissão de
+  // pedido, frete, disponibilidade, comprovante por token e allowlist de fotos).
+  // Estão fora do gate de ASSINATURA por não terem sessão, mas têm porta
+  // própria: resolução do slug + recursoLiberado (plano/exceção) + token de
+  // acompanhamento + rate limit, verificados em src/lib/loja-publico.ts.
+  arq.startsWith("src/app/api/loja/") ||
   API_FORA_DO_GATE.includes(arq);
 
 describe("5) cobertura estática: nenhuma action/rota escapa do gate", () => {
@@ -519,6 +525,7 @@ describe("5) cobertura estática: nenhuma action/rota escapa do gate", () => {
         e.startsWith("src/app/api/portal/") ||
           e.startsWith("src/app/api/publico/") ||
           e.startsWith("src/app/api/webhooks/") ||
+          e.startsWith("src/app/api/loja/") || // loja pública documentada acima
           API_FORA_DO_GATE.includes(e),
         `rota fora do gate sem justificativa: ${e}`,
       );

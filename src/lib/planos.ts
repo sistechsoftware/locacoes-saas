@@ -39,7 +39,8 @@ export type Recurso =
   | "fidelidade"
   | "fretes"
   | "contratos"
-  | "suporte";
+  | "suporte"
+  | "loja_virtual";
 
 /** Ordem comercial crescente (herança por posição). */
 export const ORDEM_PLANOS: readonly PlanoSlug[] = ["essencial", "profissional", "empresarial"];
@@ -96,6 +97,12 @@ export const RECURSOS: Record<Recurso, DefinicaoRecurso> = {
   // Sem módulo próprio no sistema hoje: registrado para a oferta não se
   // perder da matriz; quando a tela existir, a autorização já sai daqui.
   suporte: { nome: "Suporte prioritário", minimo: "empresarial", fundamental: false, categoria: "gestao", descricao: "Atendimento com prioridade na fila de suporte." },
+  /* Loja Virtual (migration 0051): canal público de catálogo e solicitações,
+   * exclusivo do plano Empresarial por padrão. Não é fundamental: empresas dos
+   * planos Essencial e Profissional ficam fora da matriz, e o operador da
+   * plataforma pode liberar/bloquear por empresa pela precedência central
+   * (company_feature_overrides) sem trocar de plano. */
+  loja_virtual: { nome: "Loja Virtual", minimo: "empresarial", fundamental: false, categoria: "relacionamento", descricao: "Loja pública da empresa com catálogo, pedidos e orçamentos online." },
 };
 
 export const LISTA_RECURSOS: Recurso[] = Object.keys(RECURSOS) as Recurso[];
@@ -197,6 +204,7 @@ export function recursoDoCaminho(caminho: string): Recurso | null {
     ["/relatorios", "relatorios"],
     ["/fretes", "fretes"],
     ["/contratos", "contratos"],
+    ["/configuracoes/loja", "loja_virtual"],
   ];
   for (const [base, recurso] of bases) {
     if (p === base || p.startsWith(`${base}/`)) return recurso;

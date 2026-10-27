@@ -72,10 +72,11 @@ export default async function ConfiguracoesPage({
    * (liberação/cortesia) é respeitada porque temRecurso aplica a precedência
    * central — plataforma_admin segue sem restrição de plano.
    */
-  const [temContratos, temFretes, temFidelidade] = await Promise.all([
+  const [temContratos, temFretes, temFidelidade, temLoja] = await Promise.all([
     temRecurso(user, "contratos"),
     temRecurso(user, "fretes"),
     temRecurso(user, "fidelidade"),
+    temRecurso(user, "loja_virtual"),
   ]);
   if (aba === "frete" && !temFretes) bloquearRecurso("fretes", user, "configuracoes");
   if (aba === "fidelidade" && !temFidelidade) bloquearRecurso("fidelidade", user, "configuracoes");
@@ -159,6 +160,23 @@ export default async function ConfiguracoesPage({
       )}
 
       <Tabs items={ABAS} current={aba} base="/configuracoes" />
+
+      {/* Loja Virtual: seção própria (catálogo, pedidos, Pix, publicação).
+          Só aparece quando o recurso está liberado PARA ESTA empresa (plano
+          Empresarial ou exceção administrativa) — a porta continua no backend. */}
+      {temLoja && aba !== "conta" && (
+        <Section title="Minha Loja Virtual">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-stone-600">
+              Loja pública com seu catálogo, pedidos e orçamentos online — integrada às mesmas reservas, estoque e clientes de
+              sempre.
+            </p>
+            <Link href="/configuracoes/loja" className="rounded-xl bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-marca-700">
+              Abrir Loja Virtual
+            </Link>
+          </div>
+        </Section>
+      )}
 
       {aba === "navegacao" && (
         <Section title="Layout de navegação">

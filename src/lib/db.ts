@@ -384,7 +384,7 @@ export function resetCompanyContext() {
  * apenas o numero.
  */
 export async function proximaSequencia(
-  table: "reservations" | "quotes" | "freights" | "contracts" | "purchases" | "financial_entries",
+  table: "reservations" | "quotes" | "freights" | "contracts" | "purchases" | "financial_entries" | "store_orders",
   prefix: string,
   minima: number,
   quantidade = 1,
@@ -441,7 +441,7 @@ export async function setCompanySettings(companyId: number, values: Record<strin
 
 /** Gera o proximo numero sequencial de um documento (LIMA-001, FRT-001, ...). */
 export async function nextNumber(
-  table: "reservations" | "quotes" | "freights" | "contracts" | "purchases" | "financial_entries",
+  table: "reservations" | "quotes" | "freights" | "contracts" | "purchases" | "financial_entries" | "store_orders",
   prefix: string,
 ): Promise<string> {
   const row = await one<{ n: string }>(
@@ -485,7 +485,7 @@ export function isUniqueViolation(e: unknown): boolean {
  * calculados em memoria a partir da mesma leitura.
  */
 export async function nextNumbers(
-  table: "reservations" | "quotes" | "freights" | "contracts" | "purchases" | "financial_entries",
+  table: "reservations" | "quotes" | "freights" | "contracts" | "purchases" | "financial_entries" | "store_orders",
   prefix: string,
   quantidade: number,
 ): Promise<string[]> {
