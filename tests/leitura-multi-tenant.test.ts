@@ -314,6 +314,7 @@ const DETALHES: Detalhe[] = [
   { rota: "compras/[id]/editar", idA: 100, idB: 200, positivo: "COMP-A" },
   { rota: "orcamentos/[id]/editar", idA: 100, idB: 200, positivo: "ORC-A" },
   { rota: "orcamentos/[id]/imprimir", idA: 100, idB: 200, positivo: "ORC-A" },
+  { rota: "reservas/[id]/imprimir", idA: 100, idB: 200, positivo: "LIMA-001" },
 ];
 
 before(async () => {
