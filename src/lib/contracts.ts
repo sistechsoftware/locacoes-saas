@@ -4,6 +4,8 @@ import { getSettings, renderTemplate, renderTemplateHtml, settingsDaEmpresa, typ
 import { getCompanySignature } from "./assinatura-empresa";
 import { contractUsesHtml, itensParaHtml, marcaConfiavel } from "./contract-html";
 import { getReservation, reservationItems, reservationMoney } from "./reservations";
+import { adiantamentoPrevisto, percentualAdiantamento } from "./receber";
+import { exprDePct } from "./desconto";
 import { dateBR, dataPorExtensoBR, docBR, money, phoneBR, today } from "./format";
 
 /** Monta o texto do contrato a partir do modelo configurado e dos dados da reserva. */
@@ -27,7 +29,7 @@ export async function buildContractBody(reservationId: number, contractNumber: s
     return renderTemplate(
       s.contract_template,
       {
-        ...variaveisComuns(s, r, m, contractNumber),
+        ...(await variaveisComuns(s, r, m, contractNumber)),
         itens: itensTexto,
       },
       // campo sem cadastro vira linha para preencher a mao no documento impresso
@@ -36,7 +38,7 @@ export async function buildContractBody(reservationId: number, contractNumber: s
   }
 
   const vars = {
-    ...variaveisComuns(s, r, m, contractNumber),
+    ...(await variaveisComuns(s, r, m, contractNumber)),
     itens: marcaConfiavel(
       itensParaHtml(
         items.map((i) => `${i.qty} x ${i.product_name} .......... ${money(i.subtotal_cents)}`),
@@ -84,7 +86,7 @@ export async function buildContractBodyDigital(
     return renderTemplate(
       s.contract_template_digital,
       {
-        ...variaveisComuns(s, r, m, contractNumber),
+        ...(await variaveisComuns(s, r, m, contractNumber, companyId)),
         // disponivel so no modelo digital: cidade + data de abertura por extenso
         data_assinatura_digital: variavelDataAssinaturaDigital(),
         itens: itensTexto,
@@ -94,7 +96,7 @@ export async function buildContractBodyDigital(
   }
 
   const vars = {
-    ...variaveisComuns(s, r, m, contractNumber),
+    ...(await variaveisComuns(s, r, m, contractNumber, companyId)),
     // disponivel so no modelo digital: cidade + data de abertura por extenso
     data_assinatura_digital: variavelDataAssinaturaDigital(),
     itens: marcaConfiavel(
@@ -107,13 +109,29 @@ export async function buildContractBodyDigital(
   return renderTemplateHtml(s.contract_template_digital, vars, { vazio: "linha" });
 }
 
-/** Variaveis do contrato que nao dependem do formato do modelo. */
-function variaveisComuns(
+/**
+ * Variaveis do contrato que nao dependem do formato do modelo.
+ *
+ * E o UNICO ponto em que os dois formatos (impressao e digital) montam suas
+ * variaveis: qualquer valor novo entra aqui para valer nos dois, sem lógica
+ * duplicada. `companyId` acompanha o da propria reserva (a pagina publica de
+ * assinatura passa o do token) para a leitura financeira ficar no mesmo escopo
+ * de tenant da reserva; sem ele vale a sessao, como em getReservation.
+ */
+async function variaveisComuns(
   s: Settings,
   r: any,
   m: { deposit: number },
   contractNumber: string,
-): Record<string, string | number | null | undefined> {
+  companyId?: number,
+): Promise<Record<string, string | number | null | undefined>> {
+  /* Condicoes comerciais da contratacao, nunca o caixa: o adiantamento previsto
+   * nao muda porque o cliente pagou (ou nao) — e dele que sai o saldo
+   * contratual previsto. O total contratado e o proprio total da reserva. */
+  const adiantamento = await adiantamentoPrevisto(r.id, companyId);
+  const saldoContratual = Math.max(0, (r.total_cents ?? 0) - adiantamento);
+  const pctAdiantamento = await percentualAdiantamento(companyId);
+
   return {
       empresa: s.company_name,
       cnpj: docBR(s.company_doc),
@@ -141,6 +159,16 @@ function variaveisComuns(
       valor_desconto: money(r.discount_cents),
       valor_total: money(r.total_cents),
       valor_caucao: money(m.deposit),
+      // adiantamento previsto pelas condicoes da reserva (ou pelo percentual
+      // padrao da empresa) e saldo contratual previsto (total - adiantamento),
+      // independentes dos pagamentos feitos
+      adiantamento_valor: money(adiantamento),
+      // percentual contratual da empresa ("30%"), para a clausula do contrato
+      // nao precisar fixar o numero no texto; sem percentual configurado sai
+      // vazio — e a estrategia "linha" nao desenha sublinhado em variavel
+      // calculada (fora do LARGURA_LINHA), entao ela nao aparece
+      adiantamento_percentual: pctAdiantamento > 0 ? (exprDePct(pctAdiantamento) ?? "") : "",
+      valor_saldo: money(saldoContratual),
       data_hoje: new Date().toLocaleDateString("pt-BR"),
   };
 }
