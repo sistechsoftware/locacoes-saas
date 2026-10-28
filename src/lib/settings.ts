@@ -85,6 +85,17 @@ export const DEFAULT_SETTINGS: Settings = {
   contract_template: DEFAULT_CONTRACT,
   contract_template_digital: DEFAULT_CONTRACT,
   default_deposit_cents: "0",
+  /*
+   * Percentual de adiantamento PREVISTO da empresa (0–100, ex.: "30" ou
+   * "30.5"). Vazio ou 0 = sem adiantamento previsto.
+   *
+   * E so o PADRAO contratual: um adiantamento REGISTRADO na reserva
+   * (financial_entries category='Adiantamento' ou o pagamento de adiantamento)
+   * sempre prevalece — ver adiantamentoPrevisto() em lib/receber.ts. Entra
+   * aqui para a whitelist de setSettings aceita-la por empresa; nenhuma
+   * migration (mesmo company_settings dos demais ajustes).
+   */
+  advance_percent: "",
   recibo_tamanho: "a4",
   recibo_largura_mm: "105",
   recibo_altura_mm: "148",

@@ -93,6 +93,7 @@ export async function saveStockSettings(fd: FormData) {
 import { logAction } from "@/lib/audit";
 import { saveUpload, UploadError, removeFileByUrl } from "@/lib/uploads";
 import { parseMoney } from "@/lib/format";
+import { pctDigitado } from "@/lib/desconto";
 import { salvarAssinaturaEmpresa, removerAssinaturaEmpresa } from "@/lib/assinatura-empresa";
 import { documentoDoTipo, emailValido, normalizarEmail, tipoPessoaValido } from "@/lib/identidade";
 import { antecedenciasValidas, corValida, horaValida, MAX_ANTECEDENCIAS } from "@/lib/email-notificacoes";
@@ -127,6 +128,13 @@ export async function saveCompanySettings(fd: FormData): Promise<void> {
     pix_key: String(fd.get("pix_key") ?? "").trim(),
     bank_info: String(fd.get("bank_info") ?? "").trim(),
     default_deposit_cents: String(parseMoney(String(fd.get("default_deposit") ?? ""))),
+    /* Percentual de adiantamento previsto (0–100): validado no servidor, no
+     * mesmo formato das demais porcentagens do sistema. Vazio/lixo limpa a
+     * chave (=" sem adiantamento previsto"); "0" guarda zero explicito. */
+    advance_percent: (() => {
+      const pct = pctDigitado(fd.get("advance_percent"));
+      return pct === null ? "" : String(pct);
+    })(),
     // Modalidade padrão de cobrança: só valores conhecidos; lixo vira 'fixo'.
     pricing_default_mode: String(fd.get("pricing_default_mode") ?? "") === "diaria" ? "diaria" : "fixo",
     // Hora extra da extensão de retirada: preço em centavos, limite com mínimo 1.

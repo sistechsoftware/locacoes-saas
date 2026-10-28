@@ -32,6 +32,7 @@ import {
   cancelarAdiantamentoAgendado,
   confirmarAdiantamento,
   criarAdiantamento,
+  percentualAdiantamento,
 } from "../src/lib/receber.ts";
 import { reservationMoney } from "../src/lib/reservations.ts";
 import { messagesForReservation } from "../src/lib/whatsapp.ts";
@@ -486,5 +487,108 @@ describe("formatacao monetaria e isolamento", () => {
     const r = await reserva(10000);
     await adiantamentoAgendado(r, 3000);
     await assert.rejects(() => buildContractBodyDigital(r, "CTR-009", 2), /Reserva não encontrada/);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Percentual de adiantamento da empresa (fallback contratual)         */
+/* ------------------------------------------------------------------ */
+
+describe("percentual de adiantamento previsto da empresa", () => {
+  beforeEach(cenario);
+
+  it("sem adiantamento registrado, vale o percentual configurado (30% de R$ 100,00)", async () => {
+    await setSettings({ advance_percent: "30" });
+    const r = await reserva(10000);
+
+    conferir(await doisFormatos(r), { adiantamento: 3000, saldo: 7000, total: 10000 });
+    assert.equal(await percentualAdiantamento(1), 30);
+  });
+
+  it("percentuais diferentes de 30% (25% e 50%)", async () => {
+    await setSettings({ advance_percent: "25" });
+    conferir(await doisFormatos(await reserva(10000)), { adiantamento: 2500, saldo: 7500, total: 10000 });
+
+    await setSettings({ advance_percent: "50" });
+    conferir(await doisFormatos(await reserva(10000)), { adiantamento: 5000, saldo: 5000, total: 10000 });
+  });
+
+  it("percentual com decimal (12,5% de R$ 80,00 = R$ 10,00)", async () => {
+    await setSettings({ advance_percent: "12.5" });
+    conferir(await doisFormatos(await reserva(8000)), { adiantamento: 1000, saldo: 7000, total: 8000 });
+  });
+
+  it("adiantamento registrado na reserva prevalece sobre o percentual", async () => {
+    await setSettings({ advance_percent: "30" });
+    const r = await reserva(10000);
+    await adiantamentoAgendado(r, 2500);
+
+    conferir(await doisFormatos(r), { adiantamento: 2500, saldo: 7500, total: 10000 });
+  });
+
+  it("adiantamento pago no ato tambem vence o percentual", async () => {
+    await setSettings({ advance_percent: "30" });
+    const r = await reserva(10000);
+    await adiantamentoPagoNoAto(r, 4000);
+
+    conferir(await doisFormatos(r), { adiantamento: 4000, saldo: 6000, total: 10000 });
+  });
+
+  it("pagamentos continuam sem efeito sobre as variaveis com o percentual ativo", async () => {
+    await setSettings({ advance_percent: "30" });
+    const r = await reserva(10000);
+    await pagamentoComum(r, 5000, "entrada");
+
+    conferir(await doisFormatos(r), { adiantamento: 3000, saldo: 7000, total: 10000 });
+    const m = await reservationMoney(r);
+    assert.equal(m.paid, 5000, "o caixa continua refletindo o pago");
+    assert.equal(m.balance, 5000);
+  });
+
+  it("total quitado antecipadamente nao muda adiantamento nem saldo contratual", async () => {
+    await setSettings({ advance_percent: "30" });
+    const r = await reserva(10000);
+    await pagamentoComum(r, 10000, "quitacao total");
+
+    conferir(await doisFormatos(r), { adiantamento: 3000, saldo: 7000, total: 10000 });
+    const m = await reservationMoney(r);
+    assert.equal(m.paid, 10000);
+    assert.equal(m.balance, 0, "saldo financeiro pendente zera; o contratual nao");
+  });
+
+  it("percentual vazio, zero ou invalido mantem adiantamento zerado", async () => {
+    for (const valor of ["", "0", "abc"]) {
+      await setSettings({ advance_percent: valor });
+      const r = await reserva(10000);
+      conferir(await doisFormatos(r), { adiantamento: 0, saldo: 10000, total: 10000 });
+    }
+    assert.equal(await percentualAdiantamento(1), 0);
+  });
+
+  it("{{adiantamento_percentual}} sai como 30% e some quando nao ha percentual", async () => {
+    const modelo = "Pct: [{{adiantamento_percentual}}] AD: {{adiantamento_valor}} S: {{valor_saldo}}";
+
+    await setSettings({ advance_percent: "30", contract_template: modelo, contract_template_digital: modelo });
+    const r = await reserva(10000);
+    let { papel, digital } = await doisFormatos(r);
+    assert.ok(papel.includes(`Pct: [30%] AD: ${money(3000)} S: ${money(7000)}`), `papel "${papel}"`);
+    assert.ok(digital.includes(`Pct: [30%] AD: ${money(3000)} S: ${money(7000)}`), `digital "${digital}"`);
+
+    await setSettings({ advance_percent: "", contract_template: modelo, contract_template_digital: modelo });
+    ({ papel, digital } = await doisFormatos(r));
+    for (const corpo of [papel, digital]) {
+      assert.ok(corpo.includes(`Pct: [] AD: ${money(0)} S: ${money(10000)}`), `sem percentual: "${corpo}"`);
+      assert.ok(!corpo.includes("0%"), "sem percentual configurado nao aparece 0%");
+      assert.ok(!corpo.includes("{{"));
+    }
+  });
+
+  it("percentual e da empresa certa (isolamento por tenant)", async () => {
+    await setSettings({ advance_percent: "30" });
+    const r = await reserva(10000);
+
+    assert.equal(await percentualAdiantamento(1), 30, "empresa dona enxerga o percentual");
+    assert.equal(await percentualAdiantamento(2), 0, "outra empresa nao herda o percentual");
+    assert.equal(await adiantamentoPrevisto(r, 2), 0, "nem o adiantamento calculado com ele");
   });
 });

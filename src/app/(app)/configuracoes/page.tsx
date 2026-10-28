@@ -284,6 +284,19 @@ export default async function ConfiguracoesPage({
                 />
               </Field>
               <Field
+                label="Percentual de adiantamento previsto (%)"
+                hint="Condição comercial padrão dos contratos: quando a reserva não tem adiantamento registrado, {{adiantamento_valor}} sai como este percentual do total (ex.: 30) e {{valor_saldo}} como o restante. Um adiantamento registrado na reserva prevalece. Vazio ou 0 = sem adiantamento previsto."
+              >
+                <input
+                  name="advance_percent"
+                  placeholder="ex.: 30"
+                  inputMode="decimal"
+                  defaultValue={s.advance_percent}
+                  className="campo"
+                  disabled={!admin}
+                />
+              </Field>
+              <Field
                 label="Cobrança padrão dos produtos"
                 hint="Produtos sem regra própria seguem esta modalidade. Por diária: valor × dias de calendário da janela."
               >
@@ -369,7 +382,7 @@ export default async function ConfiguracoesPage({
               {"{{endereco_evento}}"}, {"{{itens}}"}, {"{{data_entrega}}"}, {"{{data_retirada}}"},{" "}
               {"{{valor_itens}}"}, {"{{valor_frete}}"}, {"{{valor_montagem}}"}, {"{{valor_desmontagem}}"},{" "}
               {"{{valor_outros}}"}, {"{{valor_desconto}}"}, {"{{valor_total}}"}, {"{{valor_caucao}}"},{" "}
-              {"{{adiantamento_valor}}"}, {"{{valor_saldo}}"}, {"{{data_hoje}}"}. Um campo sem cadastro vira uma linha para preencher à mão no impresso.
+              {"{{adiantamento_valor}}"}, {"{{adiantamento_percentual}}"}, {"{{valor_saldo}}"}, {"{{data_hoje}}"}. Um campo sem cadastro vira uma linha para preencher à mão no impresso.
             </p>
             <p className="text-xs text-stone-500">
               No modelo digital, além destes campos, está disponível a variável{" "}

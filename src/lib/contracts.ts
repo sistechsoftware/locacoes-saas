@@ -4,7 +4,8 @@ import { getSettings, renderTemplate, renderTemplateHtml, settingsDaEmpresa, typ
 import { getCompanySignature } from "./assinatura-empresa";
 import { contractUsesHtml, itensParaHtml, marcaConfiavel } from "./contract-html";
 import { getReservation, reservationItems, reservationMoney } from "./reservations";
-import { adiantamentoPrevisto } from "./receber";
+import { adiantamentoPrevisto, percentualAdiantamento } from "./receber";
+import { exprDePct } from "./desconto";
 import { dateBR, dataPorExtensoBR, docBR, money, phoneBR, today } from "./format";
 
 /** Monta o texto do contrato a partir do modelo configurado e dos dados da reserva. */
@@ -129,6 +130,7 @@ async function variaveisComuns(
    * contratual previsto. O total contratado e o proprio total da reserva. */
   const adiantamento = await adiantamentoPrevisto(r.id, companyId);
   const saldoContratual = Math.max(0, (r.total_cents ?? 0) - adiantamento);
+  const pctAdiantamento = await percentualAdiantamento(companyId);
 
   return {
       empresa: s.company_name,
@@ -157,9 +159,15 @@ async function variaveisComuns(
       valor_desconto: money(r.discount_cents),
       valor_total: money(r.total_cents),
       valor_caucao: money(m.deposit),
-      // adiantamento previsto pelas condicoes da reserva e saldo contratual
-      // previsto (total - adiantamento), independentes dos pagamentos feitos
+      // adiantamento previsto pelas condicoes da reserva (ou pelo percentual
+      // padrao da empresa) e saldo contratual previsto (total - adiantamento),
+      // independentes dos pagamentos feitos
       adiantamento_valor: money(adiantamento),
+      // percentual contratual da empresa ("30%"), para a clausula do contrato
+      // nao precisar fixar o numero no texto; sem percentual configurado sai
+      // vazio — e a estrategia "linha" nao desenha sublinhado em variavel
+      // calculada (fora do LARGURA_LINHA), entao ela nao aparece
+      adiantamento_percentual: pctAdiantamento > 0 ? (exprDePct(pctAdiantamento) ?? "") : "",
       valor_saldo: money(saldoContratual),
       data_hoje: new Date().toLocaleDateString("pt-BR"),
   };

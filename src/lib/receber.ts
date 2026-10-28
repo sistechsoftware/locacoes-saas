@@ -3,6 +3,8 @@ import { all, insert, nextNumber, nextNumbers, one, run, scalar } from "./db";
 import { montarParcelas, situacaoParcela } from "./financeiro";
 import { validarDataPrevista, validarValorAdiantamento } from "./adiantamento";
 import { money, today } from "./format";
+import { settingsDaEmpresa } from "./settings";
+import { descontoDePct, pctDigitado } from "./desconto";
 
 /**
  * Contas a receber.
@@ -305,11 +307,24 @@ export async function adiantamentosDaReserva(reservationId: number, companyId?: 
 }
 
 /**
+ * Percentual de adiantamento previsto da EMPRESA (Configuracoes > Empresa).
+ *
+ * Devolve 0 quando a chave nao existe, esta vazia ou e invalida — na pratica,
+ * "sem adiantamento previsto". Uma reserva que tenha adiantamento proprio
+ * registrado nunca consulta isto (ver adiantamentoPrevisto).
+ */
+export async function percentualAdiantamento(companyId?: number): Promise<number> {
+  const cid = await empresa(companyId);
+  const s = await settingsDaEmpresa(cid);
+  return pctDigitado(s.advance_percent) ?? 0;
+}
+
+/**
  * Adiantamento PREVISTO da reserva: a condicao comercial combinada com o
  * cliente, escrita no livro do PREVISTO — independente de o dinheiro ja ter
  * entrado. E a fonte de {{adiantamento_valor}} no contrato.
  *
- * Duas origens, nesta ordem:
+ * Tres origens, nesta ordem (a primeira que existir vence):
  *
  * 1. O lancamento de adiantamento da reserva (financial_entries,
  *    category='Adiantamento'), sempre o MAIS RECENTE que nao foi cancelado.
@@ -325,9 +340,14 @@ export async function adiantamentosDaReserva(reservationId: number, companyId?: 
  *    pagamento e o registro da condicao, nao um pagamento qualquer — por isso
  *    entra; os demais pagamentos da reserva nunca entram aqui.
  *
+ * 3. Se a reserva nao tem adiantamento proprio, vale o PERCENTUAL PADRAO da
+ *    empresa (advance_percent, Configuracoes > Empresa): a condicao comercial
+ *    que a propria clausula do contrato declara (ex.: 30% do total). Percentual
+ *    vazio ou 0 devolve zero.
+ *
  * Pagamento comum nao vira adiantamento: reservas quitadas por fora continuam
- * com adiantamento previsto zero (ou com o valor combinado) e saldo contratual
- * intacto. Escopado pela empresa, como todo o resto do livro.
+ * com o valor combinado (ou o percentual padrao) e saldo contratual intacto.
+ * Escopado pela empresa, como todo o resto do livro.
  */
 export async function adiantamentoPrevisto(reservationId: number, companyId?: number): Promise<number> {
   const cid = await empresa(companyId);
@@ -343,7 +363,13 @@ export async function adiantamentoPrevisto(reservationId: number, companyId?: nu
       WHERE reservation_id = ? AND company_id = ? AND notes = 'Adiantamento'`,
     [reservationId, cid],
   );
-  return recebidoNoAto || 0;
+  if (recebidoNoAto) return recebidoNoAto;
+  const total = await scalar<number>(`SELECT COALESCE(total_cents,0) FROM reservations WHERE id = ? AND company_id = ?`, [
+    reservationId,
+    cid,
+  ]);
+  if (!total) return 0;
+  return descontoDePct(total, await percentualAdiantamento(cid));
 }
 
 type EntradaAdiantamento = {
