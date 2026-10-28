@@ -304,6 +304,48 @@ export async function adiantamentosDaReserva(reservationId: number, companyId?: 
   );
 }
 
+/**
+ * Adiantamento PREVISTO da reserva: a condicao comercial combinada com o
+ * cliente, escrita no livro do PREVISTO — independente de o dinheiro ja ter
+ * entrado. E a fonte de {{adiantamento_valor}} no contrato.
+ *
+ * Duas origens, nesta ordem:
+ *
+ * 1. O lancamento de adiantamento da reserva (financial_entries,
+ *    category='Adiantamento'), sempre o MAIS RECENTE que nao foi cancelado.
+ *    E a mesma linha que a tela mostra e que `atualizarAdiantamentoAgendado`
+ *    edita: se as condicoes mudarem depois da criacao, vale a condicao
+ *    vigente. Estar 'aberta' (ainda nao paga) ou 'quitada' (ja paga) nao muda
+ *    o valor combinado — contrato fala de condicao comercial, o caixa e o
+ *    livro de `payments`.
+ *
+ * 2. Na ausencia de lancamento, o adiantamento RECEBIDO NO ATO: o cenario A
+ *    de `criarAdiantamento` nao cria linha em financial_entries, grava so o
+ *    pagamento, marcado com notes='Adiantamento' pelo proprio sistema. Esse
+ *    pagamento e o registro da condicao, nao um pagamento qualquer — por isso
+ *    entra; os demais pagamentos da reserva nunca entram aqui.
+ *
+ * Pagamento comum nao vira adiantamento: reservas quitadas por fora continuam
+ * com adiantamento previsto zero (ou com o valor combinado) e saldo contratual
+ * intacto. Escopado pela empresa, como todo o resto do livro.
+ */
+export async function adiantamentoPrevisto(reservationId: number, companyId?: number): Promise<number> {
+  const cid = await empresa(companyId);
+  const entry = await one<any>(
+    `SELECT amount_cents FROM financial_entries
+      WHERE reservation_id = ? AND company_id = ? AND category = 'Adiantamento' AND status <> 'cancelada'
+      ORDER BY id DESC LIMIT 1`,
+    [reservationId, cid],
+  );
+  if (entry) return entry.amount_cents || 0;
+  const recebidoNoAto = await scalar<number>(
+    `SELECT COALESCE(SUM(amount_cents),0) FROM payments
+      WHERE reservation_id = ? AND company_id = ? AND notes = 'Adiantamento'`,
+    [reservationId, cid],
+  );
+  return recebidoNoAto || 0;
+}
+
 type EntradaAdiantamento = {
   reservationId: number;
   amountCents: number;

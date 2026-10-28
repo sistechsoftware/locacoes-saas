@@ -369,7 +369,7 @@ export default async function ConfiguracoesPage({
               {"{{endereco_evento}}"}, {"{{itens}}"}, {"{{data_entrega}}"}, {"{{data_retirada}}"},{" "}
               {"{{valor_itens}}"}, {"{{valor_frete}}"}, {"{{valor_montagem}}"}, {"{{valor_desmontagem}}"},{" "}
               {"{{valor_outros}}"}, {"{{valor_desconto}}"}, {"{{valor_total}}"}, {"{{valor_caucao}}"},{" "}
-              {"{{data_hoje}}"}. Um campo sem cadastro vira uma linha para preencher à mão no impresso.
+              {"{{adiantamento_valor}}"}, {"{{valor_saldo}}"}, {"{{data_hoje}}"}. Um campo sem cadastro vira uma linha para preencher à mão no impresso.
             </p>
             <p className="text-xs text-stone-500">
               No modelo digital, além destes campos, está disponível a variável{" "}
