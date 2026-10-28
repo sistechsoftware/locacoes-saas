@@ -4,7 +4,7 @@ import { getSettings, renderTemplate, renderTemplateHtml, settingsDaEmpresa, typ
 import { getCompanySignature } from "./assinatura-empresa";
 import { contractUsesHtml, itensParaHtml, marcaConfiavel } from "./contract-html";
 import { getReservation, reservationItems, reservationMoney } from "./reservations";
-import { adiantamentoPrevisto, percentualAdiantamento } from "./receber";
+import { adiantamentoPrevisto, percentualAdiantamento, saldoContratualPrevisto } from "./receber";
 import { exprDePct } from "./desconto";
 import { dateBR, dataPorExtensoBR, docBR, money, phoneBR, today } from "./format";
 
@@ -129,7 +129,7 @@ async function variaveisComuns(
    * nao muda porque o cliente pagou (ou nao) — e dele que sai o saldo
    * contratual previsto. O total contratado e o proprio total da reserva. */
   const adiantamento = await adiantamentoPrevisto(r.id, companyId);
-  const saldoContratual = Math.max(0, (r.total_cents ?? 0) - adiantamento);
+  const saldoContratual = saldoContratualPrevisto(r.total_cents, adiantamento);
   const pctAdiantamento = await percentualAdiantamento(companyId);
 
   return {

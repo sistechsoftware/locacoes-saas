@@ -156,11 +156,13 @@ function AssinaturaBloqueada(): never {
   redirect("/assinatura-bloqueada");
 }
 
-/** Banner fixo de vencimento proximo (5 dias) — servia de aviso antes do gate. */
+/** Banner fixo de vencimento proximo (5 dias) — servia de aviso antes do gate.
+ *  .nao-imprimir: é chrome do app, igual sidebar/topo/FAB — não pode entrar
+ *  no papel dos documentos imprimíveis (orçamento, reserva, contrato, recibo). */
 function AvisoVencimento({ dias }: { dias: number | null }) {
   if (dias === null) return null;
   return (
-    <div className="fixed bottom-16 left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-lg sm:bottom-5">
+    <div className="nao-imprimir fixed bottom-16 left-1/2 z-40 -translate-x-1/2 rounded-full bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-lg sm:bottom-5">
       ⏳ Sua assinatura vence em {dias} dia{dias === 1 ? "" : "s"}. Renove em /faturamento.
     </div>
   );

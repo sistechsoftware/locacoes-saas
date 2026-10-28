@@ -236,6 +236,9 @@ export default async function ReservaPage({
         subtitle={`${r.customer_name} - evento em ${dateBR(r.event_date)}${r.event_time ? ` às ${r.event_time}` : ""}`}
         action={
           <>
+            <LinkButton href={`/reservas/${r.id}/imprimir`} variant="primario">
+              Gerar PDF
+            </LinkButton>
             <LinkButton href={`/reservas/${r.id}/editar`}>Editar</LinkButton>
             <LinkButton href={`/clientes/${r.customer_id}`}>Cliente</LinkButton>
           </>

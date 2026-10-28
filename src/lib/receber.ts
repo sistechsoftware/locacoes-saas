@@ -372,6 +372,18 @@ export async function adiantamentoPrevisto(reservationId: number, companyId?: nu
   return descontoDePct(total, await percentualAdiantamento(cid));
 }
 
+/**
+ * Saldo CONTRATUAL previsto: o que resta do total da reserva depois do
+ * adiantamento previsto ({{valor_saldo}} do contrato e o "restante previsto"
+ * do documento impresso da reserva).
+ *
+ * Pura de proposito — a regra de negocio mora aqui, nao em cada tela, para o
+ * valor nunca divergir entre o contrato e o impresso.
+ */
+export function saldoContratualPrevisto(totalCents: number, adiantamentoCents: number): number {
+  return Math.max(0, (totalCents ?? 0) - adiantamentoCents);
+}
+
 type EntradaAdiantamento = {
   reservationId: number;
   amountCents: number;
