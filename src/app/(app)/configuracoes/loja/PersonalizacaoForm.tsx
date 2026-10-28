@@ -112,15 +112,24 @@ export default function PersonalizacaoForm({ inicial, erro, ok }: { inicial: Ide
           </Field>
         </div>
         <Grid cols={3}>
-          <Field label="Logotipo">
+          <Field
+            label="Logotipo"
+            hint="Recomendado: 512 × 512 px (quadrada) — aparece no topo da loja, ao lado do nome da empresa."
+          >
             <ImageInput name="logo_file" />
             {inicial.logo_url && <img src={inicial.logo_url} alt="Logo atual" className="mt-2 h-12 rounded bg-nuvem-100 object-contain p-1" />}
           </Field>
-          <Field label="Banner principal">
+          <Field
+            label="Banner principal"
+            hint="Recomendado: 1600 × 480 px (horizontal) — preenche a faixa do topo da loja; o que exceder o espaço é cortado automaticamente."
+          >
             <ImageInput name="banner_file" />
             {inicial.banner_url && <img src={inicial.banner_url} alt="Banner atual" className="mt-2 h-12 rounded bg-nuvem-100 object-cover" />}
           </Field>
-          <Field label="Imagem de compartilhamento" hint="Usada no WhatsApp/Google (Open Graph).">
+          <Field
+            label="Imagem de compartilhamento"
+            hint="Usada no WhatsApp/Google (Open Graph). Recomendado: 1200 × 630 px."
+          >
             <ImageInput name="seo_image_file" />
             {inicial.seo_image_url && <img src={inicial.seo_image_url} alt="Compartilhamento atual" className="mt-2 h-12 rounded bg-nuvem-100 object-cover" />}
           </Field>

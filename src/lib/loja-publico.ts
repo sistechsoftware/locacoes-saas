@@ -65,6 +65,21 @@ export async function lojaPorSlug(slug: string, opts: { requerPublicada?: boolea
   return { ok: true, loja, nomeEmpresa: empresa.name };
 }
 
+/**
+ * URL de imagem pronta para o PÚBLICO da loja.
+ *
+ * Os arquivos são gravados como /api/arquivo/<id> — rota que hoje exige sessão
+ * (401 para o visitante, foto "quebrada" na página da loja). A loja publicada
+ * tem rota própria com allowlist por tenant (/api/loja/<slug>/arquivo/<id>),
+ * então Toda página pública reescreve antes de emitir. Qualquer outro valor
+ * (URL externa, dado legado) passa intacto.
+ */
+export function imagemPublica(slug: string, url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = /^\/api\/arquivo\/([0-9a-f]{32})$/.exec(url);
+  return m ? `/api/loja/${slug}/arquivo/${m[1]}` : url;
+}
+
 /* ------------------------------------------------------------------ */
 /* Catálogo                                                            */
 /* ------------------------------------------------------------------ */
@@ -103,8 +118,8 @@ export async function catalogoDaLoja(loja: LojaRow): Promise<ItemCatalogo[]> {
     product_id: r.product_id,
     name: (r.public_name || r.name || "").trim(),
     kind: r.kind,
-    photo: r.photo ?? null,
-    photo_loja: r.photo_url ?? null,
+    photo: imagemPublica(loja.slug, r.photo),
+    photo_loja: imagemPublica(loja.slug, r.photo_url),
     category: r.category ?? null,
     description: r.public_description || r.description || null,
     public_description: r.public_description ?? null,

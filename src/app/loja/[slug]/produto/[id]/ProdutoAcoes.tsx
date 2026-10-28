@@ -23,16 +23,27 @@ export default function ProdutoAcoes({
   const limite = product.max_qty ?? 999;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className="flex items-center rounded-xl border" style={{ borderColor: "var(--loja-secondary)" }}>
-          <button type="button" className="px-3 py-2 text-lg font-bold" onClick={() => setQty((q) => Math.max(1, q - 1))} aria-label="Diminuir">
-            −
-          </button>
-          <span className="w-8 text-center font-semibold">{qty}</span>
+        <div
+          className="flex items-center rounded-xl"
+          style={{
+            border: "1px solid color-mix(in srgb, var(--loja-text) 14%, transparent)",
+            background: "var(--loja-bg)",
+          }}
+        >
           <button
             type="button"
-            className="px-3 py-2 text-lg font-bold"
+            className="px-3.5 py-2 text-lg font-bold transition hover:opacity-60"
+            onClick={() => setQty((q) => Math.max(1, q - 1))}
+            aria-label="Diminuir"
+          >
+            −
+          </button>
+          <span className="w-8 text-center font-semibold tabular-nums">{qty}</span>
+          <button
+            type="button"
+            className="px-3.5 py-2 text-lg font-bold transition hover:opacity-60"
             onClick={() => setQty((q) => Math.min(limite, q + 1))}
             aria-label="Aumentar"
           >
@@ -43,7 +54,7 @@ export default function ProdutoAcoes({
       </div>
       <button
         type="button"
-        className="w-full px-4 py-3 font-bold text-white"
+        className="w-full px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 active:scale-[0.98]"
         style={{ background: "var(--loja-primary)", borderRadius: "var(--loja-radius)" }}
         onClick={() => {
           adicionar(slug, {
