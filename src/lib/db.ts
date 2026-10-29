@@ -9,38 +9,51 @@ declare global {
   /** Empresa padrao do banco (rotinas de plataforma/testes; producao usa sessao). */
   // eslint-disable-next-line no-var
   var __limasDefaultCompany: number | undefined;
+  /** ALS da binding do banco, compartilhada entre os DOIS bundles do OpenNext. */
+  // eslint-disable-next-line no-var
+  var __limasDbAls: MemoriaAsync<D1Database> | undefined;
 }
+
+/**
+ * ALS da binding do banco, compartilhada entre os DOIS bundles gerados pelo
+ * OpenNext (mesmo truque do alsLote, mais abaixo): sem uma instancia unica, o
+ * contexto criado num bundle nao sobreviveria ao import duplicado. A fabrica
+ * mora em perf.ts para o build nao gerar aviso novo de Edge Runtime.
+ *
+ * POR QUE ALS E NAO UMA VARIAVEL DE MODULO: o `scheduled()` do Worker dispara
+ * VARIAS rotinas CONCORRENTES (notificacoes, fidelidade, aniversarios, e-mails,
+ * billing) e cada uma delas chama runWithDb(env.DB, ...). Com a variavel antiga,
+ * cada chamada guardava `anterior` e restaurava no `finally` — a PRIMEIRA a
+ * terminar restaurava `undefined` no meio das que continuavam rodando, e getDb()
+ * caia em getCloudflareContext(), que LANCA fora de request (`getCloudflareContext
+ * has been called without having called initOpenNextCloudflareForDev`).
+ * Evidencia real: cron de PRODUCAO falhando em todo tick e linhas da fila de
+ * e-mail presas em 'enviando' com attempts subindo sem parar, enquanto staging
+ * rodava limpo — a mesma corrida, com outro interleaving.
+ *
+ * Cada execucao passa a valer pelo SEU contexto de async: concorrencia nao se
+ * mistura, nao ha `finally` que apague a binding de quem ainda precisa dela, e
+ * aninhamento (runWithDb dentro de runWithDb) resolve sozinho.
+ */
+const alsDb: MemoriaAsync<D1Database> = (globalThis.__limasDbAls ??= novaMemoriaAsync<D1Database>());
 
 /**
  * Banco da requisicao atual.
  *
  * Em producao vem do binding D1 do Worker. Os testes automatizados injetam um
  * D1 compativel em globalThis para exercitar as mesmas consultas SQL sem
- * precisar de infraestrutura Cloudflare.
+ * precisar de infraestrutura Cloudflare. Fora de request quem entrega o binding
+ * e runWithDb (cron) — so cai em getCloudflareContext() quando nao ha contexto
+ * nenhum, que e justamente o caso que nunca deve acontecer dentro do agendador.
  */
-/**
- * Banco fornecido explicitamente por quem roda fora de uma requisicao.
- *
- * O cron do Worker nao tem contexto de requisicao, entao getCloudflareContext()
- * nao serve la. Em vez de duplicar todo o acesso a dados so para o agendador,
- * ele passa o binding por aqui. Todas as execucoes usam o mesmo env.DB, entao
- * uma sobreposicao momentanea nao muda o banco de ninguem.
- */
-let dbDoAgendador: D1Database | undefined;
-
 export async function runWithDb<T>(db: D1Database, fn: () => Promise<T>): Promise<T> {
-  const anterior = dbDoAgendador;
-  dbDoAgendador = db;
-  try {
-    return await fn();
-  } finally {
-    dbDoAgendador = anterior;
-  }
+  return alsDb.run(db, fn);
 }
 
 export function getDb(): D1Database {
   if (globalThis.__limasTestDb) return globalThis.__limasTestDb;
-  if (dbDoAgendador) return dbDoAgendador;
+  const db = alsDb.getStore();
+  if (db) return db;
   return getCloudflareContext().env.DB;
 }
 
