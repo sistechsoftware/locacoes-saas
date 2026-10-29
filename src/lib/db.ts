@@ -12,6 +12,9 @@ declare global {
   /** ALS da binding do banco, compartilhada entre os DOIS bundles do OpenNext. */
   // eslint-disable-next-line no-var
   var __limasDbAls: MemoriaAsync<D1Database> | undefined;
+  /** ALS do contexto de empresa (cron), mesma lógica compartilhada entre bundles. */
+  // eslint-disable-next-line no-var
+  var __limasEmpresaAls: MemoriaAsync<number> | undefined;
 }
 
 /**
@@ -327,7 +330,8 @@ export async function defaultCompanyId(): Promise<number | null> {
 export async function currentCompanyId(): Promise<number> {
   // Contexto fixado (cron, via runWithCompany) tem prioridade: e a empresa que
   // as rotinas de plataforma estao processando neste momento.
-  if (empresaForaRequest !== undefined) return empresaForaRequest;
+  const fixada = companyContextAtual();
+  if (fixada !== undefined) return fixada;
   const id = await defaultCompanyId();
   if (id !== null) return id;
   await run(`INSERT INTO companies (id, name, active) VALUES (1, 'Empresa', 1)`).catch(() => {});
@@ -346,11 +350,19 @@ export function resetCompanyCache() {
 /* Contexto de empresa para rotinas fora de request (cron)              */
 /* ------------------------------------------------------------------ */
 
-let empresaForaRequest: number | undefined;
+const alsEmpresa: MemoriaAsync<number> = (globalThis.__limasEmpresaAls ??= novaMemoriaAsync<number>());
+
+/**
+ * Fixação MANUAL de empresa (seed, testes, ferramentas que fixam fora de uma
+ * rotina). O ALS tem prioridade quando existe: quem está dentro de uma rotina
+ * só pode ver a empresa DA rotina — nunca a de quem a antecedeu.
+ */
+let empresaManual: number | undefined;
 
 /** Valor atual do contexto fora de request (undefined = nao fixado). */
 export function companyContextAtual(): number | undefined {
-  return empresaForaRequest;
+  const daRotina = alsEmpresa.getStore();
+  return daRotina !== undefined ? daRotina : empresaManual;
 }
 
 /**
@@ -362,29 +374,34 @@ export function companyContextAtual(): number | undefined {
  * e sempre a sessao (auth.ts) — este contexto nunca e consultado la.
  */
 export async function cronCompanyId(): Promise<number> {
-  if (empresaForaRequest !== undefined) return empresaForaRequest;
+  const fixada = companyContextAtual();
+  if (fixada !== undefined) return fixada;
   return currentCompanyId();
 }
 
-/** Define a empresa das rotinas fora de request (usado por runWithCompany). */
+/** Fixação manual de empresa (fora de runWithCompany) — ver `empresaManual`. */
 export function setCompanyContext(companyId: number | undefined) {
-  empresaForaRequest = companyId;
+  empresaManual = companyId;
 }
 
-/** Executa `fn` com o contexto de empresa fixado (padrao do cron). */
+/**
+ * Executa `fn` com a empresa fixada (padrão do cron).
+ *
+ * Por CONTEXTO DE ASYNC, não por variável de módulo: `paraCadaEmpresa` é
+ * chamado pelas CINCO rotinas do `scheduled()` CONCORRENTES, e o save/restore
+ * antigo fazia a primeira a terminar restaurar `undefined` no meio das que
+ * continuavam — a rotina de uma empresa perdia o contexto e `cronCompanyId()`
+ * caía em `currentCompanyId()`, ou seja, na empresa PADRÃO: query certa no
+ * escopo errado, um defeito de TENANT tão silencioso quanto o da binding do D1.
+ * Cada execução vale pelo SEU contexto; aninhamento resolve sozinho.
+ */
 export async function runWithCompany<T>(companyId: number, fn: () => Promise<T>): Promise<T> {
-  const anterior = empresaForaRequest;
-  empresaForaRequest = companyId;
-  try {
-    return await fn();
-  } finally {
-    empresaForaRequest = anterior;
-  }
+  return alsEmpresa.run(companyId, fn);
 }
 
-/** Limpa o contexto de empresa fora de request (limpeza entre suites). */
+/** Limpa a fixação manual de empresa (limpeza entre suites de teste). */
 export function resetCompanyContext() {
-  empresaForaRequest = undefined;
+  empresaManual = undefined;
 }
 
 /**

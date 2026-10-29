@@ -18,7 +18,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getDb, runWithDb } from "../src/lib/db.ts";
+import { companyContextAtual, cronCompanyId, getDb, runWithCompany, runWithDb } from "../src/lib/db.ts";
 
 /** Gate liberado manualmente: ordena A e B sem depender de relógio. */
 function gate() {
@@ -78,5 +78,44 @@ describe("runWithDb — binding por contexto, não por variável de módulo", ()
     } finally {
       globalThis.__limasTestDb = bancoDeTeste;
     }
+  });
+});
+
+/**
+ * Contexto de EMPRESA fora de request (runWithCompany -> cronCompanyId).
+ *
+ * `paraCadaEmpresa` chama runWithCompany e é invocado pelas CINCO rotinas do
+ * `scheduled()` concorrentes. Com a mesma variável de módulo + save/restore,
+ * a primeira rotina a terminar restaurava `undefined` no meio das demais e a
+ * rotina que continuava perdia a empresa: `cronCompanyId()` caía em
+ * `currentCompanyId()` (empresa padrão) — leitura/escrita no escopo ERRADO,
+ * um defeito de TENANT, mais silencioso que o da binding do D1 porque não
+ * lança erro nenhum.
+ */
+describe("runWithCompany — empresa por contexto, não por variável de módulo", () => {
+  it("mantém a empresa de cada rotina quando uma termina no meio da outra", async () => {
+    const sairA = gate();
+    const sairB = gate();
+
+    const a = runWithCompany(1, async () => {
+      await sairA.promessa;
+      return companyContextAtual();
+    });
+    const b = runWithCompany(2, async () => {
+      await sairB.promessa;
+      return companyContextAtual();
+    });
+
+    // A sai PRIMEIRO: era aqui que o finally antigo restaurava `undefined`.
+    sairA.abrir();
+    assert.equal(await a, 1, "A perdeu a própria empresa");
+
+    sairB.abrir();
+    assert.equal(await b, 2, "B herdou o contexto restaurado por A");
+  });
+
+  it("cronCompanyId devolve a empresa da rotina e o contexto não vaza para fora", async () => {
+    assert.equal(await runWithCompany(7, () => cronCompanyId()), 7);
+    assert.equal(companyContextAtual(), undefined, "empresa vazou para fora da rotina");
   });
 });
