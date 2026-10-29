@@ -161,10 +161,10 @@ describe("biblioteca de paletas", () => {
     assert.equal(new Set(LISTA_TEMAS.map((t) => t.nome)).size, 13, "nomes duplicados");
   });
 
-  it("a paleta Lima's reproduz o @theme do sistema antigo (fonte única daquele visual)", () => {
+  it("a paleta Azul Royal reproduz o @theme do sistema antigo (fonte única daquele visual)", () => {
     const t = TEMAS["limas-locacoes"];
     assert.ok(t, "a opção do sistema antigo precisa existir na grade");
-    assert.equal(t.nome, "Lima's Locações");
+    assert.equal(t.nome, "Azul Royal");
     // os hexes colados do @theme de src/app/globals.css do Lima-s-Locacoes:
     assert.equal(t.cores.marca["600"], "#051094", "ação primária do sistema antigo");
     assert.equal(t.cores.marca["700"], "#040C75");

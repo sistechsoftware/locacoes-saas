@@ -193,8 +193,8 @@ export const TEMAS: Record<string, Tema> = {
    */
   "limas-locacoes": {
     id: "limas-locacoes",
-    nome: "Lima's Locações",
-    descricao: "O visual do sistema antigo da Lima's: azul institucional sobre fundos frios, com âmbar de destaque.",
+    nome: "Azul Royal",
+    descricao: "Azul royal profundo de ação sobre fundos azul-gelo, com âmbar de destaque.",
     cores: {
       /* marca-50, marca-100, marca-200, marca-300 — hexes originais */
       marca: {
