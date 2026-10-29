@@ -30,7 +30,7 @@
  * calibrada para AA em todos os fundos reais do produto — e troca apenas matiz
  * e croma. Alguns temas escurecem os degraus 600+ (ação) porque verde e azul
  * têm luminância maior que o laranja no mesmo L. Contraste verificado por
- * teste (WCAG 2.1 AA) para as 12 paletas.
+ * teste (WCAG 2.1 AA) para as 13 paletas.
  *
  * O tema `loco` é uma cópia literal dos hexes atuais: restaurá-lo devolve o
  * produto exatamente como é hoje, mesmo que o design original mude no futuro
@@ -129,7 +129,7 @@ export function contraste(a: string, b: string): number {
 }
 
 /**
- * As 12 paletas. Ordenadas: primeiro o padrão do Locô, depois as demais.
+ * As 13 paletas. Ordenadas: primeiro o padrão do Locô, depois as demais.
  * IDs estáveis e curtos — são a CHAVE GRAVADA NO BANCO, por isso nunca mudam.
  */
 export const TEMAS: Record<string, Tema> = {
@@ -172,6 +172,66 @@ export const TEMAS: Record<string, Tema> = {
         "700": "#4A4E57",
         "800": "#2A2D34",
         "900": "#14161B",
+      },
+    },
+  },
+  /*
+   * O visual do sistema antigo da Lima's Locações (repositório Lima-s-Locacoes),
+   * copiado do @theme daquele projeto — é o tema que o cliente já usava antes
+   * do Locô: azul institucional #051094 como cor de ação, neutros FRIOS no
+   * fundo (#F5F7FF) e o MESMO âmbar de destaque que o Locô já usa.
+   *
+   * Dois degraus foram adaptados à semântica do Locô e são os únicos que
+   * divergem do CSS antigo: lá marca-400/500 eram #3B4AD6/#0715C7 e só
+   * apareciam com texto BRANCO por cima, enquanto aqui marca-500 é o fundo do
+   * botão flutuante com ícone ESCURO (Shell: bg-marca-500 text-tinta-900) e
+   * marca-400 é a borda de seleção — os dois precisam de luminância para
+   * passar em AA (4,88:1 para o ícone do FAB, 2,78:1 de anel sobre o branco).
+   * Todo o resto (50–300, 600–900, nuvem, tinta e destaque) é o hex original,
+   * sem nenhum arredondamento: botões, links, menu ativo, fundo, bordas e
+   * texto saem idênticos ao sistema antigo.
+   */
+  "limas-locacoes": {
+    id: "limas-locacoes",
+    nome: "Azul Royal",
+    descricao: "Azul royal profundo de ação sobre fundos azul-gelo, com âmbar de destaque.",
+    cores: {
+      /* marca-50, marca-100, marca-200, marca-300 — hexes originais */
+      marca: {
+        "50": "#EEF1FF",
+        "100": "#DDE4FF",
+        "200": "#B9C4FF",
+        "300": "#8E9BF0",
+        /* 400 e 500 adaptados (ver comentário acima) */
+        "400": "#8794F2",
+        "500": "#6E7CEF",
+        /* marca-600, marca-700, marca-800, marca-900 — hexes originais */
+        "600": "#051094",
+        "700": "#040C75",
+        "800": "#030957",
+        "900": "#02063A",
+      },
+      /* destaque idêntico ao do sistema antigo (e ao do Locô) */
+      destaque: {
+        "100": "#FDF1D8",
+        "300": "#F9DA9A",
+        "500": "#F4B942",
+        "600": "#DDA22A",
+        "700": "#8A6314",
+      },
+      /* neutros FRIOS do sistema antigo (o Locô usa creme) */
+      nuvem: {
+        "50": "#FBFCFF",
+        "100": "#F5F7FF",
+        "200": "#E8ECFA",
+        "300": "#D7DEF2",
+        "400": "#AEB8D6",
+      },
+      /* texto do sistema antigo */
+      tinta: {
+        "700": "#4A4A52",
+        "800": "#2A2A31",
+        "900": "#1A1816",
       },
     },
   },
