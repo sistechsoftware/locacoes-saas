@@ -11,7 +11,7 @@
  *  3. RESTAURAÇÃO: voltar ao Locô usa a fonte ÚNICA (src/lib/temas.ts) e os
  *     hexes batem com o @theme de globals.css — se o design original mudar,
  *     este teste acusa divergência;
- *  4. CONTRASTE: as 12 paletas cumprem WCAG 2.1 AA nos pares realmente
+ *  4. CONTRASTE: as 13 paletas cumprem WCAG 2.1 AA nos pares realmente
  *     usados pela interface (botão, link, menu ativo, FAB, texto, badge);
  *  5. PERMISSÃO E SEGURANÇA: a server action exige admin da própria empresa,
  *     só aceita IDs conhecidos e nunca lê tenant do formulário;
@@ -153,12 +153,31 @@ const ehRedirect = (e: any, trecho: string) => String(e?.message ?? "").includes
 /* ================================================================== */
 
 describe("biblioteca de paletas", () => {
-  it("tem o padrão do Locô e 11 combinações distintas (12 no total)", () => {
+  it("tem o padrão do Locô e 12 combinações distintas (13 no total)", () => {
     assert.equal(TEMA_PADRAO, "loco");
-    assert.equal(LISTA_TEMAS.length, 12, "a grade precisa ofertar 12 paletas");
+    assert.equal(LISTA_TEMAS.length, 13, "a grade precisa ofertar 13 paletas");
     assert.equal(LISTA_TEMAS[0].id, "loco", "o tema original vem primeiro");
-    assert.equal(new Set(LISTA_TEMAS.map((t) => t.id)).size, 12, "ids duplicados");
-    assert.equal(new Set(LISTA_TEMAS.map((t) => t.nome)).size, 12, "nomes duplicados");
+    assert.equal(new Set(LISTA_TEMAS.map((t) => t.id)).size, 13, "ids duplicados");
+    assert.equal(new Set(LISTA_TEMAS.map((t) => t.nome)).size, 13, "nomes duplicados");
+  });
+
+  it("a paleta Lima's reproduz o @theme do sistema antigo (fonte única daquele visual)", () => {
+    const t = TEMAS["limas-locacoes"];
+    assert.ok(t, "a opção do sistema antigo precisa existir na grade");
+    assert.equal(t.nome, "Lima's Locações");
+    // os hexes colados do @theme de src/app/globals.css do Lima-s-Locacoes:
+    assert.equal(t.cores.marca["600"], "#051094", "ação primária do sistema antigo");
+    assert.equal(t.cores.marca["700"], "#040C75");
+    assert.equal(t.cores.marca["300"], "#8E9BF0");
+    assert.equal(t.cores.nuvem["100"], "#F5F7FF", "fundo frio do sistema antigo");
+    assert.equal(t.cores.nuvem["300"], "#D7DEF2", "borda dos cartões");
+    assert.equal(t.cores.tinta["900"], "#1A1816");
+    assert.equal(t.cores.destaque["500"], "#F4B942", "o âmbar já era o mesmo");
+    // único ponto em que a semântica do Locô obriga a desviar do CSS antigo:
+    assert.ok(
+      contraste(t.cores.marca["500"], t.cores.tinta["900"]) >= 4.5,
+      "o ícone do botão flutuante precisa continuar legível nesta paleta",
+    );
   });
 
   it("cada paleta declara os 23 degraus dos 4 papéis, em HEX válido", () => {
