@@ -399,6 +399,7 @@ const PAGINAS: Record<string, string> = {
   "src/app/(app)/compras/[id]/page.tsx": "compras",
   "src/app/(app)/compras/[id]/editar/page.tsx": "compras",
   "src/app/(app)/configuracoes/page.tsx": "configuracoes",
+  "src/app/(app)/configuracoes/emails-modelos/page.tsx": "configuracoes",
   "src/app/(app)/contratos/page.tsx": "contratos",
   "src/app/(app)/contratos/[id]/page.tsx": "contratos",
   "src/app/(app)/contratos/assinado/[id]/page.tsx": "contratos",
@@ -533,6 +534,7 @@ describe("5) cobertura estática das ACTIONS", () => {
 
   it("actions sem requireModuleEdit algum só podem ser as de admin-only (assertAdmin)", () => {
     const adminOnly = new Set([
+      "src/app/(app)/configuracoes/email-modelos-actions.ts",
       "src/app/(app)/erros/actions.ts",
       "src/app/(app)/promocoes/actions.ts",
       "src/app/(app)/notificacoes/actions.ts",

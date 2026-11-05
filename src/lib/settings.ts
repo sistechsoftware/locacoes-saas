@@ -3,6 +3,7 @@ import { cache } from "react";
 import { all, run } from "./db";
 import { tenantCompanyId } from "./tenant";
 import { esc, sanitizeContractHtml, type MarcaConfiavel } from "./contract-html";
+import { chavesModeloEmail } from "./email-modelos";
 
 export type Settings = Record<string, string>;
 
@@ -256,6 +257,15 @@ export const DEFAULT_SETTINGS: Settings = {
   /* orientações comerciais da locadora repetidas no rodapé dos e-mails */
   email_instrucoes: "",
 };
+
+/*
+ * Modelos de e-mail personalizáveis (Configurações > Notificações > E-mails).
+ * Uma chave JSON por tipo, no MESMO company_settings multi-tenant dos demais
+ * ajustes: nenhuma tabela nova e nenhuma migration. Vazia = texto original.
+ */
+for (const chave of chavesModeloEmail()) {
+  if (!(chave in DEFAULT_SETTINGS)) DEFAULT_SETTINGS[chave] = "";
+}
 
 const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
 
