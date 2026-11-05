@@ -2,22 +2,30 @@
 /**
  * Ações do editor de modelos de e-mail (Configurações > Notificações > E-mails).
  *
+ * Uma ação por intenção — salvar, restaurar, pré-visualizar, enviar teste.
+ * Antes havia um único formulário com três botões `name="acao"`, e o submitter
+ * não é confiável no FormData de uma action: "Pré-visualizar" e "Restaurar"
+ * caíam em "salvar" (o campo escondido vencia). Separando as ações, cada botão
+ * tem um comportamento só, e a prévia recebe o RASCUNHO da tela como argumento.
+ *
  * Segurança:
  *  * TODA ação exige `assertAdmin()` e grava pelo `setSettings`, que é escopado
  *    pela empresa da SESSÃO. Não há company_id vindo do formulário — uma empresa
  *    não alcança o modelo de outra nem forjando o campo.
- *  * A validação roda no servidor (limites de tamanho + variáveis do contexto).
+ *  * A validação roda no servidor (limites de tamanho + variáveis do contexto),
+ *    e o modelo vindo da tela é reconstruído campo a campo (nada de objeto cru).
  *  * Nada aqui enfileira e-mail: a pré-visualização é somente leitura e o envio
  *    de teste vai direto ao provedor com dados fictícios, sem passar pela fila
  *    (`agendarEmail`) e sem tocar em reserva, pagamento ou operação.
  */
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { assertAdmin } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { insert } from "@/lib/db";
 import { setSettings } from "@/lib/settings";
 import { emailValido, normalizarEmail } from "@/lib/identidade";
-import { enviarEmailDetalhado } from "@/lib/email";
+import { enviarEmailDetalhado, publicUrlDaPlataforma } from "@/lib/email";
 import { identidadeDaEmpresa } from "@/lib/email-dados";
 import { renderizarPreviaModelo } from "@/lib/email-preview";
 import {
@@ -47,11 +55,31 @@ function tipoDoFormulario(fd: FormData): TipoEmail | null {
   return tipo in TIPOS_EMAIL ? tipo : null;
 }
 
+function tipoValido(tipo: unknown): TipoEmail | null {
+  const t = String(tipo ?? "").trim() as TipoEmail;
+  return t in TIPOS_EMAIL ? t : null;
+}
+
 function modeloDoFormulario(fd: FormData): ModeloEmail {
   const out: ModeloEmail = {};
   for (const campo of CAMPOS_MODELO) {
     const valor = String(fd.get(campoForm(campo.chave)) ?? "");
     if (valor.trim()) out[campo.chave] = valor;
+  }
+  return out;
+}
+
+/**
+ * Modelo vindo da prévia: chega como ARGUMENTO da action, então é reconstruído
+ * campo a campo — objeto do cliente nunca entra direto, e o tamanho é limitado.
+ */
+function modeloDoCliente(bruto: unknown): ModeloEmail {
+  const out: ModeloEmail = {};
+  if (!bruto || typeof bruto !== "object") return out;
+  const obj = bruto as Record<string, unknown>;
+  for (const campo of CAMPOS_MODELO) {
+    const valor = obj[campo.chave];
+    if (typeof valor === "string" && valor.trim()) out[campo.chave] = valor.slice(0, campo.max);
   }
   return out;
 }
@@ -63,44 +91,48 @@ function invalidasDoModelo(tipo: TipoEmail, modelo: ModeloEmail): string[] {
 }
 
 /**
- * Salvar, restaurar ou pré-visualizar — uma única action porque as três
- * trabalham sobre o MESMO rascunho do formulário, e o React mantém um único
- * estado de ação por formulário.
+ * Origem pública para a logo.
+ *
+ * Em produção é a var PUBLIC_URL. No desenvolvimento local ela é vazia, e sem
+ * origem a logo vira caminho relativo — que o cliente de e-mail não resolve e o
+ * iframe da prévia também não. Aí usamos o host da própria requisição, que é
+ * exatamente onde a tela está aberta.
  */
-export async function modeloEmailAction(_prev: ResultadoModeloAcao | null, fd: FormData): Promise<ResultadoModeloAcao> {
+async function origemPublica(): Promise<string> {
+  const publica = (await publicUrlDaPlataforma()).trim();
+  if (publica) return publica;
+  try {
+    const h = await headers();
+    const host = (h.get("x-forwarded-host") ?? h.get("host") ?? "").split(",")[0].trim();
+    if (!host) return "";
+    const proto =
+      (h.get("x-forwarded-proto") ?? "").split(",")[0].trim() ||
+      (/^(localhost|127\.|\[::1\])/.test(host) ? "http" : "https");
+    return `${proto}://${host}`;
+  } catch {
+    return "";
+  }
+}
+
+/** Salvar o modelo em edição (texto vazio = usar o original naquele campo). */
+export async function salvarModeloEmailAction(
+  _prev: ResultadoModeloAcao | null,
+  fd: FormData,
+): Promise<ResultadoModeloAcao> {
   const user = await assertAdmin();
   const tipo = tipoDoFormulario(fd);
   if (!tipo) return { ok: false, erro: "Tipo de e-mail desconhecido." };
 
-  const acao = String(fd.get("acao") ?? "salvar");
-  const restaurar = acao === "restaurar";
-  const modelo = restaurar ? {} : modeloDoFormulario(fd);
+  const modelo = modeloDoFormulario(fd);
+  const erro = validarModelo(modelo);
+  if (erro) return { ok: false, erro };
 
-  /* Pré-visualização: NÃO grava nada e NÃO enfileira nada. Pode ser feita com o
-     texto ainda em edição, inclusive com variável indisponível (que aparece
-     vazia, como sairia no envio) — a tela já avisa antes. */
-  if (acao === "previa") {
-    const reservaId = Number(fd.get("reserva_id")) || null;
-    try {
-      const m = await renderizarPreviaModelo({ companyId: user.company_id, tipo, modelo, reservaId });
-      return { ok: true, html: m.html, assunto: m.assunto, mensagem: "Prévia gerada — nenhum e-mail foi enviado." };
-    } catch (e) {
-      console.error("[email] falha ao montar prévia de modelo:", (e as Error)?.message ?? e);
-      return { ok: false, erro: "Não foi possível montar a prévia deste modelo." };
-    }
-  }
-
-  if (!restaurar) {
-    const erro = validarModelo(modelo);
-    if (erro) return { ok: false, erro };
-
-    const invalidas = invalidasDoModelo(tipo, modelo);
-    if (invalidas.length) {
-      return {
-        ok: false,
-        erro: `Estas variáveis não existem neste aviso: ${invalidas.map((v) => `{{${v}}}`).join(", ")}. Remova-as ou escolha uma da lista.`,
-      };
-    }
+  const invalidas = invalidasDoModelo(tipo, modelo);
+  if (invalidas.length) {
+    return {
+      ok: false,
+      erro: `Estas variáveis não existem neste aviso: ${invalidas.map((v) => `{{${v}}}`).join(", ")}. Remova-as ou escolha uma da lista.`,
+    };
   }
 
   await setSettings({ [chaveModelo(tipo)]: serializarModelo(modelo) });
@@ -109,17 +141,64 @@ export async function modeloEmailAction(_prev: ResultadoModeloAcao | null, fd: F
     "editar",
     "configuracao",
     null,
-    `${user.name} ${restaurar ? "restaurou o modelo original" : "personalizou o modelo"} de e-mail ${TIPOS_EMAIL[tipo].rotulo}`,
+    `${user.name} personalizou o modelo de e-mail ${TIPOS_EMAIL[tipo].rotulo}`,
   );
   revalidatePath("/configuracoes");
   revalidatePath("/configuracoes/emails-modelos");
 
-  return {
-    ok: true,
-    mensagem: restaurar
-      ? "Modelo original restaurado. Os próximos envios voltam ao texto padrão."
-      : "Modelo salvo. Os próximos envios já usam este texto.",
-  };
+  return { ok: true, mensagem: "Modelo salvo. Os próximos envios já usam este texto." };
+}
+
+/** Restaurar o texto original do aviso (grava vazio). */
+export async function restaurarModeloEmailAction(tipoRecebido: TipoEmail): Promise<ResultadoModeloAcao> {
+  const user = await assertAdmin();
+  const tipo = tipoValido(tipoRecebido);
+  if (!tipo) return { ok: false, erro: "Tipo de e-mail desconhecido." };
+
+  await setSettings({ [chaveModelo(tipo)]: "" });
+  await logAction(
+    user,
+    "editar",
+    "configuracao",
+    null,
+    `${user.name} restaurou o modelo original de e-mail ${TIPOS_EMAIL[tipo].rotulo}`,
+  );
+  revalidatePath("/configuracoes");
+  revalidatePath("/configuracoes/emails-modelos");
+
+  return { ok: true, mensagem: "Modelo original restaurado. Os próximos envios voltam ao texto padrão." };
+}
+
+/**
+ * Pré-visualização do RASCUNHO: não grava nada e não enfileira nada. Pode ser
+ * feita com o texto ainda em edição, inclusive com variável indisponível (que
+ * aparece vazia, como sairia no envio) — a tela já avisa antes.
+ */
+export async function previaModeloEmailAction(
+  tipoRecebido: TipoEmail,
+  modeloRecebido: ModeloEmail,
+  reservaId: number | null,
+): Promise<ResultadoModeloAcao> {
+  const user = await assertAdmin();
+  const tipo = tipoValido(tipoRecebido);
+  if (!tipo) return { ok: false, erro: "Tipo de e-mail desconhecido." };
+
+  const modelo = modeloDoCliente(modeloRecebido);
+  const reserva = Number(reservaId);
+
+  try {
+    const m = await renderizarPreviaModelo({
+      companyId: user.company_id,
+      tipo,
+      modelo,
+      reservaId: Number.isFinite(reserva) && reserva > 0 ? reserva : null,
+      baseUrl: await origemPublica(),
+    });
+    return { ok: true, html: m.html, assunto: m.assunto, mensagem: "Prévia gerada — nenhum e-mail foi enviado." };
+  } catch (e) {
+    console.error("[email] falha ao montar prévia de modelo:", (e as Error)?.message ?? e);
+    return { ok: false, erro: "Não foi possível montar a prévia deste modelo." };
+  }
 }
 
 /**
@@ -141,12 +220,17 @@ export async function enviarModeloTesteAction(
   if (!emailValido(destino)) return { ok: false, erro: "Informe um e-mail válido para receber o teste." };
 
   const modelo = modeloDoFormulario(fd);
-  const ident = await identidadeDaEmpresa(user.company_id);
+  const ident = await identidadeDaEmpresa(user.company_id, { baseUrl: await origemPublica() });
 
   let montado;
   try {
     // reserva_id NÃO é usado aqui: o teste nunca lê dados de um cliente real.
-    montado = await renderizarPreviaModelo({ companyId: user.company_id, tipo, modelo });
+    montado = await renderizarPreviaModelo({
+      companyId: user.company_id,
+      tipo,
+      modelo,
+      baseUrl: await origemPublica(),
+    });
   } catch (e) {
     console.error("[email] falha ao montar modelo de teste:", (e as Error)?.message ?? e);
     return { ok: false, erro: "Não foi possível montar o e-mail de teste." };

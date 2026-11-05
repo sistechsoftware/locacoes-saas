@@ -43,11 +43,13 @@ export type OpcoesPrevia = {
   /** Reserva real da empresa para a prévia; ausente = amostra fictícia. */
   reservaId?: number | null;
   antecedencia?: string;
+  /** Origem pública para a logo; ausente = PUBLIC_URL do ambiente. */
+  baseUrl?: string;
 };
 
 /** HTML pronto para o iframe da tela (nunca lança para a UI). */
 export async function renderizarPreviaModelo(opts: OpcoesPrevia): Promise<EmailMontado> {
-  const ident = await identidadeDaEmpresa(opts.companyId);
+  const ident = await identidadeDaEmpresa(opts.companyId, { baseUrl: opts.baseUrl });
   const cfg = await operacaoConfigDaEmpresa(opts.companyId);
   const modelo = opts.modelo ?? null;
 

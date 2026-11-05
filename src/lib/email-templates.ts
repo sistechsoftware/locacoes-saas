@@ -153,13 +153,11 @@ const FONTE = "'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
 const vazio = (v: unknown) => String(v ?? "").trim();
 const corSegura = (v: string) => (/^#[0-9a-fA-F]{6}$/.test(String(v ?? "").trim()) ? String(v).trim() : "#C94F00");
 
-/** Linha de contato do rodapé: só existe quando a empresa cadastrou o dado. */
-const linhaContato = (rotulo: string, valor: string) =>
-  vazio(valor)
-    ? `<p style="margin:6px 0 0;font-size:12px;line-height:1.5;color:${TEXTO};"><span style="color:${SUAVE};">${esc(
-        rotulo,
-      )}:</span> <b style="color:${TINTA};">${esc(valor)}</b></p>`
-    : "";
+/** Contato do rodapé em linha: vira link quando o canal permite (tel/mail). */
+const contatoInline = (valor: string, href?: string) =>
+  href
+    ? `<a href="${esc(href)}" style="color:${TEXTO};text-decoration:none;">${esc(valor)}</a>`
+    : esc(valor);
 
 /**
  * Cabeçalho do e-mail.
@@ -208,42 +206,58 @@ function rodape(ident: IdentidadeEmail, cor: string): string {
   const nome = vazio(ident.nome) || "Locadora";
   const endereco = [vazio(ident.endereco), vazio(ident.cidade)].filter(Boolean).join(" · ");
 
+  /* Contatos em UMA linha separada por pontos — antes cada canal ocupava um
+     parágrafo com rótulo, o que fazia o rodapé parecer formulário e ficava
+     comprido no celular. */
   const contatos = [
-    linhaContato("Telefone", ident.telefone),
-    linhaContato("WhatsApp", ident.whatsapp),
-    linhaContato("E-mail", ident.email),
+    vazio(ident.telefone)
+      ? contatoInline(ident.telefone, `tel:+${ident.telefone.replace(/\D/g, "")}`)
+      : "",
+    vazio(ident.whatsapp)
+      ? contatoInline(`WhatsApp ${ident.whatsapp}`, `https://wa.me/55${ident.whatsapp.replace(/\D/g, "")}`)
+      : "",
+    vazio(ident.email) ? contatoInline(ident.email, `mailto:${ident.email}`) : "",
   ]
-    .join("")
-    .trim();
+    .filter(Boolean)
+    .join(`<span style="color:${BORDA};"> · </span>`);
 
   const documento = vazio(ident.documento)
-    ? `<p style="margin:3px 0 0;font-size:12px;line-height:1.5;color:${SUAVE};">CNPJ/CPF: ${esc(ident.documento!)}</p>`
+    ? `<p style="margin:5px 0 0;font-size:11px;line-height:1.5;color:${SUAVE};font-family:${FONTE};">CNPJ/CPF: ${esc(ident.documento!)}</p>`
+    : "";
+
+  const contatosHtml = contatos
+    ? `<p style="margin:9px 0 0;font-size:12px;line-height:1.7;color:${TEXTO};font-family:${FONTE};">${contatos}</p>`
     : "";
 
   const enderecoLinha = endereco
-    ? `<p style="margin:6px 0 0;font-size:12px;line-height:1.5;color:${TEXTO};">${esc(endereco)}</p>`
+    ? `<p style="margin:5px 0 0;font-size:11px;line-height:1.5;color:${SUAVE};font-family:${FONTE};">${esc(endereco)}</p>`
     : "";
 
   const instrucoes = vazio(ident.instrucoes)
-    ? `<p style="margin:14px 0 0;padding:12px 14px;background:#ffffff;border:1px solid ${BORDA};border-radius:10px;font-size:12px;line-height:1.6;color:${TEXTO};font-family:${FONTE};">${esc(
+    ? `<p style="margin:14px 0 0;padding:11px 13px;background:#ffffff;border-left:2px solid ${cor};font-size:12px;line-height:1.6;color:${TEXTO};font-family:${FONTE};">${esc(
         ident.instrucoes,
       )}</p>`
     : "";
 
-  return `<tr><td style="padding:0 24px;background:${FUNDO_BLOCO};"><div style="height:2px;background:${cor};font-size:0;line-height:0;">&nbsp;</div></td></tr>
-          <tr><td class="email-rodape" style="background:${FUNDO_BLOCO};padding:18px 24px 20px;">
-            <p style="margin:0;font-size:14px;font-weight:800;line-height:1.3;color:${TINTA};font-family:${FONTE};">${esc(
+  const temRodapeComercial = Boolean(documento || contatosHtml || enderecoLinha || instrucoes);
+
+  return `<tr><td style="height:3px;background:${cor};line-height:3px;font-size:0;">&nbsp;</td></tr>
+          <tr><td class="email-rodape" style="background:${FUNDO_BLOCO};padding:20px 24px 22px;">
+            <p style="margin:0;font-size:15px;font-weight:800;line-height:1.3;color:${TINTA};font-family:${FONTE};">${esc(
               nome,
             )}</p>
             ${documento}
-            ${contatos}
+            ${contatosHtml}
             ${enderecoLinha}
             ${instrucoes}
-          </td></tr>
-          <tr><td style="padding:14px 24px 18px;background:#ffffff;border-top:1px solid ${BORDA};">
+            ${
+              temRodapeComercial
+                ? `<div style="margin:16px 0 10px;height:1px;line-height:1px;font-size:0;background:${BORDA};">&nbsp;</div>`
+                : ""
+            }
             <p style="margin:0;font-size:11px;line-height:1.6;color:${FRACO};font-family:${FONTE};">
-              Você recebeu este e-mail porque é cliente da ${esc(nome)}.
-              Se não reconhece este contato, fale com a empresa pelos canais acima.
+              Você recebeu este e-mail por ser cliente da ${esc(nome)}.
+              Dúvidas sobre a locação? Fale com a equipe pelos canais acima.
             </p>
           </td></tr>`;
 }

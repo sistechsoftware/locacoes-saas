@@ -50,11 +50,17 @@ export type MotivoIntegridade =
  * cadastro `companies` (onboarding) e, no fim, um rótulo neutro — nunca o
  * nome de outra locadora e nunca a plataforma no lugar da locadora.
  */
-export async function identidadeDaEmpresa(companyId: number): Promise<IdentidadeEmail> {
+export async function identidadeDaEmpresa(
+  companyId: number,
+  opts: { baseUrl?: string } = {},
+): Promise<IdentidadeEmail> {
   const s: Settings = await settingsDaEmpresa(companyId);
   const cadastro = await one<{ name: string }>(`SELECT name FROM companies WHERE id = ?`, [companyId]);
   const nome = String(s.company_name ?? "").trim() || String(cadastro?.name ?? "").trim() || "Locadora";
-  const base = (await publicUrlDaPlataforma()).trim();
+  /* `baseUrl` permite a PRÉVIA usar a origem da própria requisição quando o
+     ambiente não define PUBLIC_URL (dev local): sem origem a logo cairia no
+     monograma e o usuário não veria o que realmente vai sair. */
+  const base = (opts.baseUrl ?? (await publicUrlDaPlataforma())).trim();
   /* O default técnico da chave ("contato@exemplo.com.br") não é contato real:
      exibi-lo no rodapé inventaria um e-mail que não existe. */
   const emailEmpresa = String(s.company_email ?? "").trim();
