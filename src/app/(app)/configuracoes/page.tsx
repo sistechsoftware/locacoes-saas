@@ -235,6 +235,23 @@ export default async function ConfiguracoesPage({
       </Section>}
 
       {aba === "notificacoes" && (
+        <section className="cartao mb-4 flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wide text-stone-500">Modelos de e-mail</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Personalize assunto e textos de cada aviso, com variáveis dinâmicas e pré-visualização — sem disparar
+              e-mail nenhum.
+            </p>
+          </div>
+          <Link
+            href="/configuracoes/emails-modelos"
+            className="rounded-xl border border-nuvem-300 px-4 py-2 text-sm font-semibold"
+          >
+            Abrir editor de modelos
+          </Link>
+        </section>
+      )}
+      {aba === "notificacoes" && (
         <EmailSettings
           inicial={resolverConfigEmail(s)}
           admin={admin}

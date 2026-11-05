@@ -18,14 +18,16 @@
  * no endereço errado" ou misturar identidade de outro tenant).
  */
 import "server-only";
-import { all, one } from "./db";
+import { all, one, scalar } from "./db";
 import { settingsDaEmpresa, type Settings } from "./settings";
 import { resolverOperacao, type OperacaoConfig } from "./operacao";
 import { RESERVATION_STATUS, statusDef } from "./domain";
-import { dateBR, timeBR, dateTimeBR } from "./format";
+import { dateBR, docBR, money, phoneBR, timeBR, dateTimeBR } from "./format";
 import { publicUrlDaPlataforma } from "./email";
 import { emailValido, normalizarEmail } from "./identidade";
 import { esc } from "./contract-html";
+import { urlLogoEmail } from "./email-identidade";
+import { adiantamentoPrevisto } from "./receber";
 import { progresso, resolverUnidade, quantidadeUnidade, type Regra } from "./fidelidade";
 import type { FidelidadeEmail, IdentidadeEmail, ItemEmail, OperacaoEmail, ReservaEmail } from "./email-templates";
 
@@ -52,17 +54,26 @@ export async function identidadeDaEmpresa(companyId: number): Promise<Identidade
   const s: Settings = await settingsDaEmpresa(companyId);
   const cadastro = await one<{ name: string }>(`SELECT name FROM companies WHERE id = ?`, [companyId]);
   const nome = String(s.company_name ?? "").trim() || String(cadastro?.name ?? "").trim() || "Locadora";
+  const base = (await publicUrlDaPlataforma()).trim();
+  /* O default técnico da chave ("contato@exemplo.com.br") não é contato real:
+     exibi-lo no rodapé inventaria um e-mail que não existe. */
+  const emailEmpresa = String(s.company_email ?? "").trim();
+  const email = emailEmpresa === "contato@exemplo.com.br" ? "" : emailEmpresa;
   return {
     nome,
-    logo: String(s.company_logo ?? "").trim() || null,
-    telefone: String(s.company_phone ?? "").trim(),
-    whatsapp: String(s.company_whatsapp ?? "").trim(),
+    // Absolutizada na rota PÚBLICA: em e-mail não existe origem para caminho relativo.
+    logo: urlLogoEmail(s.company_logo, base),
+    // Formatado para leitura no rodapé: no cadastro o telefone costuma ficar só com dígitos.
+    telefone: phoneBR(String(s.company_phone ?? "")),
+    whatsapp: phoneBR(String(s.company_whatsapp ?? "")),
     endereco: [s.company_address].map((v) => String(v ?? "").trim()).filter(Boolean).join(", "),
     cidade: String(s.company_city ?? "").trim(),
-    email: String(s.company_email ?? "").trim(),
+    documento: String(s.company_doc ?? "").trim() ? docBR(s.company_doc) : "",
+    tagline: String(s.company_tagline ?? "").trim(),
+    email,
     cor: /^#[0-9a-fA-F]{6}$/.test(String(s.email_cor ?? "").trim()) ? String(s.email_cor).trim() : "#C94F00",
     instrucoes: String(s.email_instrucoes ?? "").trim(),
-    baseUrl: (await publicUrlDaPlataforma()).trim(),
+    baseUrl: base,
   };
 }
 
@@ -90,12 +101,15 @@ type ReservaRow = {
   customer_name: string | null;
   customer_company_id: number | null;
   customer_email: string | null;
+  customer_phone: string | null;
+  total_cents?: number;
 };
 
 const SELECT_RESERVA = `
   SELECT r.id, r.number, r.company_id, r.customer_id, r.status, r.event_date, r.event_time,
-         r.delivery_at, r.pickup_at, r.address, r.city, r.cancel_reason,
-         c.name AS customer_name, c.company_id AS customer_company_id, c.email AS customer_email
+         r.delivery_at, r.pickup_at, r.address, r.city, r.cancel_reason, r.total_cents,
+         c.name AS customer_name, c.company_id AS customer_company_id, c.email AS customer_email,
+         c.phone AS customer_phone
     FROM reservations r
     LEFT JOIN customers c ON c.id = r.customer_id
    WHERE r.id = ?`;
@@ -104,6 +118,8 @@ export type ContextoReserva = {
   linha: ReservaRow;
   cliente: string;
   email: string | null;
+  nomeCompleto: string;
+  telefone: string;
 };
 
 /**
@@ -120,7 +136,13 @@ export async function reservaParaEmail(companyId: number, reservationId: number)
   const email = normalizarEmail(r.customer_email ?? "");
   return {
     ok: true,
-    dados: { linha: r, cliente: primeiroNome(r.customer_name), email: emailValido(email) ? email : null },
+    dados: {
+      linha: r,
+      cliente: primeiroNome(r.customer_name),
+      nomeCompleto: String(r.customer_name ?? "").trim(),
+      telefone: phoneBR(r.customer_phone ?? ""),
+      email: emailValido(email) ? email : null,
+    },
   };
 }
 
@@ -140,7 +162,12 @@ export async function emailDoCliente(companyId: number, customerId: number): Pro
  * Contexto completo para o template da reserva (com itens e rótulos do perfil).
  * Itens vêm da MESMA empresa (reservation_items.company_id espelha o da reserva).
  */
-export async function dadosDaReserva(companyId: number, reservationId: number, cfg: OperacaoConfig): Promise<Resultado<ReservaEmail>> {
+export async function dadosDaReserva(
+  companyId: number,
+  reservationId: number,
+  cfg: OperacaoConfig,
+  opts: { valores?: boolean } = {},
+): Promise<Resultado<ReservaEmail>> {
   const base = await reservaParaEmail(companyId, reservationId);
   if (!base.ok) return base;
   const r = base.dados.linha;
@@ -151,6 +178,28 @@ export async function dadosDaReserva(companyId: number, reservationId: number, c
       ORDER BY ri.id`,
     [reservationId, companyId],
   );
+  /*
+   * Valores só entram quando o modelo personalizado pode usá-los: são as
+   * variáveis {{reserva_valor_*}}. Nenhuma regra de negócio muda — o caixa
+   * continua sendo o livro de payments; aqui só se LÊ.
+   */
+  const totalCents = Number(r.total_cents ?? 0);
+  let valores = { valorTotal: "", valorAdiantamento: "", valorPendente: "" };
+  if (opts.valores) {
+    const [adiantamento, pago] = await Promise.all([
+      adiantamentoPrevisto(reservationId, companyId),
+      scalar<number>(
+        `SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE reservation_id = ? AND company_id = ?`,
+        [reservationId, companyId],
+      ),
+    ]);
+    valores = {
+      valorTotal: money(totalCents),
+      valorAdiantamento: money(adiantamento),
+      valorPendente: money(Math.max(0, totalCents - Number(pago ?? 0))),
+    };
+  }
+
   const defs = RESERVATION_STATUS.map((d) => ({ ...d }));
   const rotuloStatus = defs.find((d) => d.value === r.status)?.label ?? r.status;
   return {
@@ -158,6 +207,9 @@ export async function dadosDaReserva(companyId: number, reservationId: number, c
     dados: {
       cliente: base.dados.cliente,
       numero: r.number,
+      clienteCompleto: base.dados.nomeCompleto,
+      clienteEmail: base.dados.email ?? "",
+      clienteTelefone: base.dados.telefone,
       dataEvento: dateBR(r.event_date),
       horaEvento: timeBR(r.event_time ?? ""),
       inicio: dateTimeBR(r.delivery_at),
@@ -169,6 +221,7 @@ export async function dadosDaReserva(companyId: number, reservationId: number, c
       status: rotuloStatus,
       motivo: String(r.cancel_reason ?? "").trim(),
       alteracoes: [],
+      ...valores,
     },
   };
 }
@@ -192,13 +245,16 @@ type OperacaoRow = {
   customer_name: string | null;
   customer_company_id: number | null;
   customer_email: string | null;
+  customer_phone: string | null;
+  total_cents?: number;
 };
 
 const SELECT_OPERACAO = `
   SELECT o.id, o.company_id, o.kind, o.status, o.scheduled_at, o.notes, o.reservation_id,
          r.company_id AS reservation_company_id, r.number AS reservation_number,
          r.address AS reservation_address, r.city AS reservation_city,
-         c.name AS customer_name, c.company_id AS customer_company_id, c.email AS customer_email
+         c.name AS customer_name, c.company_id AS customer_company_id, c.email AS customer_email,
+         c.phone AS customer_phone
     FROM operations o
     LEFT JOIN reservations r ON r.id = o.reservation_id
     LEFT JOIN customers c ON c.id = r.customer_id
@@ -208,6 +264,8 @@ export type ContextoOperacao = {
   linha: OperacaoRow;
   cliente: string;
   email: string | null;
+  nomeCompleto: string;
+  telefone: string;
   rotulo: string;
 };
 
@@ -232,7 +290,14 @@ export async function operacaoParaEmail(
     o.kind === "entrega" ? cfg.rotulos.operacao_inicio : o.kind === "retirada" ? cfg.rotulos.operacao_fim : capitalizar(o.kind);
   return {
     ok: true,
-    dados: { linha: o, cliente: primeiroNome(o.customer_name), email: emailValido(email) ? email : null, rotulo },
+    dados: {
+      linha: o,
+      cliente: primeiroNome(o.customer_name),
+      nomeCompleto: String(o.customer_name ?? "").trim(),
+      telefone: phoneBR(o.customer_phone ?? ""),
+      email: emailValido(email) ? email : null,
+      rotulo,
+    },
   };
 }
 
@@ -272,6 +337,9 @@ export async function dadosDaOperacao(companyId: number, operationId: number, cf
     dados: {
       cliente: base.dados.cliente,
       numero: String(o.reservation_number ?? "-"),
+      clienteCompleto: base.dados.nomeCompleto,
+      clienteEmail: base.dados.email ?? "",
+      clienteTelefone: base.dados.telefone,
       tipo: base.dados.rotulo,
       quando: dateTimeBR(o.scheduled_at),
       endereco: [o.reservation_address, o.reservation_city].filter(Boolean).join(", "),
@@ -345,6 +413,7 @@ export async function dadosDeFidelidade(
     ok: true,
     dados: {
       cliente: primeiroNome(c.name),
+      clienteCompleto: String(c.name ?? "").trim(),
       atual: p.pontos,
       meta: p.meta,
       faltam: p.faltam,

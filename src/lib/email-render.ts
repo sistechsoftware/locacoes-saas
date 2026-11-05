@@ -9,19 +9,33 @@
  *  - nenhum dado pessoal fica parado em log ou em coluna de contexto;
  *  - a verificação de tenant acontece de novo aqui, imediatamente antes de
  *    endereçar a mensagem.
+ *
+ * Personalização: o modelo salvo pela empresa (company_settings, chave
+ * `email_modelo_<tipo>`) é lido NA HORA DO ENVIO. Sem modelo, vale o texto
+ * original revisado; com modelo, os textos mudam mas os blocos de dados (data,
+ * itens, botão) continuam os do sistema.
  */
 import "server-only";
 import { one } from "./db";
 import { dateBR } from "./format";
 import { resolverOperacao } from "./operacao";
-import { settingsDaEmpresa } from "./settings";
-import type { ConfigEmail, TipoEmail } from "./email-notificacoes";import {
+import { settingsDaEmpresa, type Settings } from "./settings";
+import type { TipoEmail } from "./email-notificacoes";
+import {
   dadosDaOperacao,
   dadosDaReserva,
   dadosDeFidelidade,
   identidadeDaEmpresa,
   type Resultado,
 } from "./email-dados";
+import { lerModelo } from "./email-modelos";
+import {
+  personalizacao,
+  variaveisDeFidelidade,
+  variaveisDeOperacao,
+  variaveisDeReserva,
+} from "./email-variaveis";
+import { amostraReserva } from "./email-amostra";
 import {
   emailAlteracaoOperacao,
   emailAlteracaoReserva,
@@ -39,6 +53,7 @@ import {
   emailSaidaOperacao,
   emailTeste,
   type EmailMontado,
+  type IdentidadeEmail,
 } from "./email-templates";
 import type { MotivoIgnorado } from "./email-queue";
 
@@ -93,17 +108,18 @@ function comRemetente(email: EmailMontado, nome: string): EmailMontado {
  */
 export async function renderizarEmail(linha: LinhaEmail): Promise<Renderizacao> {
   const ident = await identidadeDaEmpresa(linha.company_id);
-  const montado = await montarEmail(linha, ident);
+  const settings = await settingsDaEmpresa(linha.company_id);
+  const montado = await montarEmail(linha, ident, settings);
   if (!montado.ok) return montado;
   return { ok: true, email: comRemetente(montado.email, ident.nome) };
 }
 
-async function montarEmail(linha: LinhaEmail, ident: Awaited<ReturnType<typeof identidadeDaEmpresa>>): Promise<Renderizacao> {
+async function montarEmail(linha: LinhaEmail, ident: IdentidadeEmail, settings: Settings): Promise<Renderizacao> {
   const companyId = linha.company_id;
   const tipo = String(linha.type) as TipoEmail;
   const ctx = lerContexto(linha.context);
-  const settings = await settingsDaEmpresa(companyId);
   const cfgOper = resolverOperacao(settings);
+  const modelo = lerModelo(settings, tipo);
 
   switch (tipo) {
     /* ------------------------------ reservas ------------------------------ */
@@ -111,16 +127,31 @@ async function montarEmail(linha: LinhaEmail, ident: Awaited<ReturnType<typeof i
     case "reserva_lembrete":
     case "reserva_alteracao":
     case "reserva_cancelamento": {
-      const r = await dadosDaReserva(companyId, num(ctx.reservation_id), cfgOper);
+      // Os valores ({{reserva_valor_*}}) só são lidos quando a empresa tem
+      // modelo próprio: sem modelo, ninguém usa a variável e não há razão para
+      // consultar dinheiro.
+      const r = await dadosDaReserva(companyId, num(ctx.reservation_id), cfgOper, { valores: !!modelo });
       if (!r.ok) return { ok: false, motivo: motivoDe(r) };
-      if (tipo === "reserva_confirmacao") return { ok: true, email: emailConfirmacaoReserva(ident, r.dados) };
+      const perso = personalizacao(modelo, variaveisDeReserva(ident, r.dados));
+
+      if (tipo === "reserva_confirmacao") return { ok: true, email: emailConfirmacaoReserva(ident, r.dados, perso) };
       if (tipo === "reserva_lembrete") {
-        return { ok: true, email: emailLembreteReserva(ident, r.dados, rotuloAntecedencia(num(ctx.antecedencia))) };
+        return {
+          ok: true,
+          email: emailLembreteReserva(ident, r.dados, rotuloAntecedencia(num(ctx.antecedencia)), perso),
+        };
       }
       if (tipo === "reserva_alteracao") {
-        return { ok: true, email: emailAlteracaoReserva(ident, { ...r.dados, alteracoes: Array.isArray(ctx.alteracoes) ? (ctx.alteracoes as string[]) : [] }) };
+        return {
+          ok: true,
+          email: emailAlteracaoReserva(
+            ident,
+            { ...r.dados, alteracoes: Array.isArray(ctx.alteracoes) ? (ctx.alteracoes as string[]) : [] },
+            perso,
+          ),
+        };
       }
-      return { ok: true, email: emailCancelamentoReserva(ident, r.dados) };
+      return { ok: true, email: emailCancelamentoReserva(ident, r.dados, perso) };
     }
 
     /* ----------------------------- operações ------------------------------ */
@@ -131,13 +162,18 @@ async function montarEmail(linha: LinhaEmail, ident: Awaited<ReturnType<typeof i
     case "operacao_atrasada": {
       const o = await dadosDaOperacao(companyId, num(ctx.operation_id), cfgOper);
       if (!o.ok) return { ok: false, motivo: motivoDe(o) };
+      const perso = personalizacao(modelo, variaveisDeOperacao(ident, o.dados));
+
       if (tipo === "operacao_lembrete") {
-        return { ok: true, email: emailLembreteOperacao(ident, o.dados, rotuloAntecedencia(num(ctx.antecedencia))) };
+        return {
+          ok: true,
+          email: emailLembreteOperacao(ident, o.dados, rotuloAntecedencia(num(ctx.antecedencia)), perso),
+        };
       }
-      if (tipo === "operacao_saida") return { ok: true, email: emailSaidaOperacao(ident, o.dados) };
-      if (tipo === "operacao_concluida") return { ok: true, email: emailOperacaoConcluida(ident, o.dados) };
-      if (tipo === "operacao_atrasada") return { ok: true, email: emailOperacaoAtrasada(ident, o.dados) };
-      return { ok: true, email: emailAlteracaoOperacao(ident, o.dados) };
+      if (tipo === "operacao_saida") return { ok: true, email: emailSaidaOperacao(ident, o.dados, perso) };
+      if (tipo === "operacao_concluida") return { ok: true, email: emailOperacaoConcluida(ident, o.dados, perso) };
+      if (tipo === "operacao_atrasada") return { ok: true, email: emailOperacaoAtrasada(ident, o.dados, perso) };
+      return { ok: true, email: emailAlteracaoOperacao(ident, o.dados, perso) };
     }
 
     /* ----------------------------- fidelidade ----------------------------- */
@@ -157,16 +193,25 @@ async function montarEmail(linha: LinhaEmail, ident: Awaited<ReturnType<typeof i
         quando: premio?.quando ?? "",
         condicoes: premio?.condicoes ?? f.dados.condicoes,
       };
-      if (tipo === "fidelidade_progresso") return { ok: true, email: emailFidelidadeProgresso(ident, dados) };
-      if (tipo === "fidelidade_quase_la") return { ok: true, email: emailFidelidadeQuaseLa(ident, dados) };
-      if (tipo === "fidelidade_conquista") return { ok: true, email: emailFidelidadeConquista(ident, dados) };
-      if (tipo === "fidelidade_uso") return { ok: true, email: emailFidelidadeUso(ident, dados) };
-      return { ok: true, email: emailFidelidadeVencendo(ident, dados) };
+      const perso = personalizacao(modelo, variaveisDeFidelidade(ident, dados));
+
+      if (tipo === "fidelidade_progresso") return { ok: true, email: emailFidelidadeProgresso(ident, dados, perso) };
+      if (tipo === "fidelidade_quase_la") return { ok: true, email: emailFidelidadeQuaseLa(ident, dados, perso) };
+      if (tipo === "fidelidade_conquista") return { ok: true, email: emailFidelidadeConquista(ident, dados, perso) };
+      if (tipo === "fidelidade_uso") return { ok: true, email: emailFidelidadeUso(ident, dados, perso) };
+      return { ok: true, email: emailFidelidadeVencendo(ident, dados, perso) };
     }
 
     /* ------------------------------- teste -------------------------------- */
     case "email_teste":
-      return { ok: true, email: emailTeste(ident, linha.recipient) };
+      return {
+        ok: true,
+        email: emailTeste(
+          ident,
+          linha.recipient,
+          personalizacao(modelo, variaveisDeReserva(ident, amostraReserva())),
+        ),
+      };
 
     default:
       return { ok: false, motivo: "origem_invalida" };
