@@ -1,15 +1,10 @@
 import Link from "next/link";
 import { requirePlatformAdmin } from "@/lib/auth";
 import { filaPlataforma, labelCategoria, resumoFila, STATUS_CHAMADO } from "@/lib/suporte";
+import { dataHoraBR } from "@/lib/format";
 import { Badge, Empty, PageHeader, StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-
-function dataHoraBR(sql: string | null) {
-  if (!sql) return "—";
-  const [dia, hora] = sql.slice(0, 16).split(" ");
-  return `${dia.split("-").reverse().join("/")}${hora ? ` ${hora}` : ""}`;
-}
 
 function abaAtiva(atual: string, esta: string) {
   return atual === esta

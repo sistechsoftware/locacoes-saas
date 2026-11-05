@@ -10,15 +10,10 @@ import {
   STATUS_CHAMADO,
 } from "@/lib/suporte";
 import { Alerta, Badge, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
+import { dataHoraBR } from "@/lib/format";
 import { definirStatusSuporteAction, responderSuportePlataformaAction } from "../actions";
 
 export const dynamic = "force-dynamic";
-
-function dataHoraBR(sql: string | null) {
-  if (!sql) return "—";
-  const [dia, hora] = sql.slice(0, 16).split(" ");
-  return `${dia.split("-").reverse().join("/")}${hora ? ` ${hora}` : ""}`;
-}
 
 function anexoHref(fileId: string, nome: string | null) {
   return `/api/suporte/arquivo/${fileId}?download=1&nome=${encodeURIComponent(nome ?? "anexo")}`;

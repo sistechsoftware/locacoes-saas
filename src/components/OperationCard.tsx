@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Badge, StatusBadge } from "./ui";
 import { Icon } from "./Icons";
 import { OPERATION_KINDS, OPERATION_STATUS } from "@/lib/domain";
-import { mapsLink, phoneBR, timeBR, waLink } from "@/lib/format";
+import { mapsLink, phoneBR, timeBR, today, waLink } from "@/lib/format";
 
 const KIND = Object.fromEntries(OPERATION_KINDS.map((k) => [k.value, k]));
 
@@ -23,7 +23,7 @@ export function OperationCard({
   const endereco = [op.address, op.district, op.city].filter(Boolean).join(", ");
   const maps = mapsLink(op.address, op.district, op.city);
   const wa = waLink(op.whatsapp || op.phone, `Olá, ${op.customer ?? ""}!`);
-  const late = op.scheduled_at.slice(0, 10) < new Date().toISOString().slice(0, 10) && op.status !== "concluida";
+  const late = op.scheduled_at.slice(0, 10) < today() && op.status !== "concluida";
 
   return (
     <div className="cartao overflow-hidden">

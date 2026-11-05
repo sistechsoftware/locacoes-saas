@@ -8,7 +8,7 @@ import {
   ultimaLocacao,
 } from "@/lib/portal";
 import { painelDoCliente } from "@/lib/fidelidade-db";
-import { dateBR, money, onlyDigits, phoneBR, waLink } from "@/lib/format";
+import { dateBR, dateUtcBR, money, onlyDigits, phoneBR, today, waLink } from "@/lib/format";
 import FidelidadeHero from "../FidelidadeHero";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export default async function PortalHome() {
         regra={fidelidade.regra}
         progresso={fidelidade.progresso}
         recompensas={fidelidade.recompensas}
-        hoje={new Date().toISOString().slice(0, 10)}
+        hoje={today()}
       />
 
       {cfg.aviso && (
@@ -181,7 +181,7 @@ export default async function PortalHome() {
           )}
         </div>
         <p className="mt-2 text-xs text-stone-500">
-          Cliente desde {dateBR(perfil?.created_at)} · CPF {perfil?.doc ? onlyDigits(perfil.doc).replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") : "—"}
+          Cliente desde {dateUtcBR(perfil?.created_at)} · CPF {perfil?.doc ? onlyDigits(perfil.doc).replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") : "—"}
         </p>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { requirePlatformAdmin } from "@/lib/auth";
 import { listarCobrancasPainel, resumoFinanceiroPainel } from "@/lib/billing";
+import { dataHoraBR } from "@/lib/format";
 import { Card, Badge, Empty } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -11,12 +12,6 @@ function money(centavos: number | null) {
 
 function dataBR(iso: string | null) {
   return iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—";
-}
-
-function dataHoraBR(sql: string | null) {
-  if (!sql) return "—";
-  const [dia, hora] = sql.slice(0, 16).split(" ");
-  return `${dia.split("-").reverse().join("/")}${hora ? ` ${hora}` : ""}`;
 }
 
 const TONE_COBRANCA: Record<string, any> = {

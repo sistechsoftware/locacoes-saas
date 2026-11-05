@@ -2,6 +2,7 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Badge, Alerta } from "@/components/ui";
+import { dataHoraBR } from "@/lib/format";
 import { removeCompanySignature, saveCompanySignature } from "@/app/(app)/configuracoes/actions";
 
 /**
@@ -122,7 +123,7 @@ export default function AssinaturaEmpresa({
           <div className="space-y-1">
             <Badge tone="verde">Assinatura cadastrada</Badge>
             <p className="text-xs text-stone-500">
-              Cadastrada em {atualizadaEm ? new Date(atualizadaEm.replace(" ", "T")).toLocaleString("pt-BR") : "—"}
+              Cadastrada em {dataHoraBR(atualizadaEm)}
               {" · "}usada automaticamente em novos contratos e recibos.
             </p>
           </div>

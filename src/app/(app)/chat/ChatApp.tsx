@@ -6,6 +6,7 @@ import { Icon } from "@/components/Icons";
 import Avatar from "@/components/Avatar";
 import { holdUnreadPolling, releaseUnreadPolling, seedUnread } from "@/lib/chat-unread";
 import { useUnread } from "@/lib/use-unread";
+import { utcParaLocal } from "@/lib/format";
 
 /* --------------------------------- tipos -------------------------------- */
 
@@ -697,7 +698,8 @@ export default function ChatApp({ me, initialUsers, initialConversations }: Prop
               )}
               {mensagens.map((m, i) => {
                 const anterior = mensagens[i - 1];
-                const quebraDia = !anterior || anterior.created_at?.slice(0, 10) !== m.created_at?.slice(0, 10);
+                const diaLocal = (s: string | null | undefined) => (s ? utcParaLocal(s).slice(0, 10) : "");
+                const quebraDia = !anterior || diaLocal(anterior.created_at) !== diaLocal(m.created_at);
                 return (
                   <div key={m.localId ?? m.id}>
                     {quebraDia && m.created_at && (

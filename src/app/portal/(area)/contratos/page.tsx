@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCliente } from "@/lib/portal-auth";
 import { contratosDoCliente, documentosDoPortal } from "@/lib/portal";
-import { dateBR, dateTimeBR } from "@/lib/format";
+import { dateBR, dateTimeBR, dateUtcBR } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -128,7 +128,7 @@ export default async function PortalContratos() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold text-tinta-900">{d.title}</p>
                   <p className="text-xs text-stone-500">
-                    {dateBR(d.created_at)}
+                    {dateUtcBR(d.created_at)}
                     {d.contract_number ? ` · contrato ${d.contract_number}` : ""}
                     {d.reservation_number ? ` · reserva ${d.reservation_number}` : ""}
                     {d.size ? ` · ${(d.size / 1024).toFixed(0)} KB` : ""}
