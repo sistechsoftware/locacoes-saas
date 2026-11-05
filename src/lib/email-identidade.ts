@@ -32,38 +32,55 @@ export function normalizarBaseUrl(valor: string | null | undefined): string {
 }
 
 /**
- * URL ABSOLUTA e pública da logo da empresa, ou null quando não há imagem
- * servível. `baseUrl` é a origem pública do ambiente (PUBLIC_URL).
+ * Caminho (relativo) da logo que o navegador consegue carregar SEM sessão:
+ * `/api/publico/arquivo/<id>`, ou null quando o valor não é imagem servível.
+ *
+ * É a versão sem origem do urlLogoEmail, para páginas servidas a quem NÃO tem
+ * sessão de equipe — login e primeiro acesso do portal e a área do cliente
+ * (sessão de cliente, que a rota autenticada /api/arquivo/<id> não aceita).
+ * Sem esta conversão o `company_logo` (`/api/arquivo/<id>`) volta 401 e a logo
+ * aparece quebrada.
  */
-export function urlLogoEmail(valor: string | null | undefined, baseUrl: string | null | undefined): string | null {
+export function rotaLogoPublica(valor: string | null | undefined): string | null {
   const bruto = String(valor ?? "").trim();
   if (!bruto) return null;
   if (ESQUEMA_PROIBIDO.test(bruto)) return null;
 
-  const base = normalizarBaseUrl(baseUrl);
-
-  // Caminho interno da logo: sempre converte para a rota pública e absolutiza.
+  // Caminho interno da logo: sempre converte para a rota pública.
   const rota = ROTA_LOGO.exec(bruto);
   if (rota) {
     const id = rota[1].toLowerCase();
     if (!HEX32.test(id)) return null;
-    return base ? `${base}/api/publico/arquivo/${id}` : null;
+    return `/api/publico/arquivo/${id}`;
   }
 
   // Rota de arquivo que não passou no formato estrito (id inválido) não é
-  // imagem: apontar para ela daria 404/403 no e-mail.
+  // imagem: apontar para ela daria 404/403.
   if (/^\/api\/(?:publico\/)?arquivo\//i.test(bruto)) return null;
 
-  // Qualquer outro caminho relativo só existe com origem conhecida.
+  // Caminho relativo de asset real (ex.: /icones/loco-logo.png).
   if (bruto.startsWith("/")) {
-    if (!base) return null;
     if (/[\s<>"]/.test(bruto)) return null;
-    return `${base}${bruto}`;
+    return bruto;
   }
 
   // URL absoluta: respeitada como está (não trocamos host de terceiros).
   if (/^https?:\/\/[^\s<>"]+$/i.test(bruto)) return bruto;
   return null;
+}
+
+/**
+ * URL ABSOLUTA e pública da logo da empresa, ou null quando não há imagem
+ * servível. `baseUrl` é a origem pública do ambiente (PUBLIC_URL).
+ */
+export function urlLogoEmail(valor: string | null | undefined, baseUrl: string | null | undefined): string | null {
+  const rota = rotaLogoPublica(valor);
+  if (!rota) return null;
+  // URL absoluta (host de terceiros): sai como está, sem origem do ambiente.
+  if (/^https?:\/\//i.test(rota)) return rota;
+  // Caminho relativo só é utilizável no e-mail com origem conhecida.
+  const base = normalizarBaseUrl(baseUrl);
+  return base ? `${base}${rota}` : null;
 }
 
 /**

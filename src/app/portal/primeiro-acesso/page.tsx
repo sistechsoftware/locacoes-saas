@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSettings } from "@/lib/settings";
+import { rotaLogoPublica } from "@/lib/email-identidade";
 import PortalSetupForm from "./PortalSetupForm";
 
 export const dynamic = "force-dynamic";
@@ -18,14 +19,16 @@ export default async function PrimeiroAcessoPage({
 }) {
   const { token } = await searchParams;
   const s = await getSettings();
+  // Pagina PUBLICA (sem sessao): a logo so carrega pela rota publica.
+  const logo = rotaLogoPublica(s.company_logo);
   const temToken = !!token && token.length >= 16 && token.length <= 128;
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-marca-900 via-marca-800 to-marca-700 p-5">
       <div className="mb-6 text-center">
-        {s.company_logo ? (
+        {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={s.company_logo} alt="Logo" className="mx-auto mb-3 h-16 w-16 rounded-2xl object-contain shadow-lg" />
+          <img src={logo} alt="Logo" className="mx-auto mb-3 h-16 w-16 rounded-2xl object-contain shadow-lg" />
         ) : (
           <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 text-2xl font-black text-white shadow-lg ring-1 ring-white/20">
             L
