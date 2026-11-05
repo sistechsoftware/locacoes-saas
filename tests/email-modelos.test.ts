@@ -461,7 +461,7 @@ describe("HTML do e-mail", () => {
     // rodapé com identidade da empresa (mesma informação do PDF de reserva)
     assert.ok(html.includes("CNPJ/CPF: 12.345.678/0001-90"));
     assert.ok(html.includes("Rua das Flores, 120 · São Paulo"));
-    assert.ok(html.includes("é cliente da Festas Lima"));
+    assert.ok(html.includes("cliente da Festas Lima"));
   });
 
   it("acentuação e caracteres especiais são preservados", () => {

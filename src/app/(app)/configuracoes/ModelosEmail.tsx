@@ -12,9 +12,13 @@
  *  - pré-visualização com a logo e o rodapé reais, com dados fictícios ou de
  *    uma reserva escolhida, e envio de teste que não dispara nada operacional;
  *  - cada aviso é salvo individualmente, e há restauração do texto original.
+ *
+ * Cada intenção chama a SUA ação de servidor: o botão de pré-visualizar não
+ * depende mais do `name`/`value` do submitter (que não chega de forma confiável
+ * no FormData da action) — antes, "Pré-visualizar" caía em "salvar".
  */
 import Link from "next/link";
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useRef, useState, useTransition } from "react";
 import { Alerta, Field } from "@/components/ui";
 import { TIPOS_EMAIL, type TipoEmail } from "@/lib/email-notificacoes";
 import { CAMPOS_MODELO, resumoModelo, type CampoModelo, type ModeloEmail } from "@/lib/email-modelos";
@@ -25,7 +29,13 @@ import {
   variaveisDoTipo,
   type GrupoVariavel,
 } from "@/lib/email-variaveis";
-import { enviarModeloTesteAction, modeloEmailAction, type ResultadoModeloAcao } from "./email-modelos-actions";
+import {
+  enviarModeloTesteAction,
+  previaModeloEmailAction,
+  restaurarModeloEmailAction,
+  salvarModeloEmailAction,
+  type ResultadoModeloAcao,
+} from "./email-modelos-actions";
 
 type ReservaOpcao = { id: number; rotulo: string };
 
@@ -55,11 +65,19 @@ export default function ModelosEmail({
 
   const refs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
-  const [estado, salvar, salvando] = useActionState<ResultadoModeloAcao | null, FormData>(modeloEmailAction, null);
+  const [salvo, salvar, salvando] = useActionState<ResultadoModeloAcao | null, FormData>(salvarModeloEmailAction, null);
   const [teste, enviarTeste, enviandoTeste] = useActionState<ResultadoModeloAcao | null, FormData>(
     enviarModeloTesteAction,
     null,
   );
+
+  // Prévia e restauração não vêm de formulário: são chamadas diretas, então o
+  // resultado (HTML/erro) fica em estado próprio.
+  const [previa, setPrevia] = useState<{ html: string; assunto: string } | null>(null);
+  const [avisoPrevia, setAvisoPrevia] = useState<ResultadoModeloAcao | null>(null);
+  const [gerando, iniciarPrevia] = useTransition();
+  const [restaurando, iniciarRestauro] = useTransition();
+  const [avisoRestauro, setAvisoRestauro] = useState<ResultadoModeloAcao | null>(null);
 
   const { variaveis, grupos } = useMemo(() => agrupar(tipo), [tipo]);
   const permitidas = useMemo(() => chavesDoTipo(tipo), [tipo]);
@@ -73,6 +91,9 @@ export default function ModelosEmail({
     setDraft(modelos[novo] ?? {});
     setCampoAtivo("corpo");
     setCopiado(null);
+    setPrevia(null);
+    setAvisoPrevia(null);
+    setAvisoRestauro(null);
   }
 
   function definir(campo: CampoModelo, valor: string) {
@@ -107,7 +128,32 @@ export default function ModelosEmail({
     }
   }
 
-  const mensagem = estado?.ok ? estado.mensagem : estado?.erro;
+  function gerarPrevia() {
+    iniciarPrevia(async () => {
+      const r = await previaModeloEmailAction(tipo, draft, reservaId ? Number(reservaId) : null);
+      if (r.ok && r.html) {
+        setPrevia({ html: r.html, assunto: r.assunto ?? "" });
+        setAvisoPrevia(null);
+      } else {
+        setPrevia(null);
+        setAvisoPrevia(r);
+      }
+    });
+  }
+
+  function restaurar() {
+    iniciarRestauro(async () => {
+      const r = await restaurarModeloEmailAction(tipo);
+      setAvisoRestauro(r);
+      if (r.ok) {
+        setDraft({});
+        setPrevia(null);
+        setAvisoPrevia(null);
+      }
+    });
+  }
+
+  const mensagem = salvo?.ok ? salvo.mensagem : salvo?.erro;
   const mensagemTeste = teste?.ok ? teste.mensagem : teste?.erro;
 
   return (
@@ -141,7 +187,13 @@ export default function ModelosEmail({
         </div>
       </div>
 
-      {mensagem && <Alerta tone={estado?.ok ? "verde" : "vermelho"}>{mensagem}</Alerta>}
+      {mensagem && <Alerta tone={salvo?.ok ? "verde" : "vermelho"}>{mensagem}</Alerta>}
+      {avisoRestauro && (
+        <Alerta tone={avisoRestauro.ok ? "verde" : "vermelho"}>
+          {avisoRestauro.ok ? avisoRestauro.mensagem : avisoRestauro.erro}
+        </Alerta>
+      )}
+      {avisoPrevia?.erro && <Alerta tone="vermelho">{avisoPrevia.erro}</Alerta>}
       {mensagemTeste && <Alerta tone={teste?.ok ? "verde" : "vermelho"}>{mensagemTeste}</Alerta>}
       {invalidas.length > 0 && (
         <Alerta tone="ambar">
@@ -153,99 +205,110 @@ export default function ModelosEmail({
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* ------------------------------- editor ------------------------------ */}
-        <form action={salvar} className="cartao space-y-4 p-4">
-          <input type="hidden" name="tipo" value={tipo} />
-          <input type="hidden" name="acao" value="salvar" />
+        <div className="cartao space-y-4 p-4">
+          <form action={salvar} className="space-y-4">
+            <input type="hidden" name="tipo" value={tipo} />
 
-          {CAMPOS_MODELO.map((campo) =>
-            campo.multilinha ? (
-              <Field key={campo.chave} label={campo.rotulo} hint={`${campo.descricao} Máximo ${campo.max} caracteres.`}>
-                <textarea
-                  id={`modelo-${campo.chave}`}
-                  name={`modelo_${campo.chave}`}
-                  ref={(el) => {
-                    refs.current[campo.chave] = el;
-                  }}
-                  value={draft[campo.chave] ?? ""}
-                  onChange={(e) => definir(campo.chave, e.target.value)}
-                  onFocus={() => setCampoAtivo(campo.chave)}
-                  disabled={!admin}
-                  rows={campo.chave === "corpo" ? 8 : 3}
-                  maxLength={campo.max}
-                  placeholder={campo.exemplo}
-                  className="campo"
-                />
-              </Field>
-            ) : (
-              <Field key={campo.chave} label={campo.rotulo} hint={`${campo.descricao} Máximo ${campo.max} caracteres.`}>
-                <input
-                  id={`modelo-${campo.chave}`}
-                  name={`modelo_${campo.chave}`}
-                  ref={(el) => {
-                    refs.current[campo.chave] = el;
-                  }}
-                  value={draft[campo.chave] ?? ""}
-                  onChange={(e) => definir(campo.chave, e.target.value)}
-                  onFocus={() => setCampoAtivo(campo.chave)}
-                  disabled={!admin}
-                  maxLength={campo.max}
-                  placeholder={campo.exemplo}
-                  className="campo"
-                />
-              </Field>
-            ),
-          )}
+            {CAMPOS_MODELO.map((campo) =>
+              campo.multilinha ? (
+                <Field
+                  key={campo.chave}
+                  label={campo.rotulo}
+                  hint={`${campo.descricao} Máximo ${campo.max} caracteres.`}
+                >
+                  <textarea
+                    id={`modelo-${campo.chave}`}
+                    name={`modelo_${campo.chave}`}
+                    ref={(el) => {
+                      refs.current[campo.chave] = el;
+                    }}
+                    value={draft[campo.chave] ?? ""}
+                    onChange={(e) => definir(campo.chave, e.target.value)}
+                    onFocus={() => setCampoAtivo(campo.chave)}
+                    disabled={!admin}
+                    rows={campo.chave === "corpo" ? 8 : 3}
+                    maxLength={campo.max}
+                    placeholder={campo.exemplo}
+                    className="campo"
+                  />
+                </Field>
+              ) : (
+                <Field
+                  key={campo.chave}
+                  label={campo.rotulo}
+                  hint={`${campo.descricao} Máximo ${campo.max} caracteres.`}
+                >
+                  <input
+                    id={`modelo-${campo.chave}`}
+                    name={`modelo_${campo.chave}`}
+                    ref={(el) => {
+                      refs.current[campo.chave] = el;
+                    }}
+                    value={draft[campo.chave] ?? ""}
+                    onChange={(e) => definir(campo.chave, e.target.value)}
+                    onFocus={() => setCampoAtivo(campo.chave)}
+                    disabled={!admin}
+                    maxLength={campo.max}
+                    placeholder={campo.exemplo}
+                    className="campo"
+                  />
+                </Field>
+              ),
+            )}
 
-          <p className="rounded-lg bg-nuvem-100 px-3 py-2 text-xs text-stone-600">
-            Linha em branco separa parágrafos. Os dados do evento (data, itens, valor) continuam vindo do sistema — o
-            texto é seu, a informação é sempre a atual.
-          </p>
+            <p className="rounded-lg bg-nuvem-100 px-3 py-2 text-xs text-stone-600">
+              Linha em branco separa parágrafos. Os dados do evento (data, itens, valor) continuam vindo do sistema — o
+              texto é seu, a informação é sempre a atual.
+            </p>
 
-          {admin ? (
-            <div className="flex flex-wrap gap-2">
+            {admin ? (
               <button
                 type="submit"
-                name="acao"
-                value="salvar"
                 disabled={salvando}
                 className="rounded-xl bg-marca-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
                 {salvando ? "Salvando…" : "Salvar este modelo"}
               </button>
+            ) : (
+              <Alerta tone="ambar">Apenas o administrador pode alterar os modelos de e-mail.</Alerta>
+            )}
+          </form>
+
+          {admin && (
+            <div className="flex flex-wrap gap-2 border-t border-nuvem-200 pt-4">
               <button
-                type="submit"
-                name="acao"
-                value="previa"
-                disabled={salvando}
+                type="button"
+                onClick={gerarPrevia}
+                disabled={gerando}
                 className="rounded-xl border border-nuvem-300 px-4 py-2 text-sm font-semibold disabled:opacity-60"
               >
-                {salvando ? "Gerando…" : "Pré-visualizar"}
+                {gerando ? "Gerando prévia…" : "Pré-visualizar"}
               </button>
               <button
-                type="submit"
-                name="acao"
-                value="restaurar"
-                disabled={salvando}
+                type="button"
+                onClick={restaurar}
+                disabled={restaurando}
                 className="rounded-xl border border-nuvem-300 px-4 py-2 text-sm font-semibold text-stone-600 disabled:opacity-60"
               >
-                Restaurar modelo original
+                {restaurando ? "Restaurando…" : "Restaurar modelo original"}
               </button>
             </div>
-          ) : (
-            <Alerta tone="ambar">Apenas o administrador pode alterar os modelos de e-mail.</Alerta>
           )}
-        </form>
+        </div>
 
         {/* ---------------------------- variáveis ----------------------------- */}
         <aside className="cartao h-fit p-4 lg:sticky lg:top-4">
           <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-stone-500">Variáveis disponíveis</h3>
           <p className="mb-3 text-xs text-stone-500">
-            Clique em <b>inserir</b> para adicionar no campo em foco ({CAMPOS_MODELO.find((c) => c.chave === campoAtivo)?.rotulo.toLowerCase()}).
+            Clique em <b>inserir</b> para adicionar no campo em foco (
+            {CAMPOS_MODELO.find((c) => c.chave === campoAtivo)?.rotulo.toLowerCase()}).
           </p>
           <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
             {grupos.map((g) => (
               <div key={g}>
-                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-stone-500">{GRUPOS_VARIAVEIS[g].rotulo}</p>
+                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-stone-500">
+                  {GRUPOS_VARIAVEIS[g].rotulo}
+                </p>
                 <p className="mb-2 text-xs text-stone-500">{GRUPOS_VARIAVEIS[g].descricao}</p>
                 <ul className="space-y-2">
                   {variaveis
@@ -282,7 +345,8 @@ export default function ModelosEmail({
           <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-stone-500">Pré-visualização</h3>
           <p className="text-sm text-stone-600">
             Mostra o e-mail com a logo, o rodapé e as variáveis já substituídas. Escolha uma reserva da empresa para ver
-            os dados reais, ou deixe em branco para usar os dados de demonstração.
+            os dados reais, ou deixe em branco para usar os dados de demonstração. A prévia usa o texto da tela, mesmo
+            antes de salvar.
           </p>
         </div>
 
@@ -297,30 +361,37 @@ export default function ModelosEmail({
               ))}
             </select>
           </Field>
+          <button
+            type="button"
+            onClick={gerarPrevia}
+            disabled={gerando}
+            className="rounded-xl bg-marca-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {gerando ? "Gerando…" : previa ? "Atualizar prévia" : "Gerar prévia"}
+          </button>
         </div>
 
-        {estado?.html ? (
+        {previa ? (
           <div className="space-y-2">
             <p className="text-xs text-stone-500">
-              Assunto: <b className="text-tinta-900">{estado.assunto}</b>
+              Assunto: <b className="text-tinta-900">{previa.assunto}</b>
             </p>
             <iframe
               title="Pré-visualização do e-mail"
-              srcDoc={estado.html}
+              srcDoc={previa.html}
               sandbox=""
               className="h-[620px] w-full rounded-xl border border-nuvem-300 bg-white"
             />
           </div>
         ) : (
           <p className="rounded-xl border border-dashed border-nuvem-300 bg-nuvem-50 px-4 py-6 text-center text-sm text-stone-500">
-            Clique em <b>Pré-visualizar</b> para montar o e-mail.
+            Clique em <b>Gerar prévia</b> para montar o e-mail.
           </p>
         )}
 
         <form action={enviarTeste} className="space-y-3 border-t border-nuvem-200 pt-4">
           {/* O rascunho inteiro é reenviado: o teste usa exatamente o que está na tela. */}
           <input type="hidden" name="tipo" value={tipo} />
-          <input type="hidden" name="acao" value="teste" />
           {CAMPOS_MODELO.map((c) => (
             <input key={c.chave} type="hidden" name={`modelo_${c.chave}`} value={draft[c.chave] ?? ""} />
           ))}
