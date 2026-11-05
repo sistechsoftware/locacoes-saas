@@ -42,18 +42,27 @@ export default async function ProdutoPage({
 
   const d0 = query.from.slice(0, 10);
   /*
-   * Uma serie em lote (hoje + 14 dias) substitui as 15 chamadas de
-   * availabilityFor que a tela fazia — dezenas de consultas ao D1 viram um
-   * numero fixo pequeno. O restante das leituras sai em paralelo.
+   * Duas leituras, as duas no mesmo motor:
+   *
+   * - `hoje` e a consulta EXATA do filtro (uma data e horario, ou um
+   *   intervalo) e alimenta os numeros "na consulta";
+   * - a serie dos proximos 14 dias e por DIA DE CALENDARIO. Antes ela repetia
+   *   a consulta deslocada em +1 dia; como o padrao do filtro e pontual
+   *   (duracao zero), cada celula virava a disponibilidade do instante em que
+   *   a pagina foi aberta — reservas que terminavam antes desse horario
+   *   sumiam do calendario e o mesmo dia mudava de numero conforme a hora da
+   *   visita. O calendario do estoque precisa do pico do dia (stock.ts).
+   *
+   * O restante das leituras sai em paralelo, num numero fixo de consultas.
    */
-  const serie = await availabilityForDays(p.id, query.from, query.to, 15, options);
-  const [hoje, ...proximosBruto] = serie;
-  const proximos = proximosBruto.map((a, i) => ({
-    date: addDays(d0, i + 1),
-    from: addMinutes(query.from, (i + 1) * 1440),
-    to: addMinutes(query.to, (i + 1) * 1440),
-    ...a,
-  }));
+  const [hoje, serie] = await Promise.all([
+    availabilityFor(p.id, query.from, query.to, null, options),
+    availabilityForDays(p.id, addDays(d0, 1), 14, options),
+  ]);
+  const proximos = serie.map((a, i) => {
+    const date = addDays(d0, i + 1);
+    return { date, from: `${date}T00:00`, to: `${addDays(date, 1)}T00:00`, ...a };
+  });
   const ehKit = p.kind === "kit";
   const [units, maint, historicoBruto, componentes, kitsQueUsam, usos] = await Promise.all([
     all<any>(`SELECT * FROM product_units WHERE product_id = ? AND company_id = ? ORDER BY code`, [p.id, cid]),
@@ -185,7 +194,7 @@ export default async function ProdutoPage({
         </Section>
 
         <Section title="Disponibilidade dos próximos 14 dias">
-          <p className="mb-2 text-xs text-stone-500">A mesma consulta deslocada dia a dia, mantendo os horarios e a duracao. Preparacao: {options.preparationMinutes} min.</p>
+          <p className="mb-2 text-xs text-stone-500">Cada dia mostra o pico de ocupacao do dia inteiro (00:00 ate 00:00 do dia seguinte). Preparacao: {options.preparationMinutes} min.</p>
           <div className="grid grid-cols-7 gap-1.5">
             {proximos.map((d) => (
               <div
