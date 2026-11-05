@@ -1,14 +1,9 @@
 import { requirePlatformAdmin } from "@/lib/auth";
 import { listarEventosWebhookPainel } from "@/lib/billing";
+import { dataHoraBR } from "@/lib/format";
 import { Card, Empty } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-
-function dataHoraBR(sql: string | null) {
-  if (!sql) return "—";
-  const [dia, hora] = sql.slice(0, 16).split(" ");
-  return `${dia.split("-").reverse().join("/")}${hora ? ` ${hora}` : ""}`;
-}
 
 /** Trilha completa de eventos recebidos do webhook do Asaas. */
 export default async function SaasEventosPage() {

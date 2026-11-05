@@ -1,6 +1,7 @@
 import { requireModule } from "@/lib/auth";
 import { estadoAssinatura, listarPlanos, STATUS_ROTULO, assinaturaDaEmpresa } from "@/lib/billing";
 import { all } from "@/lib/db";
+import { dateUtcBR } from "@/lib/format";
 import { PageHeader, Card, Badge, Empty } from "@/components/ui";
 import GerarCobrancaButton from "./GerarCobrancaButton";
 import DadosPagamentoButton from "./DadosPagamentoButton";
@@ -115,7 +116,7 @@ export default async function FaturamentoPage() {
                 <div>
                   <span className="font-semibold text-tinta-900">{money(c.amount_cents)}</span>
                   <span className="text-stone-500"> · venc. {dataBR(c.due_date)}</span>
-                  {c.paid_at && <span className="text-stone-500"> · pago {dataBR(c.paid_at)}</span>}
+                  {c.paid_at && <span className="text-stone-500"> · pago {dateUtcBR(c.paid_at)}</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-stone-500">

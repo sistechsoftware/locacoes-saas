@@ -140,6 +140,20 @@ export function utcParaLocal(s: string | null | undefined): string {
 }
 
 /**
+ * Carimbo de data e hora que veio do banco, exibido no fuso do negocio.
+ *
+ * E o formato das telas de suporte, eventos e painel SaaS: quando o carimbo
+ * traz hora, ele foi gravado em UTC (default datetime('now','localtime') do
+ * Worker) e precisa ser convertido — exibir o texto cru mostrava tres horas a
+ * mais. Data pura (YYYY-MM-DD, ja no calendario do negocio) continua sendo so
+ * a data. Vazio vira travessao, como as telas sempre exibiram.
+ */
+export function dataHoraBR(s: string | null | undefined): string {
+  if (!s) return "—";
+  return /\d{2}:\d{2}/.test(s) ? utcParaLocal(s) : dateBR(s);
+}
+
+/**
  * Interpreta "YYYY-MM-DD" ou "YYYY-MM-DDTHH:MM" como DATA DE CALENDARIO.
  *
  * Estas strings sao datas de agenda ("o evento e dia 10/10"), nao instantes:

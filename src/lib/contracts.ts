@@ -169,7 +169,7 @@ async function variaveisComuns(
       // calculada (fora do LARGURA_LINHA), entao ela nao aparece
       adiantamento_percentual: pctAdiantamento > 0 ? (exprDePct(pctAdiantamento) ?? "") : "",
       valor_saldo: money(saldoContratual),
-      data_hoje: new Date().toLocaleDateString("pt-BR"),
+      data_hoje: dateBR(today()),
   };
 }
 

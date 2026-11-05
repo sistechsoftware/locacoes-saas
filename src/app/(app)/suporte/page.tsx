@@ -1,15 +1,10 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/auth";
 import { listarChamados, labelCategoria, prioridadeDaEmpresa, STATUS_CHAMADO } from "@/lib/suporte";
+import { dataHoraBR } from "@/lib/format";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-
-function dataHoraBR(sql: string | null) {
-  if (!sql) return "—";
-  const [dia, hora] = sql.slice(0, 16).split(" ");
-  return `${dia.split("-").reverse().join("/")}${hora ? ` ${hora}` : ""}`;
-}
 
 /**
  * Suporte — FUNDAMENTAL: todo plano abre e acompanha chamados (o que é

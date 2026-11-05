@@ -7,7 +7,7 @@
  */
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dateBR, dateUtcBR, endOfMonth, nowLocal, parseMoney, startOfWeek, toISODate, today, utcParaLocal, valorValido } from "../src/lib/format.ts";
+import { addDays, dataHoraBR, dateBR, dateUtcBR, endOfMonth, nowLocal, parseMoney, startOfWeek, toISODate, today, utcParaLocal, valorValido } from "../src/lib/format.ts";
 
 describe("datas no fuso do negocio", () => {
   before(() => {
@@ -134,5 +134,13 @@ describe("carimbo do banco exibido em Brasilia", () => {
   it("vazio continua vazio", () => {
     assert.equal(dateUtcBR(null), "-");
     assert.equal(dateUtcBR(""), "-");
+  });
+
+  it("dataHoraBR converte o carimbo com hora e preserva data pura", () => {
+    // carimbo do banco: 01:30 UTC de dia 8 = 22:30 de dia 7 em Brasilia
+    assert.equal(dataHoraBR("2026-09-08 01:30:00"), "07/09/2026 22:30");
+    // coluna de data (ja no calendario do negocio) nao pode ser deslocada
+    assert.equal(dataHoraBR("2026-09-08"), "08/09/2026");
+    assert.equal(dataHoraBR(null), "—");
   });
 });

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { dateBR, dateTimeBR } from "@/lib/format";
+import { dateTimeBR, dateUtcBR } from "@/lib/format";
 import { Badge, Empty, Section } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { adicionarDocumento, removerDocumento } from "@/app/(app)/clientes/actions";
@@ -43,7 +43,7 @@ export function DocumentosCliente({
                   <p className="text-xs text-stone-500">
                     {virtual && d.signed_at
                       ? `${d.signer_name} · ${dateTimeBR(d.signed_at)}`
-                      : dateBR(d.created_at)}
+                      : dateUtcBR(d.created_at)}
                     {d.contract_number ? ` · contrato ${d.contract_number}` : ""}
                     {d.size ? ` · ${(d.size / 1024).toFixed(0)} KB` : ""}
                   </p>

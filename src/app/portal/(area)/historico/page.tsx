@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCliente } from "@/lib/portal-auth";
 import { reservasDoCliente, financeiroDoCliente } from "@/lib/portal";
-import { dateBR, money, timeBR } from "@/lib/format";
+import { dateBR, money, timeBR, today } from "@/lib/format";
 import { statusDef, RESERVATION_STATUS } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
@@ -63,7 +63,7 @@ export default async function PortalHistorico() {
 }
 
 function ReservaRow({ r }: { r: Reserva }) {
-  const futuro = r.event_date >= new Date().toISOString().slice(0, 10) && !["cancelada", "finalizada", "retirada"].includes(r.status);
+  const futuro = r.event_date >= today() && !["cancelada", "finalizada", "retirada"].includes(r.status);
   return (
     <Link href={`/portal/historico/${r.id}`} className="block cartao p-3.5 transition hover:border-marca-300">
       <div className="flex items-start justify-between gap-3">
