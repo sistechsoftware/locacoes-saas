@@ -487,6 +487,22 @@ describe("HTML do e-mail", () => {
 /* Compatibilidade do fluxo antigo                                     */
 /* ------------------------------------------------------------------ */
 
+describe("origem pública por ambiente", () => {
+  it("staging não aponta PUBLIC_URL para o domínio de produção", () => {
+    // A logo e os links dos e-mails saem com PUBLIC_URL. Se staging apontar para
+    // o domínio de produção, a URL da logo cai no D1 do outro ambiente e o
+    // cliente de e-mail mostra imagem quebrada (o caso que originou este teste).
+    const cfg = fs.readFileSync(path.join(process.cwd(), "wrangler.jsonc"), "utf8");
+    const inicio = cfg.indexOf('"name": "limas-saas-staging"');
+    assert.ok(inicio > 0, "bloco de staging não encontrado no wrangler.jsonc");
+    const bloco = cfg.slice(inicio, cfg.indexOf('"triggers"', inicio));
+    const m = /"PUBLIC_URL":\s*"([^"]*)"/.exec(bloco);
+    assert.ok(m, "staging sem PUBLIC_URL declarado");
+    assert.match(m![1], /limas-saas-staging/, `staging PUBLIC_URL deveria ser a origem do próprio Worker, veio ${m![1]}`);
+    assert.equal(/locogestao\.com\.br/.test(m![1]), false, "staging apontando para o domínio de produção");
+  });
+});
+
 describe("compatibilidade com o fluxo existente", () => {
   it("os templates continuam aceitando a chamada antiga, sem personalização", async () => {
     // Assinaturas antigas (ident, dados) seguem válidas: o terceiro parâmetro é opcional.

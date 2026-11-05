@@ -85,10 +85,12 @@
         "NOMINATIM_URL": "https://nominatim.openstreetmap.org/",
         "OSRM_URL": "https://routing.openstreetmap.de/routed-car",
         "VAPID_SUBJECT": "mailto:uericlislima@gmail.com",
-        // Domínio público do Locô (Cloudflare -> Worker). Usado nos links dos
-        // e-mails gerados pelo cron (fim de trial, cobrança gerada) — em request
-        // os links saem do host que o usuário acessou.
-        "PUBLIC_URL": "https://locogestao.com.br",
+        // Origem PÚBLICA DO AMBIENTE (não a de produção). Antes apontava para
+        // locogestao.com.br: links dos e-mails e a URL da logo saíam apontando
+        // para o OUTRO ambiente, e a logo cadastrada aqui dava 404 (o arquivo
+        // existe só no D1 de staging) — o cabeçalho do e-mail de teste saía com
+        // imagem quebrada. Em request os links continuam saindo do host acessado.
+        "PUBLIC_URL": "https://limas-saas-staging.limas-locacoes.workers.dev",
         // Mapa da calculadora de frete (opcional; vazia = sem mapa).
         "GOOGLE_MAPS_CLIENT_KEY": ""
       },
