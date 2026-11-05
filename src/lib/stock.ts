@@ -4,6 +4,7 @@ import { all, one, run, batch, scalar } from "./db";
 import { settingsDaEmpresa } from "./settings";
 import { tenantCompanyId } from "./tenant";
 import { addMinutes, normalizeStamp, timeWindow } from "./availability-time";
+import { addDays } from "./format";
 import { stockOptions, type StockOptions } from "./availability-settings";
 import { commitStockBatch } from "./stock-write";
 import { HOLDING_STATUSES } from "./domain";
@@ -431,30 +432,43 @@ export async function availabilityFor(
 }
 
 /**
- * Disponibilidade do produto em N janelas diarias consecutivas (serie).
+ * Disponibilidade do produto em N DIAS DE CALENDARIO consecutivos (serie).
  *
- * A tela de detalhe do estoque mostrava 14 dias chamando availabilityFor
- * quinze vezes: cada chamada re-consultava produtos, ocupacoes e composicao,
- * dando dezenas de idas ao D1 para desenhar um calendario. Aqui as ocupacoes
- * sao lidas UMA vez cobrindo a janela inteira e o pico de cada dia e apurado
- * em memoria com o mesmo peakUsage — regra identica, custo de leitura unico.
+ * Cada posicao e um dia inteiro — [00:00 do dia, 00:00 do dia seguinte), no
+ * relogio de parede do fuso do negocio — e o numero e o PICO de ocupacao
+ * daquele dia, apurado pelo mesmo peakUsage de toda consulta de
+ * disponibilidade e pela mesma composicao de kits. E a resposta para "quantas
+ * unidades posso alugar neste dia?": o pior momento do dia, nunca a sobra de
+ * um horario especifico.
  *
- * A janela do dia i e [from + i dias, to + i dias], exatamente o deslocamento
- * que a tela fazia antes.
+ * POR QUE NAO DESLOCAR A CONSULTA, COMO ANTES: a versao anterior repetia a
+ * janela consultada em +1 dia. Na tela de detalhe do estoque a consulta padrao
+ * e PONTUAL (uma data e um horario, sem "ate"), entao a janela tinha duracao
+ * zero e cada celula virava a disponibilidade NAQUELE INSTANTE: o calendario
+ * inteiro mudava conforme a hora em que a pagina era aberta. Uma reserva das
+ * 13:00 as 17:00 sumia de uma consulta aberta as 18:00, e o mesmo dia podia
+ * mostrar 30, 20 ou 0 kits sem que nada no estoque tivesse mudado. Um
+ * calendario de dias precisa do dia, nao do instante da visita.
+ *
+ * As ocupacoes sao lidas UMA vez cobrindo a serie inteira e o pico de cada dia
+ * e apurado em memoria — mesmo custo de leitura da versao anterior.
  */
 export async function availabilityForDays(
   productId: number,
-  from: string,
-  to: string,
+  startDate: string,
   days: number,
   options: StockOptions = {},
   companyId?: number,
 ): Promise<Availability[]> {
-  ({ from, to } = timeWindow(from, to, true));
   const n = Math.max(1, Math.floor(days));
+  const d0 = addDays(startDate.slice(0, 10), 0);
+  // [inicio, fim) do dia i: fim exclusivo, para uma devolucao a meia-noite
+  // contar no dia que termina e nao no seguinte.
+  const dia = (i: number) => ({ from: `${addDays(d0, i)}T00:00`, to: `${addDays(d0, i + 1)}T00:00` });
+  const from = dia(0).from;
   const config = await stockOptions(options);
   const cid = await empresa(companyId);
-  const fimTotal = addMinutes(to, (n - 1) * 1440);
+  const fimTotal = dia(n - 1).to;
 
   const p = await one<any>(
     `SELECT p.id, p.code, p.name, p.kind, p.total_qty, p.maintenance_qty, p.min_qty, c.name AS category
@@ -484,8 +498,7 @@ export async function availabilityForDays(
       porProduto.set(h.product_id, list);
     }
     return Array.from({ length: n }, (_, i) => {
-      const f = addMinutes(from, i * 1440);
-      const t = addMinutes(to, i * 1440);
+      const { from: f, to: t } = dia(i);
       const disponivel = new Map<number, number>();
       for (const x of products) {
         disponivel.set(x.id, (efetivo.get(x.id) ?? 0) - peakUsage(porProduto.get(x.id) ?? [], f, t));
@@ -510,8 +523,7 @@ export async function availabilityForDays(
 
   const holds = await loadHoldsInner(from, fimTotal, config, null, productId, null, cid);
   return Array.from({ length: n }, (_, i) => {
-    const f = addMinutes(from, i * 1440);
-    const t = addMinutes(to, i * 1440);
+    const { from: f, to: t } = dia(i);
     return availabilityRow(p, peakUsage(holds, f, t));
   });
 }
