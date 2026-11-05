@@ -4,7 +4,7 @@ import { one } from "@/lib/db";
 import { requireCliente } from "@/lib/portal-auth";
 import { documentoAssinado } from "@/lib/assinatura-db";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
-import { getSettings } from "@/lib/settings";
+import { settingsDaEmpresa } from "@/lib/settings";
 import { rotaLogoPublica } from "@/lib/email-identidade";
 import { dateTimeBR } from "@/lib/format";
 import ContratoTexto from "@/components/ContratoTexto";
@@ -34,13 +34,20 @@ export default async function PortalContratoAssinadoPage({ params }: { params: P
 
   const doc = await documentoAssinado(assinaturaId);
   if (!doc) notFound();
-  const s = await getSettings();
+  /*
+   * Pagina servida com sessao de CLIENTE: a empresa dona do documento vem do
+   * company_id da sessao. Sem este escopo, getSettings/getCompanySignature
+   * cairiam no fallback de tenant e a assinatura exibida poderia ser a de
+   * outra empresa. Mesmo criterio que a pagina publica /assinar/[token] usa.
+   */
+  const s = await settingsDaEmpresa(cliente.company_id);
   /**
    * Assinatura da empresa no documento que o cliente ve: entra somente quando
    * ela ja estava cadastrada no momento da assinatura (flag gravada em
    * assinar()). Assinaturas anteriores a este recurso continuam como eram.
    */
-  const assinaturaEmpresa = doc.company_signature_included === 1 ? await getCompanySignature() : null;
+  const assinaturaEmpresa =
+    doc.company_signature_included === 1 ? await getCompanySignature(cliente.company_id) : null;
 
   return (
     <div className="space-y-4">
@@ -94,7 +101,10 @@ export default async function PortalContratoAssinadoPage({ params }: { params: P
                   {assinaturaEmpresa ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={assinaturaEmpresa.url}
+                      // Rota do PORTAL: /api/arquivo/<id> exige sessao da
+                      // equipe e respondia 401 para o cliente (imagem
+                      // quebrada). Aqui a autorizacao e a sessao de cliente.
+                      src={`/api/portal/arquivo/${assinaturaEmpresa.file_id}`}
                       alt="Assinatura da empresa"
                       className="h-24 max-w-[240px] object-contain"
                     />

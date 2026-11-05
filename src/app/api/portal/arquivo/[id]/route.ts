@@ -36,7 +36,20 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     `SELECT customer_id, file_id FROM customer_documents WHERE file_id = ?`,
     [id],
   );
-  const autorizado = !!donoAssinatura || (!!viaDocumento && viaDocumento.customer_id === cliente.id && !!viaDocumento.file_id);
+  // Assinatura digital da EMPRESA (company_signature_file_id): entra no
+  // documento assinado que o cliente abre no portal. O proximo item do bloco
+  // de assinaturas renderizava /api/arquivo/<id>, que exige sessao da EQUIPE —
+  // o cliente caia em 401 e a imagem aparecia quebrada. Vale so a assinatura
+  // da empresa DO PROPRIO cliente; a de outra empresa continua 404.
+  const assinaturaDaEmpresa = await one<{ n: number }>(
+    `SELECT 1 AS n FROM company_settings
+      WHERE company_id = ? AND key = 'company_signature_file_id' AND value = ?`,
+    [cliente.company_id, id],
+  );
+  const autorizado =
+    !!donoAssinatura ||
+    (!!viaDocumento && viaDocumento.customer_id === cliente.id && !!viaDocumento.file_id) ||
+    !!assinaturaDaEmpresa;
   if (!autorizado) return new Response("Not found", { status: 404 });
 
   const file = await getFile(id);
