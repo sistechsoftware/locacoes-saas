@@ -5,6 +5,7 @@ import { requireCliente } from "@/lib/portal-auth";
 import { documentoAssinado } from "@/lib/assinatura-db";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
 import { getSettings } from "@/lib/settings";
+import { rotaLogoPublica } from "@/lib/email-identidade";
 import { dateTimeBR } from "@/lib/format";
 import ContratoTexto from "@/components/ContratoTexto";
 import CabecalhoContrato from "@/components/CabecalhoContrato";
@@ -62,7 +63,7 @@ export default async function PortalContratoAssinadoPage({ params }: { params: P
             className="mb-4 border-b border-nuvem-200 pb-3"
             nome={s.company_name}
             subtitulo={`Contrato ${doc.contract_number}`}
-            logo={s.company_logo}
+            logo={rotaLogoPublica(s.company_logo)}
             doc={s.company_doc}
             telefone={s.company_phone}
             endereco={s.company_address}

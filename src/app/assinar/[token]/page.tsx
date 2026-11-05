@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { porToken, congelarCorpoAoAbrir } from "@/lib/assinatura-db";
 import { impedimento, MENSAGEM_IMPEDIMENTO } from "@/lib/assinatura";
 import { settingsDaEmpresa } from "@/lib/settings";
+import { rotaLogoPublica } from "@/lib/email-identidade";
 import { operacaoDaEmpresa } from "@/lib/operacao-db";
 import { dateBR, dateTimeBR, money, nowLocal } from "@/lib/format";
 import PainelAssinatura from "./PainelAssinatura";
@@ -48,7 +49,7 @@ export default async function AssinarPage({ params }: { params: Promise<{ token:
         className="mb-4"
         nome={s.company_name}
         subtitulo={`Contrato de Locação ${registro.contract_number}`}
-        logo={s.company_logo}
+        logo={rotaLogoPublica(s.company_logo)}
         doc={s.company_doc}
         telefone={s.company_phone}
         endereco={s.company_address}

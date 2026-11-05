@@ -5,6 +5,7 @@ import { getCustomer } from "./queries";
 import { painelDoCliente, historicoDe } from "./fidelidade-db";
 import { reservationItems, reservationMoney, reservationOperations } from "./reservations";
 import { getSettings } from "./settings";
+import { rotaLogoPublica } from "./email-identidade";
 import { today } from "./format";
 
 /**
@@ -268,7 +269,9 @@ export async function configuracaoPortal() {
   return {
     empresa: s.company_name,
     tagline: s.company_tagline,
-    logo: s.company_logo,
+    // A sessao do portal e de CLIENTE: /api/arquivo/<id> (que exige sessao da
+    // equipe) responde 401 e a logo aparece quebrada. Rota publica sempre.
+    logo: rotaLogoPublica(s.company_logo),
     aviso: s.portal_public_notice ?? "",
     whatsapp: s.portal_whatsapp || s.company_whatsapp || "",
     telefone: s.portal_contact_phone || s.company_phone || "",
