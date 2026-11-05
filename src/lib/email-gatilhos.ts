@@ -19,7 +19,7 @@
  */
 import "server-only";
 import { agendarEmail, cancelarPendentes, cancelarPendentesDaReserva, type AgendaEmail } from "./email-queue";
-import { descreverAlteracoesReserva, operacaoConfigDaEmpresa, reservaParaEmail } from "./email-dados";
+import { clienteDaOperacao, descreverAlteracoesReserva, operacaoConfigDaEmpresa, reservaParaEmail } from "./email-dados";
 import { tenantCompanyId } from "./tenant";
 import { chaveEvento, type EventoFidelidade } from "./fidelidade";
 
@@ -168,12 +168,16 @@ export function operacaoStatus(
     if (para === "cancelada") {
       await cancelarPendentes(companyId, "operacao", operationId, "lembrete_cancelado", TIPOS_LEMBRETE_OPERACAO);
     }
+    // Destinatário da operação: sem ele a fila descartava o aviso como
+    // `origem_invalida` e "Em rota"/"Concluída" nunca chegava ao cliente.
+    const customerId = await clienteDaOperacao(companyId, operationId);
     await agendarEmail({
       companyId,
       type: tipo,
       source: "operacao",
       sourceId: operationId,
       reservationId,
+      customerId,
       context: { operation_id: operationId, de, para },
       dedupeKey: `c${companyId}:${tipo}:${operationId}:${para}`,
     });
@@ -192,12 +196,15 @@ export function operacaoAlterada(
 
   return failOpen("operacaoAlterada", async () => {
     await cancelarPendentes(companyId, "operacao", operationId, "lembrete_cancelado", TIPOS_LEMBRETE_OPERACAO);
+    // Mesmo motivo de operacaoStatus: a fila exige destinatário agendado.
+    const customerId = await clienteDaOperacao(companyId, operationId);
     await agendarEmail({
       companyId,
       type: "operacao_alteracao",
       source: "operacao",
       sourceId: operationId,
       reservationId,
+      customerId,
       context: { operation_id: operationId, de: anterior.scheduled_at, para: nova.scheduled_at },
       dedupeKey: `c${companyId}:operacao_alteracao:${operationId}:${String(nova.scheduled_at ?? "")}`,
     });
@@ -208,12 +215,15 @@ export function operacaoAlterada(
 export function operacaoCancelada(companyId: number, operationId: number, reservationId: number | null): Promise<void> {
   return failOpen("operacaoCancelada", async () => {
     await cancelarPendentes(companyId, "operacao", operationId, "lembrete_cancelado", TIPOS_LEMBRETE_OPERACAO);
+    // Mesmo motivo de operacaoStatus: a fila exige destinatário agendado.
+    const customerId = await clienteDaOperacao(companyId, operationId);
     await agendarEmail({
       companyId,
       type: "operacao_alteracao",
       source: "operacao",
       sourceId: operationId,
       reservationId,
+      customerId,
       context: { operation_id: operationId, de: "", para: "cancelada" },
       dedupeKey: `c${companyId}:operacao_alteracao:${operationId}:cancelada`,
     });

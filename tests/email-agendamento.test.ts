@@ -20,7 +20,7 @@ import { insert, resetCompanyCache, run, runWithCompany, all, getDb, scalar } fr
 import { setSettings } from "../src/lib/settings.ts";
 import { configEmailDaEmpresa } from "../src/lib/email-queue.ts";
 import { runEmailScheduler, __internos } from "../src/lib/email-scheduler.ts";
-import { reservaAlterada, reservaCancelada, operacaoStatus } from "../src/lib/email-gatilhos.ts";
+import { reservaAlterada, reservaCancelada, operacaoAlterada, operacaoCancelada, operacaoStatus } from "../src/lib/email-gatilhos.ts";
 import { epochDeWallClock, wallClockIso } from "../src/lib/email-tempo.ts";
 import type { EmailMensagem, ResultadoEnvio } from "../src/lib/email.ts";
 
@@ -378,6 +378,10 @@ describe("operações (entregas e retiradas)", () => {
     const l = await linhas(2, "operacao_saida");
     assert.equal(l.length, 1, "status repetido gerou segundo e-mail");
     assert.equal(l[0].dedupe_key, `c2:operacao_saida:${opId}:em_rota`);
+    // Sem customerId a fila descartava a linha (origem_invalida, recipient vazio):
+    // o aviso de saída existia, mas nunca saía. Agora nasce apto ao envio.
+    assert.equal(l[0].status, "pendente", "aviso de saída foi descartado sem destinatário");
+    assert.equal(l[0].recipient, "ana@exemplo.com");
   });
 
   it("operação concluída registra o aviso de conclusão", async () => {
@@ -392,6 +396,46 @@ describe("operações (entregas e retiradas)", () => {
     const l = await linhas(2, "operacao_concluida");
     assert.equal(l.length, 1);
     assert.equal(l[0].dedupe_key, `c2:operacao_concluida:${opId}:concluida`);
+    // Mesma pegadinha do aviso de saída: linha existente não é linha enviável.
+    assert.equal(l[0].status, "pendente", "aviso de conclusão foi descartado sem destinatário");
+    assert.equal(l[0].recipient, "ana@exemplo.com");
+  });
+
+  it("operação reagendada avisa o cliente com o destinatário resolvido", async () => {
+    const now = agora();
+    const cliente = await novoCliente(2);
+    const reservaId = await novaReserva(2, cliente, "confirmada", wallClockIso(now + DIAS(3), FUSO));
+    const antigo = wallClockIso(now + DIAS(1), FUSO);
+    const novo = wallClockIso(now + DIAS(2), FUSO);
+    const opId = await novaOperacao(2, reservaId, antigo);
+
+    await operacaoAlterada(2, opId, { scheduled_at: antigo }, { scheduled_at: novo }, reservaId);
+
+    const l = await linhas(2, "operacao_alteracao");
+    assert.equal(l.length, 1);
+    assert.equal(l[0].status, "pendente", "aviso de reagendamento foi descartado sem destinatário");
+    assert.equal(l[0].recipient, "ana@exemplo.com");
+  });
+
+  it("operação cancelada limpa os lembretes e avisa com o destinatário resolvido", async () => {
+    const now = agora();
+    const cliente = await novoCliente(2);
+    const reservaId = await novaReserva(2, cliente, "confirmada", wallClockIso(now + DIAS(3), FUSO));
+    const opId = await novaOperacao(2, reservaId, wallClockIso(now + DIAS(1), FUSO));
+    await capturar(2, now);
+    assert.equal((await linhas(2, "operacao_lembrete")).filter((x) => x.status === "pendente").length, 1);
+
+    await operacaoCancelada(2, opId, reservaId);
+
+    const l = await linhas(2, "operacao_alteracao");
+    assert.equal(l.length, 1);
+    assert.equal(l[0].status, "pendente", "aviso de cancelamento foi descartado sem destinatário");
+    assert.equal(l[0].recipient, "ana@exemplo.com");
+    assert.equal(
+      (await linhas(2, "operacao_lembrete")).filter((x) => x.status === "pendente").length,
+      0,
+      "lembrete sobreviveu ao cancelamento",
+    );
   });
 
   it("operação atrasada gera um aviso por dia, sem virar spam por minuto", async () => {

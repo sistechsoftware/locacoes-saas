@@ -236,6 +236,33 @@ export async function operacaoParaEmail(
   };
 }
 
+/**
+ * Cliente da operação, para o AGENDAMENTO (não para o template).
+ *
+ * A fila só aceita uma linha com destinatário: ou `recipient` explícito ou um
+ * `customerId` para revalidar na hora do envio. Os gatilhos de status/cancela-
+ * mento de operação chegam sem nenhum dos dois, e sem isto `agendarEmail`
+ * descartava o aviso como `origem_invalida` — o e-mail de "Em rota"/"Concluída"
+ * nunca saía, em nenhum ambiente, e o descarte era silencioso.
+ *
+ * Mesmas ligações de tenant de `operacaoParaEmail`: operação da empresa, com
+ * reserva da empresa e cliente dela — divergência devolve null e a fila
+ * classifica como origem inválida em vez de enviar para o cliente errado.
+ */
+export async function clienteDaOperacao(companyId: number, operationId: number): Promise<number | null> {
+  const r = await one<{ customer_id: number | null; customer_company_id: number | null }>(
+    `SELECT r.customer_id, c.company_id AS customer_company_id
+       FROM operations o
+       JOIN reservations r ON r.id = o.reservation_id
+       LEFT JOIN customers c ON c.id = r.customer_id
+      WHERE o.id = ? AND o.company_id = ? AND r.company_id = ?`,
+    [operationId, companyId, companyId],
+  );
+  if (!r || r.customer_id === null) return null;
+  if (r.customer_company_id !== null && r.customer_company_id !== companyId) return null;
+  return r.customer_id;
+}
+
 export async function dadosDaOperacao(companyId: number, operationId: number, cfg: OperacaoConfig): Promise<Resultado<OperacaoEmail>> {
   const base = await operacaoParaEmail(companyId, operationId, cfg);
   if (!base.ok) return base;
