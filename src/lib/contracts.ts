@@ -1,12 +1,12 @@
 import "server-only";
-import { insert, nextNumber, one } from "./db";
+import { batch, insert, nextNumber, one, run } from "./db";
 import { getSettings, renderTemplate, renderTemplateHtml, settingsDaEmpresa, type Settings } from "./settings";
 import { getCompanySignature } from "./assinatura-empresa";
 import { contractUsesHtml, itensParaHtml, marcaConfiavel } from "./contract-html";
 import { getReservation, reservationItems, reservationMoney } from "./reservations";
 import { adiantamentoPrevisto, percentualAdiantamento, saldoContratualPrevisto } from "./receber";
 import { exprDePct } from "./desconto";
-import { dateBR, dataPorExtensoBR, docBR, money, phoneBR, today } from "./format";
+import { dateBR, dataPorExtensoBR, docBR, money, nowLocal, phoneBR, today } from "./format";
 
 /** Monta o texto do contrato a partir do modelo configurado e dos dados da reserva. */
 export async function buildContractBody(reservationId: number, contractNumber: string): Promise<string> {
@@ -199,7 +199,21 @@ export async function ensureContract(reservationId: number, userId?: number): Pr
     [reservationId],
   );
   if (existing) return existing.id;
-  // empresa do contrato = empresa da reserva (a action já validou a posse)
+  return await criarContrato(reservationId, userId);
+}
+
+/**
+ * Cria SEMPRE um contrato novo da reserva, com numeracao nova e corpo montado
+ * a partir dos dados ATUAIS (empresa em company_settings, itens e valores da
+ * reserva).
+ *
+ * E o caminho da substituicao: `ensureContract` reaproveita o contrato vigente
+ * (que e justamente o que se quer aposentar), entao a substituicao precisa de
+ * uma criacao que nunca devolva um contrato existente.
+ *
+ * Empresa do contrato = empresa da reserva (a action ja validou a posse).
+ */
+async function criarContrato(reservationId: number, userId?: number): Promise<number> {
   const dono = await one<{ company_id: number }>(`SELECT company_id FROM reservations WHERE id = ?`, [reservationId]);
   const number = await nextNumber("contracts", "CTR");
   const body = await buildContractBody(reservationId, number);
@@ -208,4 +222,70 @@ export async function ensureContract(reservationId: number, userId?: number): Pr
     `INSERT INTO contracts (number, reservation_id, status, body, created_by, company_signature_included, company_id) VALUES (?,?,'pendente',?,?,?,?)`,
     [number, reservationId, body, userId ?? null, temAssinaturaEmpresa ? 1 : 0, dono?.company_id ?? 1],
   );
+}
+
+export type ResultadoSubstituicao =
+  | { ok: true; novoId: number; numero: string; anterior: string }
+  | { ok: false; erro: string };
+
+/**
+ * Revoga o contrato atual e emite um novo com os dados cadastrais de agora.
+ *
+ * NADA e apagado. O contrato anterior recebe status 'cancelado' + revoked_at,
+ * revoked_reason e revoked_by, tem os links de assinatura pendentes revogados
+ * e aponta para o substituto em superseded_by_id; o novo guarda replaces_id.
+ * O snapshot assinado (body_snapshot, document_hash, IP, PNG) fica intacto, e
+ * a reserva, itens, valores, pagamentos, adiantamentos e caucao nao sao
+ * tocados: a unica escrita acontece em contracts e contract_signatures.
+ *
+ * O lote final e atomico. Se ele falhar, o contrato recem-criado (ainda sem
+ * link e sem assinatura) e descartado para nao existirem dois vigentes.
+ */
+export async function substituirContrato(
+  contractId: number,
+  companyId: number,
+  usuario: { id: number },
+  motivo: string,
+): Promise<ResultadoSubstituicao> {
+  const atual = await one<any>(
+    `SELECT id, number, reservation_id, status, superseded_by_id FROM contracts WHERE id = ? AND company_id = ?`,
+    [contractId, companyId],
+  );
+  if (!atual) return { ok: false, erro: "Contrato não encontrado." };
+  if (atual.superseded_by_id) return { ok: false, erro: `O contrato ${atual.number} já foi substituído.` };
+  if (atual.status === "cancelado") return { ok: false, erro: `O contrato ${atual.number} está cancelado.` };
+
+  const razao = String(motivo ?? "").trim().slice(0, 300);
+  if (razao.length < 3) return { ok: false, erro: "Informe o motivo da substituição." };
+
+  // Primeiro o novo documento, com os dados atuais. Se falhar aqui, nada muda.
+  const novoId = await criarContrato(atual.reservation_id, usuario.id);
+  const novo = await one<{ number: string }>(`SELECT number FROM contracts WHERE id = ?`, [novoId]);
+  if (!novo) return { ok: false, erro: "Não foi possível gerar o novo contrato." };
+
+  const agora = nowLocal();
+  try {
+    await batch([
+      {
+        // nenhum link antigo pode continuar valido depois da substituicao
+        sql: `UPDATE contract_signatures SET status='revogado', revoked_at=? WHERE contract_id=? AND status='pendente'`,
+        params: [agora, contractId],
+      },
+      {
+        sql: `UPDATE contracts
+                 SET status='cancelado', revoked_at=?, revoked_reason=?, revoked_by=?, superseded_by_id=?
+               WHERE id=? AND company_id=? AND status <> 'cancelado'`,
+        params: [agora, razao, usuario.id, novoId, contractId, companyId],
+      },
+      {
+        sql: `UPDATE contracts SET replaces_id=? WHERE id=? AND company_id=?`,
+        params: [contractId, novoId, companyId],
+      },
+    ]);
+  } catch {
+    await run(`DELETE FROM contracts WHERE id = ? AND company_id = ?`, [novoId, companyId]);
+    return { ok: false, erro: "Não foi possível concluir a substituição. Tente novamente." };
+  }
+
+  return { ok: true, novoId, numero: novo.number, anterior: atual.number };
 }

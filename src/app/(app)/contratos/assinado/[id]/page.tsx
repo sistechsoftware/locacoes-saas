@@ -29,6 +29,11 @@ export default async function DocumentoAssinadoPage({ params }: { params: Promis
   if (!doc) notFound();
   const s = await getSettings();
   const assinaturaEmpresa = doc.company_signature_included === 1 ? await getCompanySignature() : null;
+  /**
+   * Arquivo congelado no ato da assinatura (migration 0051). Assinaturas
+   * anteriores a essa coluna continuam usando a assinatura atual, sem quebrar.
+   */
+  const arquivoAssinaturaEmpresa = doc.company_signature_file_id ?? assinaturaEmpresa?.file_id ?? null;
 
   return (
     <div className="space-y-4">
@@ -52,6 +57,13 @@ export default async function DocumentoAssinadoPage({ params }: { params: Promis
           Este é o texto exato que o cliente leu e aceitou. Alterações feitas no contrato depois da assinatura não
           aparecem aqui: para mudar algo, gere um novo contrato.
         </Alerta>
+        {doc.superseded_by_id && (
+          <Alerta tone="vermelho" title="Documento substituído">
+            Este documento foi revogado e substituído
+            {doc.substituido_por_numero ? ` pelo contrato ${doc.substituido_por_numero}` : ""}. O texto assinado e o
+            registro abaixo continuam arquivados para consulta e auditoria.
+          </Alerta>
+        )}
       </div>
 
       <article className="cartao p-6 print:border-0 print:p-0 print:shadow-none">
@@ -95,10 +107,10 @@ export default async function DocumentoAssinadoPage({ params }: { params: Promis
               </div>
               <div className="text-center">
                 <p className="mb-2 text-xs font-semibold uppercase text-stone-500">Assinatura da Locadora</p>
-                {assinaturaEmpresa ? (
+                {arquivoAssinaturaEmpresa ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={assinaturaEmpresa.url}
+                    src={`/api/arquivo/${arquivoAssinaturaEmpresa}`}
                     alt="Assinatura da empresa"
                     className="h-28 max-w-[240px] object-contain"
                   />

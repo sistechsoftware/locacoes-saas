@@ -147,7 +147,8 @@ export async function rebuildNotifications({ force = false } = {}) {
   }
 
   for (const r of contracts) {
-    if (r.cstatus === "assinado") continue;
+    // revogado/substituido nao e pendencia: o contrato vigente e outro
+    if (r.cstatus === "assinado" || r.cstatus === "cancelado") continue;
     push({
       dedupe_key: `contract-${r.id}`,
       type: "contrato",

@@ -191,7 +191,7 @@ export const RESERVATION_SELECT = `
          (SELECT COALESCE(SUM(qty),0) FROM reservation_items i WHERE i.reservation_id = r.id) AS item_qty,
          (SELECT d.status FROM deposits d WHERE d.reservation_id = r.id ORDER BY d.id DESC LIMIT 1) AS deposit_status,
          (SELECT d.amount_cents FROM deposits d WHERE d.reservation_id = r.id ORDER BY d.id DESC LIMIT 1) AS deposit_cents,
-         (SELECT ct.status FROM contracts ct WHERE ct.reservation_id = r.id ORDER BY ct.id DESC LIMIT 1) AS contract_status
+         (SELECT ct.status FROM contracts ct WHERE ct.reservation_id = r.id AND ct.status <> 'cancelado' ORDER BY ct.id DESC LIMIT 1) AS contract_status
     FROM reservations r
     JOIN customers c ON c.id = r.customer_id`;
 

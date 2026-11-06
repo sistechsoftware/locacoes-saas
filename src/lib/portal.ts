@@ -191,6 +191,9 @@ export type ContratoPortal = {
   assinatura_id: number | null;
   assinatura_status: string | null;
   assinatura_signed_at: string | null;
+  /** Contrato que substituiu este (null = vigente ou apenas cancelado). */
+  superseded_by_id: number | null;
+  substituido_por: string | null;
 };
 
 /**
@@ -204,6 +207,8 @@ export type ContratoPortal = {
 export async function contratosDoCliente(customerId: number): Promise<ContratoPortal[]> {
   return await all<any>(
     `SELECT ct.id, ct.number, ct.status, ct.created_at, ct.signed_at, ct.signer_name,
+            ct.superseded_by_id,
+            (SELECT x.number FROM contracts x WHERE x.id = ct.superseded_by_id) AS substituido_por,
             r.id AS reservation_id, r.number AS reservation_number, r.event_date, r.total_cents,
             (SELECT a.id FROM contract_signatures a
               WHERE a.contract_id = ct.id AND a.status = 'assinado'
