@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { one, run } from "@/lib/db";
 import { assertAdmin, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
-import { buildContractBody, buildContractBodyDigital, ensureContract } from "@/lib/contracts";
+import {
+  buildContractBody,
+  buildContractBodyDigital,
+  ensureContract,
+  substituirContrato as substituirContratoDb,
+} from "@/lib/contracts";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
 import { nowLocal, today } from "@/lib/format";
 import { assinaturasDoContrato, gerarLink, revogarLink } from "@/lib/assinatura-db";
@@ -39,6 +44,11 @@ export async function regenerateContract(fd: FormData) {
   if (c.status === "assinado") {
     redirect(`/contratos/${id}?erro=${encodeURIComponent("Contrato assinado não pode ser regerado.")}`);
   }
+  if (c.status === "cancelado" || c.superseded_by_id) {
+    redirect(
+      `/contratos/${id}?erro=${encodeURIComponent("Contrato substituído ou cancelado não pode ser regerado.")}`,
+    );
+  }
   const assinaturas = await assinaturasDoContrato(id);
   const temLinkAberto = assinaturas.some((a: any) => a.status === "pendente");
   const body = temLinkAberto
@@ -68,6 +78,12 @@ export async function setContractStatus(fd: FormData) {
   const signer = String(fd.get("signer_name") ?? "");
   const c = await one<any>(`SELECT * FROM contracts WHERE id = ? AND company_id = ?`, [id, companyId]);
   if (!c) return;
+  // documento revogado e prova historica: status nao pode ser reaberto
+  if (c.status === "cancelado" || c.superseded_by_id) {
+    redirect(
+      `/contratos/${id}?erro=${encodeURIComponent("Contrato substituído ou cancelado não pode ter o status alterado.")}`,
+    );
+  }
 
   await run(
     `UPDATE contracts SET status = ?, signer_name = COALESCE(NULLIF(?,''), signer_name),
@@ -84,6 +100,18 @@ export async function setContractStatus(fd: FormData) {
 export async function saveContractBody(fd: FormData) {
   const user = await assertAdmin();
   const id = Number(fd.get("id"));
+  const c = await one<any>(`SELECT status, superseded_by_id FROM contracts WHERE id = ? AND company_id = ?`, [
+    id,
+    user.company_id,
+  ]);
+  if (!c) return;
+  // o texto aceito esta congelado em body_snapshot; editar o corpo de um
+  // contrato assinado so criaria divergencia entre a tela e a via assinada
+  if (c.status === "assinado" || c.status === "cancelado" || c.superseded_by_id) {
+    redirect(
+      `/contratos/${id}?erro=${encodeURIComponent("Contrato assinado ou substituído não pode ser editado. Gere um novo contrato.")}`,
+    );
+  }
   const body = String(fd.get("body") ?? "");
   await run(`UPDATE contracts SET body = ? WHERE id = ? AND company_id = ?`, [body, id, user.company_id]);
   await logAction(user, "editar", "contrato", id, `${user.name} editou o texto do contrato`);
@@ -104,8 +132,16 @@ export async function gerarLinkAssinatura(fd: FormData) {
   const { user, companyId } = await requireModuleEdit("contratos");
   const contractId = Number(fd.get("id"));
   // O contrato precisa pertencer à empresa do usuário antes de gerar link.
-  if (!await one(`SELECT id FROM contracts WHERE id = ? AND company_id = ?`, [contractId, companyId])) {
-    redirect("/contratos");
+  const contrato = await one<any>(
+    `SELECT status, superseded_by_id FROM contracts WHERE id = ? AND company_id = ?`,
+    [contractId, companyId],
+  );
+  if (!contrato) redirect("/contratos");
+  // assinado ja tem via; cancelado/substituido nao pode voltar a circular
+  if (contrato.status === "assinado" || contrato.status === "cancelado" || contrato.superseded_by_id) {
+    redirect(
+      `/contratos/${contractId}?erro=${encodeURIComponent("Contrato assinado ou substituído não gera novo link.")}`,
+    );
   }
   const criado = await gerarLink(contractId, user.id);
   if (!criado) redirect(`/contratos/${contractId}?erro=${encodeURIComponent("Contrato não encontrado.")}`);
@@ -118,6 +154,38 @@ export async function gerarLinkAssinatura(fd: FormData) {
   await logAction(user, "editar", "contrato", contractId, `${user.name} gerou o link de assinatura do contrato`);
   revalidatePath(`/contratos/${contractId}`);
   redirect(`/contratos/${contractId}?token=${criado.token}`);
+}
+
+/**
+ * Substitui o contrato vigente por um novo, com os dados cadastrais atuais.
+ *
+ * O anterior e revogado (cancelado + linhagem) e a assinatura dele fica
+ * arquivada; a reserva e o financeiro nao sao tocados. O operador cai no
+ * contrato novo, de onde gera o link para a cliente assinar de novo.
+ */
+export async function substituirContrato(fd: FormData) {
+  const { user, companyId } = await requireModuleEdit("contratos");
+  const id = Number(fd.get("id"));
+  const motivo = String(fd.get("motivo") ?? "");
+
+  const r = await substituirContratoDb(id, companyId, user, motivo);
+  if (!r.ok) {
+    redirect(`/contratos/${id}?erro=${encodeURIComponent(r.erro)}`);
+  }
+
+  await logAction(
+    user,
+    "editar",
+    "contrato",
+    r.novoId,
+    `${user.name} substituiu o contrato ${r.anterior} pelo ${r.numero} (${motivo.trim().slice(0, 300)})`,
+    { substituido: id, substituido_numero: r.anterior, motivo: motivo.trim().slice(0, 300) },
+  );
+  revalidatePath(`/contratos/${id}`);
+  revalidatePath(`/contratos/${r.novoId}`);
+  revalidatePath("/contratos");
+  revalidatePath(`/reservas/${Number(fd.get("reservation_id"))}`);
+  redirect(`/contratos/${r.novoId}`);
 }
 
 export async function revogarLinkAssinatura(fd: FormData) {

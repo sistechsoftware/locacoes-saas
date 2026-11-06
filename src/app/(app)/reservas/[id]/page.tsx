@@ -1053,6 +1053,11 @@ export default async function ReservaPage({
                   <span>
                     <span className="block text-sm font-bold">{c.number}</span>
                     <span className="block text-xs text-stone-500">Gerado em {dateUtcBR(c.created_at)}</span>
+                    {c.superseded_by_id && (
+                      <span className="block text-xs font-semibold text-red-700">
+                        Substituído por outro contrato
+                      </span>
+                    )}
                   </span>
                   <StatusBadge defs={CONTRACT_STATUS} value={c.status} />
                 </Link>

@@ -48,6 +48,8 @@ export default async function PortalContratoAssinadoPage({ params }: { params: P
    */
   const assinaturaEmpresa =
     doc.company_signature_included === 1 ? await getCompanySignature(cliente.company_id) : null;
+  /** Mesmo arquivo congelado da tela interna; assinaturas antigas caem na atual. */
+  const arquivoAssinaturaEmpresa = doc.company_signature_file_id ?? assinaturaEmpresa?.file_id ?? null;
 
   return (
     <div className="space-y-4">
@@ -60,6 +62,14 @@ export default async function PortalContratoAssinadoPage({ params }: { params: P
           ✅ Contrato assinado digitalmente por <b>{doc.signer_name}</b> em {dateTimeBR(doc.signed_at)}. Este é o texto
           exato que foi lido e aceito — impressões feitas a partir daqui valem como via do contrato.
         </div>
+
+        {doc.superseded_by_id && (
+          <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+            Este documento foi revogado e substituído
+            {doc.substituido_por_numero ? ` pelo contrato ${doc.substituido_por_numero}` : ""}. Ele permanece aqui
+            para consulta e auditoria; o contrato vigente é o substituto.
+          </div>
+        )}
 
         <PrintButton />
 
@@ -98,13 +108,13 @@ export default async function PortalContratoAssinadoPage({ params }: { params: P
                 </div>
                 <div className="text-center">
                   <p className="mb-2 text-xs font-semibold uppercase text-stone-500">Assinatura da Locadora</p>
-                  {assinaturaEmpresa ? (
+                  {arquivoAssinaturaEmpresa ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       // Rota do PORTAL: /api/arquivo/<id> exige sessao da
                       // equipe e respondia 401 para o cliente (imagem
                       // quebrada). Aqui a autorizacao e a sessao de cliente.
-                      src={`/api/portal/arquivo/${assinaturaEmpresa.file_id}`}
+                      src={`/api/portal/arquivo/${arquivoAssinaturaEmpresa}`}
                       alt="Assinatura da empresa"
                       className="h-24 max-w-[240px] object-contain"
                     />

@@ -17,11 +17,13 @@ import { getCompanySignature } from "./assinatura-empresa";
 /** Cria o link e devolve o token em texto: e a unica vez que ele existe legivel. */
 export async function gerarLink(contractId: number, userId?: number): Promise<{ token: string; id: number } | null> {
   const contrato = await one<any>(
-    `SELECT c.id, c.status, c.reservation_id, c.company_id, r.customer_id
+    `SELECT c.id, c.status, c.reservation_id, c.company_id, c.superseded_by_id, r.customer_id
        FROM contracts c JOIN reservations r ON r.id = c.reservation_id WHERE c.id = ?`,
     [contractId],
   );
   if (!contrato) return null;
+  // contrato revogado/substituido nao emite link novo
+  if (contrato.status === "cancelado" || contrato.superseded_by_id) return null;
 
   const s = await getSettings();
   const dias = Math.max(0, Number(s.signature_link_days ?? 7) || 0);
@@ -88,6 +90,7 @@ export async function congelarCorpoAoAbrir(registro: any): Promise<any> {
   if (registro.status !== "pendente") return registro;
   if (registro.expires_at && nowLocal() > registro.expires_at.slice(0, 19)) return registro;
   if (registro.contract_status === "assinado") return registro;
+  if (registro.contract_status === "cancelado") return registro;
 
   const contrato = await one<any>(
     `SELECT number, reservation_id, status FROM contracts WHERE id = ?`,
@@ -132,6 +135,7 @@ export async function porToken(token: string) {
   const hash = await sha256(token);
   return await one<any>(
     `SELECT a.*, c.number AS contract_number, c.body, c.status AS contract_status, c.body_frozen_at AS body_frozen_at,
+            c.superseded_by_id, c.revoked_reason,
             r.number AS reservation_number, r.event_date, r.address, r.district, r.city, r.total_cents,
             cli.name AS customer_name
        FROM contract_signatures a
@@ -169,6 +173,10 @@ export async function assinar(
   if (bloqueio) {
     return { erro: bloqueio === "assinado" ? "Este contrato já foi assinado." : "Este link não é mais válido." };
   }
+  // o link pode estar pendente por uma corrida com a substituicao
+  if (registro.contract_status === "cancelado" || registro.superseded_by_id) {
+    return { erro: "Este contrato foi substituído. Peça um novo link à locadora." };
+  }
 
   const agora = nowLocal();
   const arquivoId = crypto.randomUUID().replace(/-/g, "");
@@ -192,11 +200,12 @@ export async function assinar(
   // momento em que o cliente assinou (veja company_signature_included).
   // company_id EXPLICITO: esta rota é pública, sem sessão, e a assinatura lida
   // é a da empresa dona do contrato — o fallback de tenant apontava para outra.
-  const temAssinaturaEmpresa = (await getCompanySignature(registro.company_id)) !== null;
+  const assinaturaEmpresa = await getCompanySignature(registro.company_id);
   const marcou = await run(
     `UPDATE contract_signatures
         SET status='assinado', body_snapshot=?, signer_name=?, signature_file_id=?, document_hash=?,
-            accepted_at=?, signed_at=?, ip_address=?, user_agent=?, company_signature_included=?
+            accepted_at=?, signed_at=?, ip_address=?, user_agent=?, company_signature_included=?,
+            company_signature_file_id=?
       WHERE id=? AND status='pendente'`,
     [
       registro.body,
@@ -207,7 +216,10 @@ export async function assinar(
       agora,
       (contexto.ip ?? "").slice(0, 45) || null,
       (contexto.userAgent ?? "").slice(0, 300) || null,
-      temAssinaturaEmpresa ? 1 : 0,
+      assinaturaEmpresa ? 1 : 0,
+      // congela o ARQUIVO exibido: trocar a assinatura da empresa depois nao
+      // pode alterar a imagem de um documento ja assinado
+      assinaturaEmpresa?.file_id ?? null,
       registro.id,
     ],
   );
@@ -264,7 +276,8 @@ export async function documentoAssinado(signatureId: number, companyId?: number)
   }
   return await one<any>(
     `SELECT a.*, c.number AS contract_number, cli.name AS customer_name, cli.doc AS customer_doc,
-            r.number AS reservation_number
+            r.number AS reservation_number, c.superseded_by_id, c.revoked_reason,
+            (SELECT x.number FROM contracts x WHERE x.id = c.superseded_by_id) AS substituido_por_numero
        FROM contract_signatures a
        JOIN contracts c ON c.id = a.contract_id
        JOIN customers cli ON cli.id = a.customer_id

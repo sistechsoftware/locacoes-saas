@@ -13,7 +13,14 @@ import { assinaturasDoContrato } from "@/lib/assinatura-db";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
 import LinkAssinatura from "@/components/LinkAssinatura";
 import ContratoTexto from "@/components/ContratoTexto";
-import { gerarLinkAssinatura, regenerateContract, revogarLinkAssinatura, saveContractBody, setContractStatus } from "../actions";
+import {
+  gerarLinkAssinatura,
+  regenerateContract,
+  revogarLinkAssinatura,
+  saveContractBody,
+  setContractStatus,
+  substituirContrato,
+} from "../actions";
 import PrintButton from "./PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +58,15 @@ export default async function ContratoPage({
   const assinaturaEmpresa = mostraAssinaturaEmpresa ? await getCompanySignature() : null;
   const pendente = assinaturas.find((a: any) => a.status === "pendente");
   const assinada = assinaturas.find((a: any) => a.status === "assinado");
+  /**
+   * Contrato revogado: substituido por outro ou cancelado. O documento e a
+   * assinatura continuam arquivados, mas nada aqui gera link novo ou reabre
+   * status — o vigente e o substituto.
+   */
+  const substituto = c.superseded_by_id
+    ? await one<any>(`SELECT id, number FROM contracts WHERE id = ? AND company_id = ?`, [c.superseded_by_id, cid])
+    : null;
+  const revogado = c.status === "cancelado" || !!c.superseded_by_id;
   const cliente = await one<any>(
     `SELECT cu.whatsapp, cu.phone FROM reservations r JOIN customers cu ON cu.id = r.customer_id WHERE r.id = ? AND r.company_id = ?`,
     [c.reservation_id, cid],
@@ -84,8 +100,35 @@ export default async function ContratoPage({
 
         {sp.erro && <Alerta tone="vermelho">{sp.erro}</Alerta>}
 
+        {revogado && (
+          <Alerta tone="vermelho" title={c.superseded_by_id ? "Contrato substituído" : "Contrato cancelado"}>
+            {c.superseded_by_id ? (
+              <>
+                Este documento foi revogado
+                {c.revoked_at ? ` em ${dateTimeBR(c.revoked_at)}` : ""} e substituído por{" "}
+                {substituto ? (
+                  <Link href={`/contratos/${substituto.id}`} className="font-bold underline">
+                    {substituto.number}
+                  </Link>
+                ) : (
+                  "outro contrato"
+                )}
+                .
+              </>
+            ) : (
+              <>Este documento foi cancelado{c.revoked_at ? ` em ${dateTimeBR(c.revoked_at)}` : ""}.</>
+            )}
+            {c.revoked_reason ? ` Motivo: ${c.revoked_reason}.` : ""} A via assinada e o histórico continuam
+            arquivados para consulta e auditoria.
+          </Alerta>
+        )}
+
         <Section title="Assinatura Virtual">
-          {assinada ? (
+          {revogado ? (
+            <p className="text-sm text-stone-600">
+              O link deste contrato foi revogado. Gere um novo link a partir do contrato vigente da reserva.
+            </p>
+          ) : assinada ? (
             <>
               <Alerta tone="verde" title="Contrato assinado">
                 Assinado por {assinada.signer_name} em {dateTimeBR(assinada.signed_at)}. A versão assinada está
@@ -157,6 +200,7 @@ export default async function ContratoPage({
             {c.signed_at && <span className="text-xs text-stone-500">Assinado em {dateBR(c.signed_at)}</span>}
           </div>
 
+          {!revogado && (
           <form action={setContractStatus} className="mt-3 flex flex-wrap items-end gap-2">
             <input type="hidden" name="id" value={c.id} />
             <label className="min-w-[8rem]">
@@ -175,7 +219,9 @@ export default async function ContratoPage({
             </label>
             <SubmitButton>Salvar</SubmitButton>
           </form>
+          )}
 
+          {!revogado && (
           <div className="mt-3 flex flex-wrap gap-2">
             <form action={regenerateContract}>
               <input type="hidden" name="id" value={c.id} />
@@ -193,9 +239,41 @@ export default async function ContratoPage({
               </Link>
             )}
           </div>
+          )}
         </Card>
 
-        {sp.editar === "1" && ehAdmin(user.role) && (
+        {!revogado && (
+          <Card>
+            <h3 className="text-sm font-bold text-tinta-900">Substituir contrato</h3>
+            <p className="mt-1 text-xs text-stone-600">
+              Revoga este documento e gera um novo com os dados atuais da empresa. A reserva, os valores, os
+              pagamentos e a caução não mudam; a versão anterior (inclusive assinada) fica arquivada para auditoria.
+            </p>
+            <form action={substituirContrato} className="mt-3 flex flex-wrap items-end gap-2">
+              <input type="hidden" name="id" value={c.id} />
+              <input type="hidden" name="reservation_id" value={c.reservation_id} />
+              <label className="min-w-[14rem] flex-1">
+                <span className="rotulo">Motivo da substituição</span>
+                <input
+                  name="motivo"
+                  required
+                  minLength={3}
+                  maxLength={300}
+                  className="campo"
+                  placeholder="Ex.: dados cadastrais da locadora atualizados"
+                />
+              </label>
+              <SubmitButton
+                variant="perigo"
+                confirm="Substituir este contrato? Ele será revogado e um novo será gerado com os dados atuais."
+              >
+                Substituir contrato
+              </SubmitButton>
+            </form>
+          </Card>
+        )}
+
+        {sp.editar === "1" && ehAdmin(user.role) && !revogado && (
           <Card>
             <form action={saveContractBody} className="space-y-2">
               <input type="hidden" name="id" value={c.id} />

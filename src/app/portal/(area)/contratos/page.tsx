@@ -23,8 +23,15 @@ export default async function PortalContratos() {
     documentosDoPortal(cliente.id),
   ]);
 
-  const digitais = contratos.filter((c) => c.assinatura_status === "assinado");
-  const outros = contratos.filter((c) => c.assinatura_status !== "assinado");
+  /*
+   * Contrato substituido nao e "vigente" para o cliente: sai da secao
+   * principal e vai para o historico, com o numero do substituto. O documento
+   * antigo continua abrindo (a via assinada e prova), so nao se confunde mais
+   * com o contrato atual.
+   */
+  const digitais = contratos.filter((c) => c.assinatura_status === "assinado" && !c.superseded_by_id);
+  const substituidos = contratos.filter((c) => !!c.superseded_by_id);
+  const outros = contratos.filter((c) => c.assinatura_status !== "assinado" && !c.superseded_by_id);
   const avulsos = documentos.filter((d) => d.source === "upload_manual");
 
   return (
@@ -109,6 +116,43 @@ export default async function PortalContratos() {
                 </div>
               );
             })}
+          </div>
+        </section>
+      )}
+
+      {substituidos.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-stone-500">
+            Contratos substituídos ({substituidos.length})
+          </h2>
+          <div className="space-y-2">
+            {substituidos.map((c) => (
+              <div key={c.id} className="cartao p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-tinta-900">Contrato {c.number}</p>
+                    <p className="mt-0.5 text-xs text-stone-500">
+                      Reserva {c.reservation_number}
+                      {c.substituido_por ? ` · substituído por ${c.substituido_por}` : ""}
+                    </p>
+                    <p className="text-xs text-stone-500">
+                      Documento anterior mantido no histórico para consulta e auditoria.
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-red-300 bg-red-50 px-2 py-1 text-xs font-bold text-red-800">
+                    Substituído
+                  </span>
+                </div>
+                {c.assinatura_id && (
+                  <Link
+                    href={`/portal/contratos/assinado/${c.assinatura_id}`}
+                    className="mt-2 inline-flex rounded-xl border border-nuvem-300 bg-white px-3 py-2 text-xs font-bold text-marca-600"
+                  >
+                    Ver versão assinada
+                  </Link>
+                )}
+              </div>
+            ))}
           </div>
         </section>
       )}
