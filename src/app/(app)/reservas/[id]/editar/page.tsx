@@ -34,6 +34,14 @@ export default async function EditarReservaPage({ params }: { params: Promise<{ 
     unit_price_cents: i.unit_price_cents,
     discount_cents: i.discount_cents,
     discount_expr: i.discount_expr,
+    // Origem e auditoria do preço comercial (migração 0053): reabrir a edição
+    // devolve o que foi gravado, e o editor não reprecifica a linha.
+    price_source: i.price_source ?? null,
+    base_price_cents: i.base_price_cents ?? null,
+    promo_unit_price_cents: i.promo_unit_price_cents ?? null,
+    promotion_id: i.promotion_id ?? null,
+    preco_manual: i.price_source === "manual",
+    preservado: true,
   }));
   // Recompensa de fidelidade já somada ao desconto gravado: no modo % o form
   // soma por cima do percentual, para editar não engolir o benefício.
