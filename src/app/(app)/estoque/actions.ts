@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { all, insert, isUniqueViolation, nextProductCode, one, run, scalar } from "@/lib/db";
-import { assertAdmin, requireModuleEdit } from "@/lib/auth";
+import { assertAdmin, requireModuleEdit, type SessionUser } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { parseMoney, today } from "@/lib/format";
 import { loadSpecs } from "@/lib/stock";
@@ -57,10 +57,21 @@ async function saveComponents(parentId: number, companyId: number, components: C
   }
 }
 
-export async function createProduct(_prev: string | null, fd: FormData): Promise<string | null> {
-  const { user } = await requireModuleEdit("estoque");
-  const p = readProduct(fd);
-  if (!p.name) return "Informe o nome do produto.";
+/** Entrada do cadastro já lida do formulário (textos normalizados). */
+type ProdutoNovo = ReturnType<typeof readProduct>;
+
+/**
+ * Grava um produto NOVO: valida nome/código, confere a composição do kit e
+ * insere com código gerado (com retry, porque o UNIQUE de products.code é
+ * global). Usado pelo cadastro convencional E pela duplicação — os dois
+ * caminhos terminam sempre num produto próprio, com id próprio.
+ */
+async function inserirProduto(
+  user: SessionUser,
+  p: ProdutoNovo,
+  components: Component[],
+): Promise<{ id: number } | { erro: string }> {
+  if (!p.name) return { erro: "Informe o nome do produto." };
   // codigo informado é unico POR EMPRESA (e o UNIQUE global de products.code
   // vale para toda a base). Em branco, o sistema gera o proximo PROD-000
   // livre — o usuario nunca precisa digitar o codigo na criacao.
@@ -68,12 +79,11 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
     p.code &&
     (await scalar<number>(`SELECT COUNT(*) FROM products WHERE code = ? AND company_id = ?`, [p.code, user.company_id])) > 0
   )
-    return "Já existe um produto com este código.";
+    return { erro: "Já existe um produto com este código." };
 
-  const components = readComponents(fd);
   if (p.kind === "kit") {
     const erro = validateComposition(null, components, await loadSpecs());
-    if (erro) return erro;
+    if (erro) return { erro };
   }
 
   // company_id vem SEMPRE da sessão: sem ele o INSERT cairia na empresa 1
@@ -106,24 +116,82 @@ export async function createProduct(_prev: string | null, fd: FormData): Promise
     } catch (e) {
       if (!isUniqueViolation(e)) throw e;
       // código digitado já existe em OUTRA empresa: mesma msg da checagem por empresa
-      if (p.code) return "Já existe um produto com este código.";
+      if (p.code) return { erro: "Já existe um produto com este código." };
       // código gerado colidiu na corrida: o próximo livre é lido de novo
     }
   }
-  if (!id) return "Não foi possível gerar um código único para o produto. Tente novamente.";
+  if (!id) return { erro: "Não foi possível gerar um código único para o produto. Tente novamente." };
   if (p.kind === "kit") await saveComponents(id, user.company_id, components);
+  return { id };
+}
+
+export async function createProduct(_prev: string | null, fd: FormData): Promise<string | null> {
+  const { user } = await requireModuleEdit("estoque");
+  const p = readProduct(fd);
+  const components = readComponents(fd);
+  const novo = await inserirProduto(user, p, components);
+  if ("erro" in novo) return novo.erro;
 
   await logAction(
     user,
     "criar",
     "produto",
-    id,
+    novo.id,
     p.kind === "kit"
       ? `${user.name} cadastrou o kit ${p.name} (${components.length} componente(s))`
       : `${user.name} cadastrou o produto ${p.name} (${p.total_qty} un.)`,
   );
   revalidatePath("/estoque");
-  redirect(`/estoque/${id}`);
+  redirect(`/estoque/${novo.id}`);
+}
+
+/**
+ * DUPLICAR PRODUTO — cria um cadastro NOVO a partir de outro da MESMA empresa.
+ *
+ * O original é somente modelo de leitura: nenhuma coluna dele é tocada aqui.
+ * Vem do formulário o que o operador confirmou/ajustou. O que NÃO é copiado,
+ * por decisão de projeto:
+ *
+ *  - id, código e data de criação: nascem novos (produto independente);
+ *  - estoque físico e manutenção: o cadastro novo começa em 0 no formulário
+ *    (vale o que o operador digitar) — as unidades do original são dele e
+ *    têm histórico próprio;
+ *  - `product_units`, manutenções, movimentações de estoque, reservas,
+ *    orçamentos, compras e financeiro: registros operacionais do original;
+ *  - promoções: são linhas por produto (individual ou grupo com vínculo
+ *    explícito) e não podem passar a valer para um produto não selecionado.
+ *
+ * A foto é reaproveitada pela URL (a linha em `files` é imutável): trocar a
+ * foto de um produto altera só a coluna `photo` daquele produto, nunca a do
+ * outro. A composição do kit, ao contrário, É copiada: ela é a definição
+ * comercial do produto, não um registro de operação.
+ */
+export async function duplicateProduct(_prev: string | null, fd: FormData): Promise<string | null> {
+  const { user } = await requireModuleEdit("estoque");
+  const sourceId = Number(fd.get("source_id"));
+  // Isolamento: produto de outra empresa é "não encontrado" — nunca serve de
+  // modelo, e a recusa não revela que ele existe.
+  const origem = await one<{ id: number; name: string }>(
+    `SELECT id, name FROM products WHERE id = ? AND company_id = ?`,
+    [sourceId, user.company_id],
+  );
+  if (!origem) return "Produto de origem não encontrado.";
+
+  const p = readProduct(fd);
+  const components = readComponents(fd);
+  const novo = await inserirProduto(user, p, components);
+  if ("erro" in novo) return novo.erro;
+
+  await logAction(
+    user,
+    "duplicar",
+    "produto",
+    novo.id,
+    `${user.name} criou o produto ${p.name} a partir de ${origem.name}`,
+    { origem_product_id: origem.id },
+  );
+  revalidatePath("/estoque");
+  redirect(`/estoque/${novo.id}`);
 }
 
 export async function updateProduct(_prev: string | null, fd: FormData): Promise<string | null> {

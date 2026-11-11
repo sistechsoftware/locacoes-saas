@@ -309,6 +309,7 @@ const DETALHES: Detalhe[] = [
   { rota: "contratos/assinado/[id]", idA: 100, idB: 200, positivo: "Contrato A" },
   { rota: "clientes/[id]/editar", idA: 100, idB: 200, positivo: "Cliente Alice" },
   { rota: "estoque/[id]/editar", idA: 100, idB: 200, positivo: "Mesa A" },
+  { rota: "estoque/[id]/duplicar", idA: 100, idB: 200, positivo: "Mesa A" },
   { rota: "reservas/[id]/editar", idA: 100, idB: 200, positivo: "LIMA-001" },
   { rota: "fretes/[id]/editar", idA: 100, idB: 200, positivo: "FRT-A" },
   { rota: "compras/[id]/editar", idA: 100, idB: 200, positivo: "COMP-A" },

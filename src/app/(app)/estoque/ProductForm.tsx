@@ -27,6 +27,7 @@ export default function ProductForm({
   components: initialComponents = [],
   submitLabel = "Salvar Produto",
   proximoCodigo,
+  hiddenFields,
 }: {
   action: Action;
   product?: any;
@@ -36,6 +37,8 @@ export default function ProductForm({
   submitLabel?: string;
   /** proximo PROD-XXX livre, exibido no campo em vez de texto generico */
   proximoCodigo?: string;
+  /** Campos ocultos extras (ex.: source_id da duplicação). */
+  hiddenFields?: Record<string, string | number>;
 }) {
   const [error, formAction] = useActionState(action, null);
   const v = product ?? {};
@@ -67,6 +70,10 @@ export default function ProductForm({
       {product && <input type="hidden" name="id" value={product.id} />}
       <input type="hidden" name="kind" value={kind} />
       <input type="hidden" name="components" value={JSON.stringify(kind === "kit" ? components : [])} />
+      {hiddenFields &&
+        Object.entries(hiddenFields).map(([name, value]) => (
+          <input key={name} type="hidden" name={name} value={String(value)} />
+        ))}
 
       <Field label="Tipo de produto">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
