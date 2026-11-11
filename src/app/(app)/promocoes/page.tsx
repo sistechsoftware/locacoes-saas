@@ -2,7 +2,7 @@ import { requireModule } from "@/lib/auth";
 import { listarPromocoes } from "@/lib/promocoes-db";
 import { rotuloFaixa, vigente } from "@/lib/promocoes";
 import { dateBR, money, today } from "@/lib/format";
-import { Badge, Empty, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
+import { Badge, Empty, LinkButton, PageHeader } from "@/components/ui";
 import { ListRow, SearchForm, Tabs } from "@/components/List";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,13 @@ const SITUACOES = [
   { value: "ativas", label: "Ativas" },
   { value: "inativas", label: "Inativas" },
 ];
+
+type LinhaLista = {
+  chave: string;
+  href: string;
+  promocao: Awaited<ReturnType<typeof listarPromocoes>>[number];
+  grupo?: { id: number; nome: string; total: number };
+};
 
 export default async function PromocoesPage({
   searchParams,
@@ -25,24 +32,45 @@ export default async function PromocoesPage({
   const promocoes = await listarPromocoes({ busca: q, situacao });
   const d0 = today();
 
+  // Promoção em grupo é N linhas no banco (uma por produto). Na lista ela
+  // aparece UMA vez, com o total de produtos — senão selecionar "todos os
+  // forros" transformaria a tela numa lista de forros repetidos.
+  const linhas: LinhaLista[] = [];
+  const gruposVistos = new Set<number>();
+  for (const p of promocoes) {
+    const grupoId = p.group_id ?? null;
+    if (grupoId) {
+      if (gruposVistos.has(grupoId)) continue;
+      gruposVistos.add(grupoId);
+      linhas.push({
+        chave: `g${grupoId}`,
+        href: `/promocoes/grupo/${grupoId}`,
+        promocao: p,
+        grupo: { id: grupoId, nome: p.group_name || "Promoção em grupo", total: Number(p.group_size) || 1 },
+      });
+    } else {
+      linhas.push({ chave: `p${p.id}`, href: `/promocoes/${p.id}`, promocao: p });
+    }
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
         title="Promoções por Quantidade"
-        subtitle={`${promocoes.length} promoção(ões)`}
+        subtitle={`${linhas.length} promoção(ões)`}
         action={<LinkButton href="/promocoes/nova" variant="primario">+ Nova Promoção</LinkButton>}
       />
 
       <SearchForm action="/promocoes" placeholder="Produto ou nome da promoção…" defaultValue={q} />
       <Tabs items={SITUACOES} current={situacao} base="/promocoes" param="situacao" />
 
-      {promocoes.length === 0 ? (
+      {linhas.length === 0 ? (
         <Empty>
           Nenhuma promoção cadastrada. Enquanto não houver, todo produto usa o preço normal do cadastro.
         </Empty>
       ) : (
         <div className="space-y-2">
-          {promocoes.map((p) => {
+          {linhas.map(({ chave, href, promocao: p, grupo }) => {
             const valendo = vigente(p, d0);
             const periodo =
               p.starts_on || p.ends_on
@@ -50,16 +78,21 @@ export default async function PromocoesPage({
                 : "sem período definido";
             return (
               <ListRow
-                key={p.id}
-                href={`/promocoes/${p.id}`}
+                key={chave}
+                href={href}
                 badges={
                   <>
                     {p.active ? <Badge tone="verde">Ativa</Badge> : <Badge tone="cinza">Inativa</Badge>}
                     {p.active && !valendo && <Badge tone="ambar">Fora do período</Badge>}
+                    {grupo && <Badge tone="azul">Grupo · {grupo.total} produtos</Badge>}
                   </>
                 }
-                title={p.name || p.product_name}
-                subtitle={`${p.product_name} · normal ${money(p.rent_price_cents)} · ${periodo}`}
+                title={grupo ? grupo.nome : p.name || p.product_name}
+                subtitle={
+                  grupo
+                    ? `${grupo.total} produto(s) · ${periodo}`
+                    : `${p.product_name} · normal ${money(p.rent_price_cents)} · ${periodo}`
+                }
                 body={
                   <ul className="space-y-0.5 text-xs">
                     {p.tiers.map((f, i) => (

@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { requireModule } from "@/lib/auth";
 import { ehAdmin } from "@/lib/roles";
@@ -17,6 +17,9 @@ export default async function PromocaoPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const promocao = await getPromocao(Number(id));
   if (!promocao) notFound();
+  // Membro de grupo: a tela do grupo mostra a regra como ela é — uma só para
+  // todos os produtos. O detalhe isolado esconderia o conjunto.
+  if (promocao.group_id) redirect(`/promocoes/grupo/${promocao.group_id}`);
 
   const historico = await logsFor("promocao", promocao.id);
   const d0 = today();
