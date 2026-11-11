@@ -832,8 +832,9 @@ export default async function ReservaPage({
                   // historico e nao se desfaz nem se exclui.
                   const podeCorrigir = ehAdmin(user.role) && !ehEstorno && !estorno;
                   return (
-                    <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                      <span className="min-w-0">
+                    <li key={p.id} className="py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <span className="min-w-0 flex-1 basis-full sm:basis-auto">
                         <span className={`block text-sm font-semibold ${ehEstorno ? "text-amber-700" : ""}`}>
                           {ehEstorno ? `− ${money(-p.amount_cents)} · devolvido ao cliente` : money(p.amount_cents)}
                         </span>
@@ -842,7 +843,6 @@ export default async function ReservaPage({
                           {p.notes ? ` - ${p.notes}` : ""}
                         </span>
                       </span>
-                      <span className="flex shrink-0 flex-wrap items-center gap-1.5">
                         {estorno ? <Badge tone="ambar">estornado</Badge> : null}
                         {/* Recibo do lancamento: se ja existe, abre direto; senao gera agora.
                             Nao muda o pagamento: so le o id dele. */}
@@ -864,52 +864,65 @@ export default async function ReservaPage({
                             </form>
                           ))}
                         {podeCorrigir && (
-                          <>
-                            {/* ESTORNAR: o dinheiro voltou ao cliente. A entrada
-                                original fica no historico e a devolucao entra
-                                como saida do caixa. */}
-                            <details className="relative">
-                              <summary className="cursor-pointer list-none rounded-xl border border-nuvem-300 px-2.5 py-1.5 text-xs font-semibold text-stone-600">
-                                Estornar
+                          <form action={deletePayment}>
+                            <input type="hidden" name="payment_id" value={p.id} />
+                            <input type="hidden" name="reservation_id" value={r.id} />
+                            <SubmitButton
+                              variant="perigo"
+                              confirm="Excluir este lançamento? Use somente se ele foi registrado por engano — o valor sai do caixa, a parcela vinculada reabre e o recibo emitido é removido. Para devolver um valor que o cliente pagou, use Estornar."
+                              className="px-2.5 py-1.5 text-xs"
+                            >
+                              Remover
+                            </SubmitButton>
+                          </form>
+                        )}
+                      </div>
+                      {podeCorrigir && (
+                        <>
+                          {/* ESTORNAR: o dinheiro voltou ao cliente. A entrada
+                              original fica no historico e a devolucao entra
+                              como saida do caixa. O painel abre EM FLUXO, na
+                              largura do item: como popover absolute ele cobria
+                              o proprio Remover da linha, o bloco de saldo e a
+                              quitacao — nada legivel e nada clicavel. */}                          <details className="mt-1.5">
+                            <summary className="inline-block cursor-pointer list-none rounded-xl border border-nuvem-300 px-2.5 py-1.5 text-xs font-semibold text-stone-600">
+                              Estornar
                               </summary>
-                              <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-nuvem-300 bg-white p-3 shadow-lg">
-                                <form action={estornarPagamentoAction} className="space-y-2">
-                                  <p className="text-xs text-stone-600">
+                              {/* O painel abre EM FLUXO, na largura do item: como
+                                  popover absolute ele cobria o proprio Remover da
+                                  linha, o bloco de saldo e a quitacao — nada
+                                  legivel e nada clicavel, no celular e no PC. */}
+                              <div className="mt-2 min-w-0 rounded-xl border border-nuvem-300 bg-white p-3 shadow-sm">
+                                <form action={estornarPagamentoAction} className="grid min-w-0 gap-2 sm:grid-cols-2">
+                                  <p className="text-xs text-stone-600 sm:col-span-2">
                                     Devolução ao cliente. A entrada original permanece no histórico e o valor sai do recebido
                                     líquido.
                                   </p>
                                   <input type="hidden" name="payment_id" value={p.id} />
                                   <input type="hidden" name="reservation_id" value={r.id} />
-                                  <input
-                                    name="data"
-                                    type="date"
-                                    defaultValue={today()}
-                                    className="campo"
-                                    aria-label="Data da devolução"
-                                  />
-                                  <input name="motivo" placeholder="Motivo (opcional)" maxLength={120} className="campo" />
-                                  <SubmitButton variant="secundario" className="w-full">
-                                    Confirmar estorno
-                                  </SubmitButton>
+                                  <label className="block min-w-0">
+                                    <span className="rotulo">Data da devolução</span>
+                                    <input name="data" type="date" defaultValue={today()} className="campo" />
+                                  </label>
+                                  <label className="block min-w-0">
+                                    <span className="rotulo">Motivo (opcional)</span>
+                                    <input
+                                      name="motivo"
+                                      placeholder="Ex.: cliente desistiu"
+                                      maxLength={120}
+                                      className="campo"
+                                    />
+                                  </label>
+                                  <div className="min-w-0 sm:col-span-2">
+                                    <SubmitButton variant="secundario" className="w-full">
+                                      Confirmar estorno
+                                    </SubmitButton>
+                                  </div>
                                 </form>
                               </div>
                             </details>
-                            {/* EXCLUIR: lancamento registrado por engano. O valor
-                                sai do caixa e a parcela vinculada reabre. */}
-                            <form action={deletePayment}>
-                              <input type="hidden" name="payment_id" value={p.id} />
-                              <input type="hidden" name="reservation_id" value={r.id} />
-                              <SubmitButton
-                                variant="perigo"
-                                confirm="Excluir este lançamento? Use somente se ele foi registrado por engano — o valor sai do caixa, a parcela vinculada reabre e o recibo emitido é removido. Para devolver um valor que o cliente pagou, use Estornar."
-                                className="px-2.5 py-1.5 text-xs"
-                              >
-                                Remover
-                              </SubmitButton>
-                            </form>
                           </>
                         )}
-                      </span>
                     </li>
                   );
                 })}
