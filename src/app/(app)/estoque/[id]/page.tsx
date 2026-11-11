@@ -6,7 +6,7 @@ import { dateTimeBR } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { all, one } from "@/lib/db";
 import { requireModule } from "@/lib/auth";
-import { ehAdmin } from "@/lib/roles";
+import { canEdit, ehAdmin } from "@/lib/roles";
 import { availabilityFor, availabilityForDays, componentsOf, holdsForProduct, kitsUsing } from "@/lib/stock";
 import { logsFor } from "@/lib/audit";
 import { UNIT_STATUS } from "@/lib/domain";
@@ -102,6 +102,11 @@ export default async function ProdutoPage({
         action={
           <>
             <LinkButton href={`/estoque/${p.id}/editar`}>Editar</LinkButton>
+            {canEdit(user.role, "estoque") && (
+              <LinkButton href={`/estoque/${p.id}/duplicar`} variant="secundario">
+                Duplicar produto
+              </LinkButton>
+            )}
             <LinkButton href={`/disponibilidade?${query.queryString}`} variant="secundario">Consultar Disponibilidade</LinkButton>
           </>
         }

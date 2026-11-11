@@ -4,6 +4,7 @@ import { availabilityQuery, type AvailabilityParams } from "@/lib/availability-t
 import { stockOptions } from "@/lib/availability-settings";
 import { all } from "@/lib/db";
 import { requireModule } from "@/lib/auth";
+import { canEdit } from "@/lib/roles";
 import { availabilityAllWithKits } from "@/lib/stock";
 import { money, today } from "@/lib/format";
 import { Badge, Empty, LinkButton, PageHeader, Stat } from "@/components/ui";
@@ -30,6 +31,8 @@ export default async function EstoquePage({
     [ctx.companyId],
   );
   const info = new Map(disponibilidade.map((d) => [d.product_id, d]));
+  /* Duplicar exige escrita no estoque: a opção só existe para quem pode. */
+  const podeEditar = canEdit(ctx.role, "estoque");
 
   const filtrados = produtos.filter((p) => {
     if (aba === "ativos") return p.active;
@@ -96,7 +99,8 @@ export default async function EstoquePage({
                 .map((p) => {
                   const d = info.get(p.id);
                   return (
-                    <Link key={p.id} href={`/estoque/${p.id}?${query.queryString}`} className="cartao flex items-center gap-3 p-3">
+                    <div key={p.id} className="cartao overflow-hidden transition hover:border-marca-300">
+                    <Link href={`/estoque/${p.id}?${query.queryString}`} className="flex items-center gap-3 p-3">
                       <div className="min-w-0 flex-1">
                         <div className="mb-1 flex flex-wrap gap-1.5">
                           {p.kind === "kit" && <Badge tone="terracota">Kit</Badge>}
@@ -118,6 +122,17 @@ export default async function EstoquePage({
                         </p>
                       </div>
                     </Link>
+                    {podeEditar && (
+                      <div className="border-t border-nuvem-200 px-3 py-1.5 text-right">
+                        <Link
+                          href={`/estoque/${p.id}/duplicar`}
+                          className="text-xs font-semibold text-marca-600 hover:text-marca-700"
+                        >
+                          Duplicar produto
+                        </Link>
+                      </div>
+                    )}
+                    </div>
                   );
                 })}
             </div>

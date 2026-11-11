@@ -411,6 +411,7 @@ const PAGINAS: Record<string, string> = {
   "src/app/(app)/estoque/novo/page.tsx": "estoque",
   "src/app/(app)/estoque/[id]/page.tsx": "estoque",
   "src/app/(app)/estoque/[id]/editar/page.tsx": "estoque",
+  "src/app/(app)/estoque/[id]/duplicar/page.tsx": "estoque",
   "src/app/(app)/faturamento/page.tsx": "assinatura",
   "src/app/(app)/fidelidade/page.tsx": "fidelidade",
   "src/app/(app)/financeiro/page.tsx": "financeiro",
