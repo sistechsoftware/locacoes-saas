@@ -183,25 +183,37 @@ export async function precificarItensDaEdicao<T extends ItemComOrigem>(
       };
     }
 
-    // o operador aplicou uma promoção explicitamente: o servidor confere contra
-    // a regra vigente antes de aceitar o rótulo de promoção
-    if (origemDeclarada(item) === "promocao") {
-      const promo = melhorPromocao(ctx.promocoes.get(item.product_id) ?? [], item.qty, dia);
-      if (promo && promo.unit_price_cents === Number(item.unit_price_cents)) {
-        return {
-          ...item,
-          unit_price_cents: promo.unit_price_cents,
-          price_source: "promocao",
-          base_price_cents: ctx.catalogo.get(item.product_id) ?? gravada.base_price_cents ?? 0,
-          promo_unit_price_cents: promo.unit_price_cents,
-          promotion_id: promo.id,
-        };
-      }
+    const promo = melhorPromocao(ctx.promocoes.get(item.product_id) ?? [], item.qty, dia);
+    const catalogo = ctx.catalogo.get(item.product_id) ?? 0;
+    const declarada = origemDeclarada(item);
+
+    // volta EXPLÍCITA à promoção (o operador desfez a exceção no editor): o
+    // servidor confere contra a regra vigente antes de aceitar o rótulo
+    if (declarada === "promocao" && promo && promo.unit_price_cents === Number(item.unit_price_cents)) {
+      return {
+        ...item,
+        unit_price_cents: promo.unit_price_cents,
+        price_source: "promocao",
+        base_price_cents: catalogo || gravada.base_price_cents || 0,
+        promo_unit_price_cents: promo.unit_price_cents,
+        promotion_id: promo.id,
+      };
     }
 
-    // preço alterado: negociação manual — preservada, com a auditoria ao lado
-    const catalogo = ctx.catalogo.get(item.product_id) ?? 0;
-    const promo = melhorPromocao(ctx.promocoes.get(item.product_id) ?? [], item.qty, dia);
+    // volta EXPLÍCITA ao preço de catálogo, quando não há promoção aplicável
+    if (declarada === "normal" && !promo && Number(item.unit_price_cents) === catalogo) {
+      return {
+        ...item,
+        unit_price_cents: catalogo,
+        price_source: "normal",
+        base_price_cents: catalogo,
+        promo_unit_price_cents: null,
+        promotion_id: null,
+      };
+    }
+
+    // preço alterado sem pedido de volta à regra: negociação manual — preservada,
+    // com a auditoria (catálogo e promoção calculada) ao lado
     return {
       ...item,
       unit_price_cents: Number(item.unit_price_cents),
