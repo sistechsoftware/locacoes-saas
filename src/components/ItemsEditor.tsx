@@ -349,6 +349,16 @@ export default function ItemsEditor({
             const line = subtotalLinha(item, p?.pricing_mode, janelaDias);
             const promo = promocaoDe(item.product_id, item.qty);
             const baseLinha = item.qty * per * item.unit_price_cents;
+            /*
+             * Linha já gravada que difere da regra atual: oferece a volta
+             * EXPLÍCITA — inclusive quando a diferença veio de uma negociação
+             * manual (a "exceção" que o operador fez). Sem promoção aplicável,
+             * a volta é para o preço de catálogo. Nada é trocado sozinho.
+             */
+            const podeVoltarARegra =
+              item.preservado === true &&
+              promo.unit_price_cents !== item.unit_price_cents &&
+              (promo.promocional || item.preco_manual === true);
             return (
               <div
                 key={item.product_id}
@@ -468,11 +478,20 @@ export default function ItemsEditor({
                 )}
                 {/* Linha já gravada: o valor é o comercial, não a regra de hoje.
                     A promoção só entra se o operador pedir — nada é trocado sozinho. */}
-                {item.preservado && !item.preco_manual && promo.promocional && promo.unit_price_cents !== item.unit_price_cents && (
+                {podeVoltarARegra && (
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-destaque-50 px-2 py-1.5 text-xs text-destaque-700">
                     <span>
-                      Preço gravado: <strong>{money(item.unit_price_cents)}</strong>. Promoção vigente:{" "}
-                      <strong>{money(promo.unit_price_cents)}</strong> cada.
+                      {promo.promocional ? (
+                        <>
+                          Preço gravado: <strong>{money(item.unit_price_cents)}</strong>. Promoção vigente:{" "}
+                          <strong>{money(promo.unit_price_cents)}</strong> cada.
+                        </>
+                      ) : (
+                        <>
+                          Preço gravado: <strong>{money(item.unit_price_cents)}</strong>. Preço de catálogo:{" "}
+                          <strong>{money(promo.unit_price_cents)}</strong>.
+                        </>
+                      )}
                     </span>
                     <button
                       type="button"
@@ -480,15 +499,15 @@ export default function ItemsEditor({
                         patch(index, {
                           unit_price_cents: promo.unit_price_cents,
                           preco_manual: false,
-                          price_source: "promocao",
-                          promo_unit_price_cents: promo.unit_price_cents,
-                          promotion_id: promo.id,
+                          price_source: promo.promocional ? "promocao" : "normal",
+                          promo_unit_price_cents: promo.promocional ? promo.unit_price_cents : null,
+                          promotion_id: promo.promocional ? promo.id : null,
                           preservado: false,
                         })
                       }
                       className="rounded-lg border border-destaque-300 bg-white px-2 py-1 font-bold"
                     >
-                      Aplicar promoção
+                      {promo.promocional ? "Aplicar promoção" : "Voltar ao preço de catálogo"}
                     </button>
                   </div>
                 )}

@@ -283,6 +283,60 @@ describe("reserva — abrir e salvar não reprecifica", () => {
     assert.equal(depois.price_source, "manual", "origem preservada");
   });
 
+  it("exceção revertida: linha manual volta a usar a promoção quando o operador pede", async () => {
+    await promocao({ inicio: "2026-11-01", fim: "2026-11-30", faixas: PROMO_PADRAO });
+    const id = await novaReserva([{ product_id: PRODUTO, qty: 10, unit_price_cents: 1700, preco_manual: true }]);
+    const antes = (await itemReserva(id))[0];
+    assert.equal(antes.price_source, "manual");
+
+    const r = await um(`SELECT * FROM reservations WHERE id = ?`, [id]);
+    const { updateReservation } = await carregar("src/app/(app)/reservas/actions.ts");
+    // clique em "Aplicar promoção" na linha preservada
+    await acao(() =>
+      updateReservation(
+        null,
+        fdReserva(r, [
+          linhaDoBanco(antes, {
+            unit_price_cents: 1500,
+            preco_manual: false,
+            price_source: "promocao",
+            preservado: false,
+          }),
+        ]),
+      ),
+    );
+    const depois = (await itemReserva(id))[0];
+    assert.equal(depois.unit_price_cents, 1500, "promoção volta a valer");
+    assert.equal(depois.price_source, "promocao", "origem corrigida para promoção");
+    assert.ok(depois.promotion_id > 0, "promoção identificada");
+  });
+
+  it("volta ao preço de catálogo quando não há promoção aplicável", async () => {
+    const id = await novaReserva([{ product_id: PRODUTO, qty: 3, unit_price_cents: 1700, preco_manual: true }]);
+    const antes = (await itemReserva(id))[0];
+    assert.equal(antes.price_source, "manual");
+
+    const r = await um(`SELECT * FROM reservations WHERE id = ?`, [id]);
+    const { updateReservation } = await carregar("src/app/(app)/reservas/actions.ts");
+    await acao(() =>
+      updateReservation(
+        null,
+        fdReserva(r, [
+          linhaDoBanco(antes, {
+            unit_price_cents: NORMAL,
+            preco_manual: false,
+            price_source: "normal",
+            preservado: false,
+          }),
+        ]),
+      ),
+    );
+    const depois = (await itemReserva(id))[0];
+    assert.equal(depois.unit_price_cents, NORMAL, "valor de catálogo restaurado");
+    assert.equal(depois.price_source, "normal");
+    assert.equal(depois.promotion_id, null);
+  });
+
   it("cenário 3: alterar o percentual/valor da promoção não mexe na reserva antiga", async () => {
     await promocao({ inicio: "2026-11-01", fim: "2026-11-30", faixas: PROMO_PADRAO });
     const id = await novaReserva([{ product_id: PRODUTO, qty: 10, unit_price_cents: NORMAL }]);
