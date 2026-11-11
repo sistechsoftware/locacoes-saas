@@ -11,8 +11,10 @@
  *
  *  2. SERVIDOR — o backend aceitava unit_price_cents vindo do navegador sem
  *     consultar promoção nenhuma (o cálculo vivia só no formulário). Agora
- *     createQuote/updateQuote/createReservation/updateReservation consultam as
- *     promoções vigentes NA DATA DA LOCAÇÃO e exigem o preço promocional.
+ *     createQuote/createReservation consultam as promoções vigentes NA DATA DA
+ *     LOCAÇÃO e exigem o preço promocional. Na EDIÇÃO o preço gravado manda:
+ *     promoção nunca é reaplicada sobre linha existente (ver
+ *     tests/preco-comercial.test.ts).
  *
  * A conversão de orçamento em reserva continua preservando o que já foi
  * negociado: não reprica, não duplica e não perde o desconto.
@@ -340,7 +342,10 @@ describe("reserva — servidor aplica e reavalia a promoção", () => {
     assert.equal(item.unit_price_cents, NORMAL);
   });
 
-  it("editar a data da locação reavalia: entra na vigência e volta a sair", async () => {
+  it("editar a data da locação NÃO reprica o valor já gravado", async () => {
+    // Regra de ouro (auditoria do preço comercial): promoção vale na CRIAÇÃO.
+    // Documento existente é valor comercial persistido — mudar a data não
+    // reaplica promoção nem para entrar na vigência nem para sair dela.
     await promocao({ inicio: "2026-11-01", fim: "2026-11-30", faixas: FAIXAS_PADRAO });
     const { createReservation, updateReservation } = await carregar("src/app/(app)/reservas/actions.ts");
     await acao(() =>
@@ -352,6 +357,7 @@ describe("reserva — servidor aplica e reavalia a promoção", () => {
       })),
     );
     const r = await um(`SELECT * FROM reservations ORDER BY id DESC LIMIT 1`);
+    const gravado = await um(`SELECT * FROM reservation_items WHERE reservation_id = ?`, [r.id]);
     const precoDe = async () => (await um(`SELECT * FROM reservation_items WHERE reservation_id = ?`, [r.id])).unit_price_cents;
     assert.equal(await precoDe(), NORMAL, "criada fora da vigência");
 
@@ -362,14 +368,22 @@ describe("reserva — servidor aplica e reavalia a promoção", () => {
           customer_id: String(CLIENTE),
           event_date: data,
           status: "pre_reserva",
-          items: JSON.stringify([{ product_id: String(PRODUTO), qty: 8, unit_price_cents: NORMAL }]),
+          items: JSON.stringify([
+            {
+              product_id: String(PRODUTO),
+              qty: gravado.qty,
+              unit_price_cents: gravado.unit_price_cents,
+              price_source: gravado.price_source,
+              preservado: true,
+            },
+          ]),
         })),
       );
 
     await editar("2026-11-20");
-    assert.equal(await precoDe(), 1500, "mudou para dentro da vigência: promoção entra");
+    assert.equal(await precoDe(), NORMAL, "entrar na vigência não troca o valor combinado");
     await editar("2026-10-20");
-    assert.equal(await precoDe(), NORMAL, "voltou para fora: promoção sai");
+    assert.equal(await precoDe(), NORMAL, "e sair dela também não");
   });
 
   it("promoção de OUTRO tenant nunca entra no cálculo", async () => {

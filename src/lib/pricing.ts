@@ -29,6 +29,14 @@ export type ItemComPreco = {
   discount_expr: string | null;
   pricing_mode: ModoCobranca;
   period_qty: number;
+  /** Origem do preço comercial (migração 0053) — congelada por linha. */
+  price_source: string | null;
+  /** Preço de catálogo no momento da venda (auditoria). */
+  base_price_cents: number | null;
+  /** Preço que a promoção dava no momento da venda (auditoria). */
+  promo_unit_price_cents: number | null;
+  /** Promoção aplicada, quando existir. */
+  promotion_id: number | null;
 };
 
 /** Só aceita modalidade conhecida — lixo vindo de qualquer origem vira null. */
@@ -54,6 +62,10 @@ export async function aplicarPrecos<
     discount_expr?: unknown;
     pricing_mode?: unknown;
     period_qty?: unknown;
+    price_source?: string | null;
+    base_price_cents?: number | null;
+    promo_unit_price_cents?: number | null;
+    promotion_id?: number | null;
   },
 >(items: T[], janela: { delivery_at?: string | null; pickup_at?: string | null }, companyId: number): Promise<ItemComPreco[]> {
   if (!items.length) return [];
@@ -75,6 +87,12 @@ export async function aplicarPrecos<
       discount_expr: exprValida(i.discount_expr),
       pricing_mode: modo,
       period_qty: modo === "diaria" ? dias : 1,
+      // A origem e a auditoria do preço atravessam a gravação intactas: é o
+      // que permite reabrir o documento sem reprecificar o que foi acordado.
+      price_source: i.price_source ?? null,
+      base_price_cents: i.base_price_cents ?? null,
+      promo_unit_price_cents: i.promo_unit_price_cents ?? null,
+      promotion_id: i.promotion_id ?? null,
     };
   });
 }

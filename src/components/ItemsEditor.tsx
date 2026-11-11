@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { diasCobrados, money, parseMoney, today } from "@/lib/format";
 import { descontoDePct, exprDePct, pctDeExpr, pctDigitado, type ModoDesconto } from "@/lib/desconto";
-import { precoUnitarioEntre, rotuloFaixa, type Promocao } from "@/lib/promocoes";
+import { precoPromocional, precoUnitarioEntre, rotuloFaixa, type Promocao } from "@/lib/promocoes";
 import { Icon } from "./Icons";
 
 export type Product = {
@@ -49,6 +49,25 @@ export type ItemRow = {
    * pessoa acabou de escrever seria pior que nao ter promocao nenhuma.
    */
   preco_manual?: boolean;
+  /**
+   * Origem do preço comercial (migração 0053): normal, promocao ou manual.
+   * Linha antiga pode ter null = origem desconhecida.
+   */
+  price_source?: "normal" | "promocao" | "manual" | null;
+  /** Preço de catálogo no momento da venda (auditoria). */
+  base_price_cents?: number | null;
+  /** Preço que a promoção dava no momento da venda (auditoria). */
+  promo_unit_price_cents?: number | null;
+  /** Promoção aplicada, quando existir. */
+  promotion_id?: number | null;
+  /**
+   * Linha veio de um documento JÁ SALVO.
+   *
+   * Preço comercial preservado: reabrir o registro não reprecifica nada, e
+   * nenhuma promoção nova/alterada entra por cima do que foi negociado. Para
+   * trocar, o operador tem o botão explícito "Aplicar promoção" na linha.
+   */
+  preservado?: boolean;
 };
 
 export type StockInfo = Record<number, { available: number; requested: number; missing: number }>;
@@ -132,19 +151,45 @@ export default function ItemsEditor({
     return precoUnitarioEntre(p?.rent_price_cents ?? 0, candidatasDe(productId), qty, dia);
   };
 
+  /**
+   * Mesma conta de `calcular`, mas devolvendo QUAL promoção deu o preço — o id
+   * é gravado junto da linha (auditoria da origem "promocao").
+   */
+  const promocaoDe = (productId: number, qty: number) => {
+    const r = calcular(productId, qty);
+    if (!r.promocional || !r.faixa) return { ...r, id: null as number | null };
+    const escolhida = candidatasDe(productId).find((c) => {
+      const pc = precoPromocional(c, qty, dia);
+      return (
+        pc?.unit_price_cents === r.unit_price_cents &&
+        pc.faixa.min_qty === r.faixa!.min_qty &&
+        pc.faixa.max_qty === r.faixa!.max_qty
+      );
+    });
+    return { ...r, id: escolhida?.id ?? null };
+  };
+
   /** Período cobrado por esta linha (1 para fixo). */
   const per = (productId: number) => periodosDaLinha(byId.get(productId)?.pricing_mode, janelaDias);
 
   // a promocao muda com a quantidade, entao o preco automatico e recalculado
-  // sempre que a linha muda; a linha com preco digitado a mao fica intacta
+  // quando a linha muda — mas SOMENTE em linha nascida nesta edição. Linha
+  // vinda do banco (preservado) e linha com preco digitado a mao ficam intactas:
+  // abrir e salvar um registro nunca troca o valor combinado com o cliente.
   useEffect(() => {
     let mudou = false;
     const ajustados = items.map((i) => {
-      if (i.preco_manual) return i;
-      const alvo = calcular(i.product_id, i.qty).unit_price_cents;
-      if (alvo === i.unit_price_cents) return i;
+      if (i.preco_manual || i.price_source === "manual" || i.preservado) return i;
+      const alvo = promocaoDe(i.product_id, i.qty);
+      if (alvo.unit_price_cents === i.unit_price_cents && alvo.promocional === (i.price_source === "promocao")) return i;
       mudou = true;
-      return { ...i, unit_price_cents: alvo };
+      return {
+        ...i,
+        unit_price_cents: alvo.unit_price_cents,
+        price_source: alvo.promocional ? ("promocao" as const) : ("normal" as const),
+        promo_unit_price_cents: alvo.promocional ? alvo.unit_price_cents : null,
+        promotion_id: alvo.promocional ? alvo.id : null,
+      };
     });
     if (mudou) onChange(ajustados);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,6 +217,7 @@ export default function ItemsEditor({
     if (!productId) return;
     const p = byId.get(productId);
     if (!p) return;
+    const preco = promocaoDe(productId, 1);
     const existing = items.find((i) => i.product_id === productId);
     if (existing) {
       onChange(items.map((i) => (i.product_id === productId ? { ...i, qty: i.qty + 1 } : i)));
@@ -181,9 +227,13 @@ export default function ItemsEditor({
         {
           product_id: productId,
           qty: 1,
-          unit_price_cents: calcular(productId, 1).unit_price_cents,
+          unit_price_cents: preco.unit_price_cents,
           discount_cents: 0,
           discount_expr: null,
+          price_source: preco.promocional ? ("promocao" as const) : ("normal" as const),
+          base_price_cents: p.rent_price_cents,
+          promo_unit_price_cents: preco.promocional ? preco.unit_price_cents : null,
+          promotion_id: preco.promocional ? preco.id : null,
         },
       ]);
     }
@@ -297,7 +347,7 @@ export default function ItemsEditor({
             const info = stock?.[item.product_id];
             const per = periodosDaLinha(p?.pricing_mode, janelaDias);
             const line = subtotalLinha(item, p?.pricing_mode, janelaDias);
-            const promo = calcular(item.product_id, item.qty);
+            const promo = promocaoDe(item.product_id, item.qty);
             const baseLinha = item.qty * per * item.unit_price_cents;
             return (
               <div
@@ -371,7 +421,12 @@ export default function ItemsEditor({
                         const digitado = parseMoney(e.target.value);
                         if (digitado === item.unit_price_cents) return;
                         // a partir daqui o preco e escolha da pessoa, nao da regra
-                        patch(index, { unit_price_cents: digitado, preco_manual: true });
+                        patch(index, {
+                          unit_price_cents: digitado,
+                          preco_manual: true,
+                          price_source: "manual",
+                          preservado: false,
+                        });
                       }}
                       inputMode="decimal"
                       className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
@@ -397,7 +452,7 @@ export default function ItemsEditor({
                     {item.qty} × {per} diárias × {money(item.unit_price_cents)} = {money(line)}
                   </p>
                 )}
-                {promo.promocional && !item.preco_manual && (
+                {promo.promocional && !item.preco_manual && !item.preservado && (
                   <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
                     <span className="font-bold">Promoção aplicada</span>
                     <span>
@@ -410,6 +465,32 @@ export default function ItemsEditor({
                       </span>
                     )}
                   </p>
+                )}
+                {/* Linha já gravada: o valor é o comercial, não a regra de hoje.
+                    A promoção só entra se o operador pedir — nada é trocado sozinho. */}
+                {item.preservado && !item.preco_manual && promo.promocional && promo.unit_price_cents !== item.unit_price_cents && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-destaque-50 px-2 py-1.5 text-xs text-destaque-700">
+                    <span>
+                      Preço gravado: <strong>{money(item.unit_price_cents)}</strong>. Promoção vigente:{" "}
+                      <strong>{money(promo.unit_price_cents)}</strong> cada.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patch(index, {
+                          unit_price_cents: promo.unit_price_cents,
+                          preco_manual: false,
+                          price_source: "promocao",
+                          promo_unit_price_cents: promo.unit_price_cents,
+                          promotion_id: promo.id,
+                          preservado: false,
+                        })
+                      }
+                      className="rounded-lg border border-destaque-300 bg-white px-2 py-1 font-bold"
+                    >
+                      Aplicar promoção
+                    </button>
+                  </div>
                 )}
                 {item.preco_manual && candidatasDe(item.product_id).length > 0 && (
                   <p className="mt-2 text-xs text-stone-500">

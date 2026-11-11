@@ -17,7 +17,7 @@ import { settingsDaEmpresa } from "@/lib/settings";
 import { dataEventoOuInicio } from "@/lib/operacao";
 import { getOperacao } from "@/lib/operacao-db";
 import { exprValida } from "@/lib/desconto";
-import { aplicarPromocaoNosItens } from "@/lib/promocoes-db";
+import { precificarItensDaEdicao, precificarItensNovos } from "@/lib/preco-comercial";
 
 type ItemInput = {
   product_id: number;
@@ -27,6 +27,8 @@ type ItemInput = {
   discount_expr?: string | null;
   /** O operador digitou este preco a mao? Se sim, a promocao nao mexe nele. */
   preco_manual?: boolean;
+  /** Origem declarada pelo editor (só para linhas novas/aplicadas na sessão). */
+  price_source?: "normal" | "promocao" | "manual" | null;
 };
 
 function readItems(fd: FormData): ItemInput[] {
@@ -41,6 +43,10 @@ function readItems(fd: FormData): ItemInput[] {
         // forma do desconto ("10%" ou NULL = R$): só exibição, migração 0046
         discount_expr: exprValida(i.discount_expr),
         preco_manual: i.preco_manual === true,
+        price_source:
+          i.price_source === "normal" || i.price_source === "promocao" || i.price_source === "manual"
+            ? i.price_source
+            : null,
       }))
       .filter((i) => i.product_id && i.qty > 0);
   } catch {
@@ -96,8 +102,9 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
   // Modalidade e período resolvidos no servidor pela janela do orçamento;
   // o formulário não envia período (lib/pricing.ts). As promoções também são
   // decididas AQUI: o servidor consulta as vigentes na data da locação e só
-  // aceita o valor do navegador quando nenhuma promocao se aplica.
-  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
+  // aceita o valor do navegador quando nenhuma promocao se aplica. A origem do
+  // preço fica gravada em cada linha (migração 0053).
+  const itens = await precificarItensNovos(items, dataDaLocacao(h), companyId);
   const precos = await aplicarPrecos(itens, h, companyId);
 
   let id = 0;
@@ -133,7 +140,7 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
       ],
     );
     for (const i of precos) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, discount_expr, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?,?)`, [
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, discount_expr, pricing_mode, period_qty, price_source, base_price_cents, promo_unit_price_cents, promotion_id, company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
@@ -142,6 +149,10 @@ export async function createQuote(_prev: string | null, fd: FormData): Promise<s
         i.discount_expr ?? null,
         i.pricing_mode,
         i.period_qty,
+        i.price_source ?? null,
+        i.base_price_cents ?? null,
+        i.promo_unit_price_cents ?? null,
+        i.promotion_id ?? null,
         companyId,
       ]);
     }
@@ -168,9 +179,15 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
   if (!q) return "Orçamento não encontrado.";
   if (q.status === "convertido") return "Orçamento já convertido em reserva não pode ser alterado.";
   if (!items.length) return "Adicione ao menos um item.";
-  // Reavaliar a cada salvamento: mudou a data da locação, as quantidades ou a
-  // vigência da promocao, o servidor recalcula pela regra e não pela tela.
-  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
+  // EDIÇÃO: o preço gravado manda. Nenhuma promoção é reaplicada sobre linha
+  // existente (nova, alterada ou recém-vigente); só produto que entra agora
+  // passa pela regra. Preço alterado pelo operador vira negociação manual.
+  const gravadas = await all<any>(
+    `SELECT product_id, unit_price_cents, price_source, base_price_cents, promo_unit_price_cents, promotion_id
+       FROM quote_items WHERE quote_id = ?`,
+    [id],
+  );
+  const itens = await precificarItensDaEdicao(items, gravadas, dataDaLocacao(h), companyId);
   const precos = await aplicarPrecos(itens, h, companyId);
 
   /* Hora extra da extensão de retirada (mesma regra da reserva): comparar a
@@ -222,7 +239,7 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
     );
     await run(`DELETE FROM quote_items WHERE quote_id = ?`, [id]);
     for (const i of precos) {
-      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, discount_expr, pricing_mode, period_qty, company_id) VALUES (?,?,?,?,?,?,?,?,?)`, [
+      await insert(`INSERT INTO quote_items (quote_id, product_id, qty, unit_price_cents, discount_cents, discount_expr, pricing_mode, period_qty, price_source, base_price_cents, promo_unit_price_cents, promotion_id, company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
         id,
         i.product_id,
         i.qty,
@@ -231,6 +248,10 @@ export async function updateQuote(_prev: string | null, fd: FormData): Promise<s
         i.discount_expr ?? null,
         i.pricing_mode,
         i.period_qty,
+        i.price_source ?? null,
+        i.base_price_cents ?? null,
+        i.promo_unit_price_cents ?? null,
+        i.promotion_id ?? null,
         companyId,
       ]);
     }

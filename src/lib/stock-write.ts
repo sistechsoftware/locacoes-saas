@@ -4,7 +4,20 @@ import { tenantCompanyId } from "./tenant";
 import { explodeLine, isKit, loadSpecs } from "./stock";
 
 type Statement = { sql: string; params?: any[] };
-export type RentalItem = { product_id: number; qty: number; unit_price_cents?: number; discount_cents?: number; discount_expr?: string | null; pricing_mode?: string; period_qty?: number };
+export type RentalItem = {
+  product_id: number;
+  qty: number;
+  unit_price_cents?: number;
+  discount_cents?: number;
+  discount_expr?: string | null;
+  pricing_mode?: string;
+  period_qty?: number;
+  /** Origem e auditoria do preço comercial (migração 0053). */
+  price_source?: string | null;
+  base_price_cents?: number | null;
+  promo_unit_price_cents?: number | null;
+  promotion_id?: number | null;
+};
 export const STOCK_CHANGED = "O estoque ou a reserva mudou durante a verificacao. Nada foi alterado; confira os dados e tente novamente.";
 
 /**
@@ -89,7 +102,7 @@ export async function writeRental(companyId: number, version: number, header: Re
   // o laco abaixo incrementa antes de usar, por isso o -1
   let itemId = (await nextFreeId("reservation_items")) - 1;
   for (const item of precos) {
-    itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,discount_expr,pricing_mode,period_qty,company_id) VALUES(?,?,?,?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents,item.discount_cents,item.discount_expr ?? null,item.pricing_mode,item.period_qty,companyId] });
+    itemId++;      statements.push({ sql: "INSERT INTO reservation_items(id,reservation_id,product_id,qty,unit_price_cents,discount_cents,discount_expr,pricing_mode,period_qty,price_source,base_price_cents,promo_unit_price_cents,promotion_id,company_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", params: [itemId,id,item.product_id,item.qty,item.unit_price_cents,item.discount_cents,item.discount_expr ?? null,item.pricing_mode,item.period_qty,item.price_source ?? null,item.base_price_cents ?? null,item.promo_unit_price_cents ?? null,item.promotion_id ?? null,companyId] });
     const spec = specs.get(item.product_id);
     for (const part of explodeLine(item, specs)) {
       const perUnit = isKit(spec) ? spec!.components.find(c => c.product_id === part.product_id)!.quantity : 1;

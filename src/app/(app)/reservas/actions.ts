@@ -29,7 +29,7 @@ import { settingsDaEmpresa } from "@/lib/settings";
 import { dataEventoOuInicio } from "@/lib/operacao";
 import { getOperacao } from "@/lib/operacao-db";
 import { exprValida } from "@/lib/desconto";
-import { aplicarPromocaoNosItens } from "@/lib/promocoes-db";
+import { precificarItensDaEdicao, precificarItensNovos } from "@/lib/preco-comercial";
 import { reservaAlterada, reservaCancelada, reservaCriada } from "@/lib/email-gatilhos";
 
 export type ItemInput = {
@@ -40,6 +40,8 @@ export type ItemInput = {
   discount_expr?: string | null;
   /** O operador digitou este preco a mao? Se sim, a promocao nao mexe nele. */
   preco_manual?: boolean;
+  /** Origem declarada pelo editor (só para linhas novas/aplicadas na sessão). */
+  price_source?: "normal" | "promocao" | "manual" | null;
 };
 
 function readItems(fd: FormData): ItemInput[] {
@@ -54,6 +56,10 @@ function readItems(fd: FormData): ItemInput[] {
         // forma do desconto ("10%" ou NULL = R$): só exibição, migração 0046
         discount_expr: exprValida(i.discount_expr),
         preco_manual: i.preco_manual === true,
+        price_source:
+          i.price_source === "normal" || i.price_source === "promocao" || i.price_source === "manual"
+            ? i.price_source
+            : null,
       }))
       .filter((i) => i.product_id && i.qty > 0);
   } catch {
@@ -130,9 +136,10 @@ export async function createReservation(_prev: string | null, fd: FormData): Pro
   /* Promoções decididas no SERVIDOR pela data da locação (evento ou início):
    * vigente e cobrindo a quantidade, o preço promocional substitui o que veio
    * do navegador; sem promoção aplicável, vale o valor enviado. Linha com
-   * preço digitado a mão passa intacta. A conversão de orçamento em reserva
-   * NÃO passa por aqui — ela preserva o que já foi negociado. */
-  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
+   * preço digitado a mão passa intacta. A origem do preço fica gravada na
+   * linha (migração 0053). A conversão de orçamento em reserva NÃO passa por
+   * aqui — ela preserva o que já foi negociado. */
+  const itens = await precificarItensNovos(items, dataDaLocacao(h), companyId);
   if ((HOLDING_STATUSES as readonly string[]).includes(h.status)) {
     const conflicts = await checkConflicts(itens, h.delivery_at, h.pickup_at, null, options, companyId);
     if (conflicts.length && !override) return conflictMessage(conflicts);
@@ -189,9 +196,15 @@ export async function updateReservation(_prev: string | null, fd: FormData): Pro
   if (!items.length) return "A reserva precisa ter ao menos um item.";
   const invalid = windowError(h.delivery_at, h.pickup_at);
   if (invalid) return invalid;
-  // Reavaliar promoções a cada salvamento: data da locação, quantidade e
-  // vigência são do servidor — o valor gravado nunca sai só da tela.
-  const itens = await aplicarPromocaoNosItens(items, dataDaLocacao(h), companyId);
+  // EDIÇÃO: o preço gravado é a fonte da verdade. Linha que já existe não é
+  // reprecificada por promoção nova, alterada ou que passou a valer; só produto
+  // que entra agora passa pela regra. Preço alterado vira negociação manual.
+  const gravadas = await all<any>(
+    `SELECT product_id, unit_price_cents, price_source, base_price_cents, promo_unit_price_cents, promotion_id
+       FROM reservation_items WHERE reservation_id = ? AND company_id = ?`,
+    [id, companyId],
+  );
+  const itens = await precificarItensDaEdicao(items, gravadas, dataDaLocacao(h), companyId);
   if ((HOLDING_STATUSES as readonly string[]).includes(h.status)) {
     const conflicts = await checkConflicts(itens, h.delivery_at, h.pickup_at, id, options, companyId);
     if (conflicts.length && !override) return conflictMessage(conflicts);
