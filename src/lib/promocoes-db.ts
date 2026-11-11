@@ -1,5 +1,5 @@
 import "server-only";
-import { all } from "./db";
+import { all, one } from "./db";
 import { tenantCompanyId } from "./tenant";
 import { today } from "./format";
 import { ordenar, precoPromocionalEntre, precoUnitarioEntre, type Faixa, type Promocao } from "./promocoes";
@@ -24,6 +24,12 @@ export type PromocaoComProduto = Promocao & {
   product_name: string;
   product_code: string;
   rent_price_cents: number;
+  /** Grupo de promocao em massa; null = promocao individual (cadastro original). */
+  group_id: number | null;
+  /** Nome do grupo, quando a linha veio de uma consulta que o traz. */
+  group_name?: string | null;
+  /** Quantos produtos o grupo tem (contado no banco, independente do filtro). */
+  group_size?: number | null;
 };
 
 function montar(linhas: any[], faixas: any[]): Map<number, PromocaoComProduto> {
@@ -46,6 +52,9 @@ function montar(linhas: any[], faixas: any[]): Map<number, PromocaoComProduto> {
       product_name: p.product_name,
       product_code: p.product_code,
       rent_price_cents: p.rent_price_cents,
+      group_id: p.group_id ?? null,
+      group_name: p.group_name ?? null,
+      group_size: p.group_size === undefined || p.group_size === null ? null : Number(p.group_size),
       tiers: ordenar(porPromocao.get(p.id) ?? []),
     });
   }
@@ -55,6 +64,20 @@ function montar(linhas: any[], faixas: any[]): Map<number, PromocaoComProduto> {
 const SELECT = `
   SELECT pr.*, p.name AS product_name, p.code AS product_code, p.rent_price_cents
     FROM promotions pr JOIN products p ON p.id = pr.product_id`;
+
+/**
+ * Select da tela de administracao: alem do produto, traz a identidade do grupo
+ * e o tamanho dele. O tamanho e contado no banco (e nao a partir das linhas
+ * filtradas) para a lista mostrar o grupo inteiro mesmo quando a busca trouxe
+ * so um dos produtos.
+ */
+const SELECT_LISTA = `
+  SELECT pr.*, p.name AS product_name, p.code AS product_code, p.rent_price_cents,
+         pg.name AS group_name,
+         (SELECT COUNT(*) FROM promotions g WHERE g.group_id = pr.group_id) AS group_size
+    FROM promotions pr
+    JOIN products p ON p.id = pr.product_id
+    LEFT JOIN promotion_groups pg ON pg.id = pr.group_id`;
 
 /** Todas as promocoes cadastradas, para a tela de administracao. */
 export async function listarPromocoes(filtro: { busca?: string; situacao?: string } = {}, companyId?: number) {
@@ -70,7 +93,7 @@ export async function listarPromocoes(filtro: { busca?: string; situacao?: strin
   if (filtro.situacao === "inativas") where.push("pr.active = 0");
 
   const linhas = await all<any>(
-    `${SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.name, pr.id DESC`,
+    `${SELECT_LISTA} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.name, pr.id DESC`,
     params,
   );
   const faixas = linhas.length
@@ -90,20 +113,98 @@ export async function getPromocao(id: number, companyId?: number): Promise<Promo
   return montar(linhas, faixas).get(id) ?? null;
 }
 
-/** Outras promocoes do mesmo produto, para checar conflito antes de gravar. */
-export async function promocoesDoProduto(productId: number, exceto?: number, companyId?: number) {
+/**
+ * Grupo de promocoes como a tela o enxerga: identidade + as linhas de cada
+ * produto. A configuracao (periodo, ativa, faixas) e unica e vem do primeiro
+ * membro: os membros sao mantidos em sincronia pelas actions do grupo, e ler de
+ * um deles evita inventar uma segunda fonte para a mesma regra.
+ */
+export type GrupoDePromocoes = {
+  id: number;
+  name: string;
+  notes: string | null;
+  active: boolean;
+  starts_on: string | null;
+  ends_on: string | null;
+  tiers: Faixa[];
+  product_ids: number[];
+  promotions: PromocaoComProduto[];
+};
+
+export async function getGrupo(id: number, companyId?: number): Promise<GrupoDePromocoes | null> {
   const cid = await empresa(companyId);
+  const grupo = await one<any>(`SELECT * FROM promotion_groups WHERE id = ? AND company_id = ?`, [id, cid]);
+  if (!grupo) return null;
   const linhas = await all<any>(
-    `${SELECT} WHERE pr.company_id = ? AND pr.product_id = ? AND pr.active = 1 ${exceto ? "AND pr.id <> ?" : ""}`,
-    exceto ? [cid, productId, exceto] : [cid, productId],
+    `${SELECT} WHERE pr.group_id = ? AND pr.company_id = ? ORDER BY p.name`,
+    [id, cid],
   );
+  const faixas = linhas.length
+    ? await all<any>(
+        `SELECT promotion_id, min_qty, max_qty, unit_price_cents FROM promotion_tiers
+          WHERE promotion_id IN (${linhas.map(() => "?").join(",")}) ORDER BY min_qty`,
+        linhas.map((l) => l.id),
+      )
+    : [];
+  const promotions = [...montar(linhas, faixas).values()];
+  const primeiro = promotions[0];
+  return {
+    id: grupo.id,
+    name: grupo.name ?? "",
+    notes: primeiro?.notes ?? null,
+    active: !!primeiro?.active,
+    starts_on: primeiro?.starts_on ?? null,
+    ends_on: primeiro?.ends_on ?? null,
+    tiers: primeiro?.tiers ?? [],
+    product_ids: promotions.map((p) => p.product_id),
+    promotions,
+  };
+}
+
+/** Outras promocoes do mesmo produto, para checar conflito antes de gravar. */
+// (mantido como atalho de uma linha: quem valida grupo usa a versao em lote)
+export async function promocoesDoProduto(productId: number, exceto?: number, companyId?: number) {
+  const porProduto = await promocoesAtivasDosProdutos([productId], exceto ? [exceto] : [], companyId);
+  return porProduto.get(productId) ?? [];
+}
+
+/**
+ * Promocoes ATIVAS de VARIOS produtos, em uma leitura.
+ *
+ * O cadastro em grupo precisa checar conflito de cada produto selecionado
+ * contra as promocoes que ja existem para ele; uma consulta por produto seria
+ * N+1 numa selecao de dezenas. `exceto` ignora as proprias promocoes do grupo
+ * em edicao (elas nao conflitam consigo mesmas).
+ */
+export async function promocoesAtivasDosProdutos(
+  productIds: number[],
+  exceto: number[] = [],
+  companyId?: number,
+): Promise<Map<number, PromocaoComProduto[]>> {
+  const ids = [...new Set(productIds.filter((n) => Number.isInteger(n) && n > 0))];
+  if (ids.length === 0) return new Map();
+  const cid = await empresa(companyId);
+  const params: any[] = [cid, ...ids];
+  let sql = `${SELECT} WHERE pr.company_id = ? AND pr.active = 1
+      AND pr.product_id IN (${ids.map(() => "?").join(",")})`;
+  if (exceto.length) {
+    sql += ` AND pr.id NOT IN (${exceto.map(() => "?").join(",")})`;
+    params.push(...exceto);
+  }
+  const linhas = await all<any>(sql, params);
   const faixas = linhas.length
     ? await all<any>(
         `SELECT * FROM promotion_tiers WHERE promotion_id IN (${linhas.map(() => "?").join(",")})`,
         linhas.map((l) => l.id),
       )
     : [];
-  return [...montar(linhas, faixas).values()];
+  const porProduto = new Map<number, PromocaoComProduto[]>();
+  for (const promocao of montar(linhas, faixas).values()) {
+    const lista = porProduto.get(promocao.product_id) ?? [];
+    lista.push(promocao);
+    porProduto.set(promocao.product_id, lista);
+  }
+  return porProduto;
 }
 
 /**

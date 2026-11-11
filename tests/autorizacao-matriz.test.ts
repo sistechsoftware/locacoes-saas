@@ -436,6 +436,8 @@ const PAGINAS: Record<string, string> = {
   "src/app/(app)/promocoes/nova/page.tsx": "promocoes",
   "src/app/(app)/promocoes/[id]/page.tsx": "promocoes",
   "src/app/(app)/promocoes/[id]/editar/page.tsx": "promocoes",
+  "src/app/(app)/promocoes/grupo/[id]/page.tsx": "promocoes",
+  "src/app/(app)/promocoes/grupo/[id]/editar/page.tsx": "promocoes",
   "src/app/(app)/recibos/[id]/page.tsx": "recibos",
   "src/app/(app)/relatorios/page.tsx": "relatorios",
   "src/app/(app)/reservas/page.tsx": "reservas",
