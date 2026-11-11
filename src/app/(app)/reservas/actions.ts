@@ -21,6 +21,7 @@ import {
 } from "@/lib/stock";
 import { aoConcluirLocacao, devolverRecompensaDaReserva, reverterReserva } from "@/lib/fidelidade-db";
 import { criarAdiantamento } from "@/lib/receber";
+import { excluirPagamento, estornarPagamento } from "@/lib/estornos";
 import { HOLDING_STATUSES } from "@/lib/domain";
 import { money, parseMoney, addDays, today } from "@/lib/format";
 import { calcularExtensao } from "@/lib/hora-extra";
@@ -322,19 +323,71 @@ export async function addPayment(fd: FormData) {
   revalidatePath("/financeiro");
 }
 
+/**
+ * EXCLUIR um pagamento/adiantamento registrado por engano.
+ *
+ * A operação inteira mora em @/lib/estornos: aqui só ficam permissão,
+ * auditoria e revalidação. O lib valida tenant, recusa estorno/transferência,
+ * recusa lançamento já estornado e grava comprovante + caixa + status da
+ * parcela num único batch.
+ */
 export async function deletePayment(fd: FormData) {
   const { user, companyId } = await requireModuleEdit("reservas");
   if (!ehAdmin(user.role)) throw new PermissionError();
   const paymentId = Number(fd.get("payment_id"));
-  // transfer_group IS NULL: um lado de transferência não é um "pagamento de
-  // reserva" — apagá-lo sozinho deixaria o evento incompleto e o saldo das
-  // duas contas errado. Transferência só é removida pelo fluxo próprio
-  // (Financeiro > Transferências), que apaga os dois lados em transação.
-  const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ? AND transfer_group IS NULL`, [paymentId, companyId]);
-  if (!p) return;
-  await run(`DELETE FROM payments WHERE id = ? AND company_id = ? AND transfer_group IS NULL`, [paymentId, companyId]);
-  await logAction(user, "excluir", "reserva", p.reservation_id, `${user.name} removeu um pagamento de ${money(p.amount_cents)}`);
-  revalidatePath(`/reservas/${p.reservation_id}`);
+  const reservationId = Number(fd.get("reservation_id")) || 0;
+  const resultado = await excluirPagamento({ paymentId, companyId });
+  // a tela de origem é a reserva; sem ela (fluxo do Financeiro), volta para lá
+  const destino = reservationId ? `/reservas/${reservationId}` : "/financeiro";
+  // Transferência entre contas tem fluxo próprio e o contrato desta action é
+  // sair em silêncio: apagar um lado isoladamente quebraria o evento.
+  if ("erro" in resultado && resultado.codigo === "transferencia") return;
+  if ("erro" in resultado) redirect(`${destino}?erro=${encodeURIComponent(resultado.erro)}`);
+
+  await logAction(
+    user,
+    "excluir",
+    resultado.reservationId ? "reserva" : "financeiro",
+    resultado.reservationId ?? null,
+    `${user.name} excluiu um lançamento de ${money(resultado.valorCents)} registrado por engano`,
+  );
+  if (resultado.reservationId) revalidatePath(`/reservas/${resultado.reservationId}`);
+  revalidatePath("/financeiro");
+  revalidatePath("/dashboard");
+}
+
+/**
+ * ESTORNAR: o valor entrou e foi devolvido ao cliente.
+ *
+ * Diferente de excluir: a entrada original permanece no histórico e a
+ * devolução entra como saída do caixa, ligada a ela. Só admin — é uma
+ * correção financeira, como a exclusão.
+ */
+export async function estornarPagamentoAction(fd: FormData) {
+  const { user, companyId } = await requireModuleEdit("reservas");
+  if (!ehAdmin(user.role)) throw new PermissionError();
+  const paymentId = Number(fd.get("payment_id"));
+  const reservationId = Number(fd.get("reservation_id")) || 0;
+  const resultado = await estornarPagamento({
+    paymentId,
+    companyId,
+    userId: user.id,
+    motivo: String(fd.get("motivo") ?? ""),
+    data: String(fd.get("data") ?? ""),
+  });
+  const destino = reservationId ? `/reservas/${reservationId}` : "/financeiro";
+  if ("erro" in resultado) redirect(`${destino}?erro=${encodeURIComponent(resultado.erro)}`);
+
+  await logAction(
+    user,
+    "estorno",
+    resultado.reservationId ? "reserva" : "financeiro",
+    resultado.reservationId ?? null,
+    `${user.name} estornou ${money(resultado.valorCents)} — devolução ao cliente registrada no caixa`,
+  );
+  if (resultado.reservationId) revalidatePath(`/reservas/${resultado.reservationId}`);
+  revalidatePath("/financeiro");
+  revalidatePath("/dashboard");
 }
 
 export async function saveDeposit(fd: FormData) {

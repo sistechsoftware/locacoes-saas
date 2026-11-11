@@ -37,7 +37,7 @@ import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, Stat,
 import { Icon } from "@/components/Icons";
 import { SubmitButton } from "@/components/SubmitButton";
 import { RESOLUTION_LABEL } from "@/lib/danos";
-import { addPayment, changeStatus, deletePayment, deleteReservation, refreshComposition, saveDeposit } from "../actions";
+import { addPayment, changeStatus, deletePayment, deleteReservation, estornarPagamentoAction, refreshComposition, saveDeposit } from "../actions";
 import { consertarDano, estornarBaixaDano, resolverDano } from "../../operacao/actions";
 import { generateContract } from "../../contratos/actions";
 import { parcelarReserva, receberParcela } from "../../financeiro/receber-actions";
@@ -220,6 +220,13 @@ export default async function ReservaPage({
   const reciboDeposit = deposito ? recibos.find((rc: any) => rc.deposit_id === deposito.id) : null;
   const reciboPorPagamento = new Map<number, any>(
     recibos.filter((rc: any) => rc.payment_id).map((rc: any) => [rc.payment_id, rc]),
+  );
+  // Estornos ja lancados, pelo lancamento original: um recebimento estornado
+  // nao pode ser estornado nem excluido de novo — o par fica no historico.
+  const estornoDe = new Map<number, any>(
+    payments
+      .filter((p: any) => p.amount_cents < 0 && p.refund_of_payment_id)
+      .map((p: any) => [p.refund_of_payment_id, p]),
   );
   const temKit = items.some((i: any) => i.product_kind === "kit");
   const pay = paymentState(m.total, m.paid);
@@ -537,7 +544,13 @@ export default async function ReservaPage({
 
       <Section title="Adiantamento">
         {adiantamentoAberto ? (
-          <AdiantamentoAberto entry={adiantamentoAberto} reservationId={r.id} hoje={today()} contas={contas} />
+          <AdiantamentoAberto
+            entry={adiantamentoAberto}
+            reservationId={r.id}
+            hoje={today()}
+            contas={contas}
+            cancelada={r.status === "cancelada"}
+          />
         ) : r.status !== "cancelada" ? (
           <>
             <p className="mb-2 text-sm text-stone-600">
@@ -632,6 +645,34 @@ export default async function ReservaPage({
                             </SubmitButton>
                           </form>
                         ))}
+                      {/* Devolver ou remover o adiantamento e operar o PAGAMENTO que
+                          ele gerou: mesmo par estorno/exclusao dos pagamentos. */}
+                      {sit === "recebido" && pagamento && ehAdmin(user.role) && pagamento.amount_cents > 0 && !estornoDe.has(pagamento.id) && (
+                        <>
+                          <form action={estornarPagamentoAction}>
+                            <input type="hidden" name="payment_id" value={pagamento.id} />
+                            <input type="hidden" name="reservation_id" value={r.id} />
+                            <SubmitButton
+                              variant="secundario"
+                              confirm={`Estornar o adiantamento de ${money(pagamento.amount_cents)}? A devolução entra no caixa como saída e a entrada original fica no histórico.`}
+                              className="px-2.5 py-1.5 text-xs"
+                            >
+                              Estornar
+                            </SubmitButton>
+                          </form>
+                          <form action={deletePayment}>
+                            <input type="hidden" name="payment_id" value={pagamento.id} />
+                            <input type="hidden" name="reservation_id" value={r.id} />
+                            <SubmitButton
+                              variant="perigo"
+                              confirm="Excluir este adiantamento? Use somente se ele foi lançado por engano. O valor sai do recebido e o adiantamento agendado reabre."
+                              className="px-2.5 py-1.5 text-xs"
+                            >
+                              Remover
+                            </SubmitButton>
+                          </form>
+                        </>
+                      )}
                       <Badge tone={sit === "recebido" ? "verde" : sit === "cancelado" ? "cinza" : "vermelho"}>{sit}</Badge>
                     </span>
                   </li>
@@ -645,6 +686,9 @@ export default async function ReservaPage({
       <Section title={`Parcelamento (${parcelasReceber.length})`}>
         {parcelasReceber.length === 0 ? (
           <>
+            {r.status === "cancelada" && (
+              <p className="mb-2 text-sm text-stone-600">Reserva cancelada: nenhuma parcela será cobrada.</p>
+            )}
             <p className="mb-2 text-sm text-stone-600">
               Sem parcelamento.{" "}
               {m.paid > 0
@@ -652,6 +696,7 @@ export default async function ReservaPage({
                 : `O total de ${money(m.total)} vira uma conta a receber só, ou divida em parcelas com vencimento próprio.`}{" "}
               O caixa registra apenas o que for efetivamente recebido.
             </p>
+            {r.status !== "cancelada" && (
             <form action={parcelarReserva} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <input type="hidden" name="reservation_id" value={r.id} />
               <label className="block">
@@ -677,6 +722,7 @@ export default async function ReservaPage({
                 <SubmitButton className="w-full">Gerar parcelas</SubmitButton>
               </div>
             </form>
+            )}
           </>
         ) : (
           <ul className="space-y-2">
@@ -698,7 +744,7 @@ export default async function ReservaPage({
                       {sit}
                     </Badge>
                   </div>
-                  {sit !== "quitada" && (
+                  {sit !== "quitada" && r.status !== "cancelada" && (
                     <form action={receberParcela} className="mt-2 grid grid-cols-2 gap-2">
                       <input type="hidden" name="entry_id" value={p.id} />
                       <input
@@ -779,51 +825,115 @@ export default async function ReservaPage({
               <Empty>Nenhum pagamento registrado.</Empty>
             ) : (
               <ul className="divide-y divide-nuvem-200">
-                {payments.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between gap-2 py-2">
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold">{money(p.amount_cents)}</span>
-                      <span className="block text-xs text-stone-500">
-                        {dateBR(p.paid_at)} - {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
-                        {p.notes ? ` - ${p.notes}` : ""}
+                {payments.map((p) => {
+                  const ehEstorno = p.amount_cents < 0;
+                  const estorno = estornoDe.get(p.id);
+                  // So um recebimento vivo pode ser corrigido: o estorno e
+                  // historico e nao se desfaz nem se exclui.
+                  const podeCorrigir = ehAdmin(user.role) && !ehEstorno && !estorno;
+                  return (
+                    <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                      <span className="min-w-0">
+                        <span className={`block text-sm font-semibold ${ehEstorno ? "text-amber-700" : ""}`}>
+                          {ehEstorno ? `− ${money(-p.amount_cents)} · devolvido ao cliente` : money(p.amount_cents)}
+                        </span>
+                        <span className="block text-xs text-stone-500">
+                          {dateBR(p.paid_at)} - {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
+                          {p.notes ? ` - ${p.notes}` : ""}
+                        </span>
                       </span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1.5">
-                      {/* Recibo do lancamento: se ja existe, abre direto; senao gera agora.
-                          Nao muda o pagamento: so le o id dele. */}
-                      {p.amount_cents > 0 &&
-                        (reciboPorPagamento.get(p.id) ? (
-                          <Link
-                            href={`/recibos/${reciboPorPagamento.get(p.id).id}`}
-                            className="rounded-xl border border-nuvem-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-marca-600 hover:bg-nuvem-50"
-                          >
-                            Recibo {reciboPorPagamento.get(p.id).number}
-                          </Link>
-                        ) : (
-                          <form action={gerarReciboPayment}>
-                            <input type="hidden" name="payment_id" value={p.id} />
-                            <input type="hidden" name="voltar" value={`/reservas/${r.id}`} />
-                            <SubmitButton variant="secundario" className="px-2.5 py-1.5 text-xs">
-                              Gerar recibo
-                            </SubmitButton>
-                          </form>
-                        ))}
-                      {ehAdmin(user.role) && (
-                        <form action={deletePayment}>
-                          <input type="hidden" name="payment_id" value={p.id} />
-                          <SubmitButton variant="perigo" confirm="Remover este pagamento?" className="px-2.5 py-1.5 text-xs">
-                            Remover
-                          </SubmitButton>
-                        </form>
-                      )}
-                    </span>
-                  </li>
-                ))}
+                      <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                        {estorno ? <Badge tone="ambar">estornado</Badge> : null}
+                        {/* Recibo do lancamento: se ja existe, abre direto; senao gera agora.
+                            Nao muda o pagamento: so le o id dele. */}
+                        {p.amount_cents > 0 &&
+                          (reciboPorPagamento.get(p.id) ? (
+                            <Link
+                              href={`/recibos/${reciboPorPagamento.get(p.id).id}`}
+                              className="rounded-xl border border-nuvem-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-marca-600 hover:bg-nuvem-50"
+                            >
+                              Recibo {reciboPorPagamento.get(p.id).number}
+                            </Link>
+                          ) : (
+                            <form action={gerarReciboPayment}>
+                              <input type="hidden" name="payment_id" value={p.id} />
+                              <input type="hidden" name="voltar" value={`/reservas/${r.id}`} />
+                              <SubmitButton variant="secundario" className="px-2.5 py-1.5 text-xs">
+                                Gerar recibo
+                              </SubmitButton>
+                            </form>
+                          ))}
+                        {podeCorrigir && (
+                          <>
+                            {/* ESTORNAR: o dinheiro voltou ao cliente. A entrada
+                                original fica no historico e a devolucao entra
+                                como saida do caixa. */}
+                            <details className="relative">
+                              <summary className="cursor-pointer list-none rounded-xl border border-nuvem-300 px-2.5 py-1.5 text-xs font-semibold text-stone-600">
+                                Estornar
+                              </summary>
+                              <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-nuvem-300 bg-white p-3 shadow-lg">
+                                <form action={estornarPagamentoAction} className="space-y-2">
+                                  <p className="text-xs text-stone-600">
+                                    Devolução ao cliente. A entrada original permanece no histórico e o valor sai do recebido
+                                    líquido.
+                                  </p>
+                                  <input type="hidden" name="payment_id" value={p.id} />
+                                  <input type="hidden" name="reservation_id" value={r.id} />
+                                  <input
+                                    name="data"
+                                    type="date"
+                                    defaultValue={today()}
+                                    className="campo"
+                                    aria-label="Data da devolução"
+                                  />
+                                  <input name="motivo" placeholder="Motivo (opcional)" maxLength={120} className="campo" />
+                                  <SubmitButton variant="secundario" className="w-full">
+                                    Confirmar estorno
+                                  </SubmitButton>
+                                </form>
+                              </div>
+                            </details>
+                            {/* EXCLUIR: lancamento registrado por engano. O valor
+                                sai do caixa e a parcela vinculada reabre. */}
+                            <form action={deletePayment}>
+                              <input type="hidden" name="payment_id" value={p.id} />
+                              <input type="hidden" name="reservation_id" value={r.id} />
+                              <SubmitButton
+                                variant="perigo"
+                                confirm="Excluir este lançamento? Use somente se ele foi registrado por engano — o valor sai do caixa, a parcela vinculada reabre e o recibo emitido é removido. Para devolver um valor que o cliente pagou, use Estornar."
+                                className="px-2.5 py-1.5 text-xs"
+                              >
+                                Remover
+                              </SubmitButton>
+                            </form>
+                          </>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
-            <div className="mt-2 flex items-center justify-between rounded-xl bg-nuvem-100 px-3 py-2 text-sm font-bold">
-              <span>Saldo</span>
-              <span className={m.balance <= 0 ? "text-emerald-600" : "text-red-600"}>{money(m.balance)}</span>
+            <div className="mt-2 space-y-1 rounded-xl bg-nuvem-100 px-3 py-2 text-sm font-bold">
+              <div className="flex items-center justify-between">
+                <span>Recebido líquido</span>
+                <span className="text-emerald-700">{money(m.paid)}</span>
+              </div>
+              {m.refunded > 0 && (
+                <div className="flex items-center justify-between text-amber-700">
+                  <span>Devolvido ao cliente</span>
+                  <span>− {money(m.refunded)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span>Saldo</span>
+                {r.status === "cancelada" ? (
+                  <span className="text-stone-500">cancelada — sem saldo a cobrar</span>
+                ) : (
+                  <span className={m.balance <= 0 ? "text-emerald-600" : "text-red-600"}>{money(m.balance)}</span>
+                )}
+              </div>
             </div>
             {/* Quitação unificada da locação: aparece quando quitada. O recibo de
                 quitação é ADICIONAL aos recibos individuais, nunca os substitui. */}
@@ -1138,11 +1248,13 @@ function AdiantamentoAberto({
   reservationId,
   hoje,
   contas,
+  cancelada,
 }: {
   entry: any;
   reservationId: number;
   hoje: string;
   contas: { id: number; name: string }[];
+  cancelada: boolean;
 }) {
   const sit = situacaoAdiantamento(entry, entry.recebido_cents, hoje);
   return (
@@ -1157,6 +1269,16 @@ function AdiantamentoAberto({
         <Badge tone={sit === "atrasado" ? "vermelho" : "ambar"}>{sit}</Badge>
       </div>
 
+      {/* Reserva cancelada nao gera cobranca: o adiantamento pendente fica
+          registrado, mas nao se confirma recebimento de reserva cancelada. */}
+      {cancelada && (
+        <p className="rounded-xl bg-nuvem-100 px-3 py-2 text-xs text-stone-600">
+          Reserva cancelada: este adiantamento pendente não é cobrado. Se ele não vai mais acontecer, cancele o
+          agendamento abaixo.
+        </p>
+      )}
+
+      {!cancelada && (
       <form action={confirmarAdiantamentoAction} className="grid grid-cols-2 gap-2 rounded-xl border border-nuvem-300 bg-white p-3">
         <input type="hidden" name="entry_id" value={entry.id} />
         <input type="hidden" name="reservation_id" value={reservationId} />
@@ -1190,6 +1312,7 @@ function AdiantamentoAberto({
           <SubmitButton className="w-full">Confirmar recebimento</SubmitButton>
         </div>
       </form>
+      )}
 
       <details>
         <summary className="cursor-pointer text-xs font-semibold text-marca-600">Alterar valor, data ou forma</summary>

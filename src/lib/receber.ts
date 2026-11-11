@@ -195,6 +195,10 @@ export async function listarEntries(f: FiltroEntries, companyId?: number) {
   const params: any[] = [await empresa(companyId)];
   where.push("e.direction = ?");
   params.push(f.direction);
+  /* Reserva cancelada nao e divida ativa: as parcelas a RECEBER dela saem das
+     telas de cobranca. O registro continua no banco (nada e apagado) e volta a
+     aparecer se a reserva for reativada. Contas a pagar nao sao afetadas. */
+  where.push("(e.direction <> 'receber' OR COALESCE(r.status, '') <> 'cancelada')");
 
   if (f.de && f.ate) {
     where.push("e.due_date BETWEEN ? AND ?");
@@ -238,7 +242,9 @@ export async function totaisEntries(direction: "receber" | "pagar", companyId?: 
        COALESCE(SUM((SELECT SUM(m.amount_cents) FROM ${campo} m WHERE m.entry_id = e.id)),0) AS liquidado,
        COALESCE(SUM(CASE WHEN e.due_date < ? THEN e.amount_cents END),0) AS vencendo
      FROM financial_entries e
-     WHERE e.company_id = ? AND e.direction = ? AND e.status <> 'cancelada'`,
+     LEFT JOIN reservations r ON r.id = e.reservation_id
+     WHERE e.company_id = ? AND e.direction = ? AND e.status <> 'cancelada'
+       AND (e.direction <> 'receber' OR COALESCE(r.status, '') <> 'cancelada')`,
     [today(), cid, direction],
   );
 
@@ -247,7 +253,9 @@ export async function totaisEntries(direction: "receber" | "pagar", companyId?: 
     `SELECT e.amount_cents,
             COALESCE((SELECT SUM(m.amount_cents) FROM ${campo} m WHERE m.entry_id = e.id),0) AS liquidado
        FROM financial_entries e
-      WHERE e.company_id = ? AND e.direction = ? AND e.status <> 'cancelada' AND e.due_date < ?`,
+       LEFT JOIN reservations r ON r.id = e.reservation_id
+      WHERE e.company_id = ? AND e.direction = ? AND e.status <> 'cancelada' AND e.due_date < ?
+        AND (e.direction <> 'receber' OR COALESCE(r.status, '') <> 'cancelada')`,
     [cid, direction, today()],
   );
   const atrasado = vencidas.reduce((s, e) => s + Math.max(0, e.amount_cents - e.liquidado), 0);
@@ -567,6 +575,7 @@ export async function adiantamentosPendentes(hoje = today(), companyId?: number)
        JOIN customers c ON c.id = e.customer_id
        LEFT JOIN reservations r ON r.id = e.reservation_id
       WHERE e.company_id = ? AND e.category = 'Adiantamento' AND e.status = 'aberta' AND e.due_date <= ?
+        AND (r.id IS NULL OR r.status <> 'cancelada')
       ORDER BY e.due_date, e.id`,
     [cid, hoje],
   );

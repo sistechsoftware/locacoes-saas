@@ -5,6 +5,7 @@ import { insert, one, run, scalar } from "@/lib/db";
 import { assertAdmin, PermissionError, requireModuleEdit } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { gerarRecebiveis } from "@/lib/receber";
+import { estornarPagamento } from "@/lib/estornos";
 import { money, parseMoney, today } from "@/lib/format";
 
 /** Cria as parcelas a receber de uma reserva. */
@@ -106,46 +107,31 @@ export async function receberParcela(fd: FormData) {
   revalidatePath("/financeiro");
 }
 
-/** Estorna um recebimento, mantendo o registro do estorno. */
+/**
+ * Estorna um recebimento mantendo o registro do estorno.
+ *
+ * Mesma operação da tela da reserva (ver @/lib/estornos): a devolução é uma
+ * linha negativa ligada ao recebimento original, com trava de estorno
+ * duplicado no banco e status da parcela recalculado no mesmo batch. Antes
+ * este caminho duplicava a regra e permitia estornar duas vezes o mesmo
+ * lançamento.
+ */
 export async function estornarRecebimento(fd: FormData) {
   const user = await assertAdmin();
   const paymentId = Number(fd.get("payment_id"));
-  const p = await one<any>(`SELECT * FROM payments WHERE id = ? AND company_id = ?`, [paymentId, user.company_id]);
-  if (!p) return;
-
-  // Um lado de transferência não é recebimento: estornar por aqui criaria um
-  // negativo SEM transfer_group (contando como receita nos indicadores) e
-  // deixaria o evento pela metade. O caminho certo é Financeiro > Transferências.
-  if (p.transfer_group != null) {
-    throw new PermissionError("Transferência entre contas não é estornável por aqui. Use Financeiro › Transferências.");
-  }
-
-  await insert(
-    `INSERT INTO payments (reservation_id, freight_id, amount_cents, method, paid_at, notes, entry_id, account_id, created_by, company_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    [
-      p.reservation_id,
-      p.freight_id,
-      -p.amount_cents,
-      p.method,
-      today(),
-      `Estorno: ${p.notes ?? ""}`.trim(),
-      p.entry_id,
-      p.account_id,
-      user.id,
-      user.company_id,
-    ],
-  );
-  if (p.entry_id) await run(`UPDATE financial_entries SET status = 'aberta' WHERE id = ? AND company_id = ?`, [p.entry_id, user.company_id]);
+  const r = await estornarPagamento({ paymentId, companyId: user.company_id, userId: user.id });
+  // Contrato histórico: lado de transferência é recusado como permissão.
+  if ("erro" in r && r.codigo === "transferencia") throw new PermissionError(r.erro);
+  if ("erro" in r) redirect(`/financeiro?erro=${encodeURIComponent(r.erro)}`);
 
   await logAction(
     user,
     "estorno",
     "financeiro",
-    p.entry_id ?? paymentId,
-    `${user.name} estornou um recebimento de ${money(p.amount_cents)}`,
+    r.reservationId ?? paymentId,
+    `${user.name} estornou um recebimento de ${money(r.valorCents)}`,
   );
   revalidatePath("/financeiro");
-  if (p.reservation_id) revalidatePath(`/reservas/${p.reservation_id}`);
-  if (p.freight_id) revalidatePath(`/fretes/${p.freight_id}`);
+  if (r.reservationId) revalidatePath(`/reservas/${r.reservationId}`);
+  if (r.freightId) revalidatePath(`/fretes/${r.freightId}`);
 }
