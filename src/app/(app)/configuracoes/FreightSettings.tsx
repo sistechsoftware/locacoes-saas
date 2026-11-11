@@ -1,5 +1,6 @@
 import { Field, Grid, Section } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { freightConfig } from "@/lib/freight-config";
 import { saveFreightSettings } from "./actions";
 
@@ -12,15 +13,13 @@ export default function FreightSettings({ settings, admin }: { settings: Record<
         <Field label="Endereço-base" hint="Rua, número, bairro, cidade e estado. Independente do outro tipo de frete."><input name="base_address" defaultValue={c.baseAddress} maxLength={400} className="campo" disabled={!admin} /></Field>
         <Grid>
           <Field label="Combustível"><input name="fuel_type" defaultValue={c.fuelType} className="campo" disabled={!admin} /></Field>
-          {([
-            ["fuel_price", "Preço por litro (R$)", c.fuelPriceCents/100],
-            ["consumption", "Consumo (km/L)", c.consumption],
-            ["cost_per_km", "Custo operacional por km (R$)", c.costPerKmCents/100],
-            ["margin", "Margem sobre a venda (%)", c.marginPercent],
-            ["minimum", "Valor mínimo (R$)", c.minimumCents/100],
-            ["rounding", "Arredondamento (R$; 0 desliga)", c.roundingCents/100],
-            ["labor", "Mão de obra (R$)", c.laborCents/100],
-          ] as const).map(([name,label,value]) => <Field key={name} label={label}><input name={name} type="number" min={0} max={name === "margin" ? 95 : undefined} step="0.01" defaultValue={value} className="campo" disabled={!admin} /></Field>)}
+          <Field label="Preço por litro (R$)"><MoneyInput name="fuel_price" defaultCents={c.fuelPriceCents} className="campo" disabled={!admin} /></Field>
+          <Field label="Consumo (km/L)"><input name="consumption" type="number" min={0} step="0.01" defaultValue={c.consumption} className="campo" disabled={!admin} /></Field>
+          <Field label="Custo operacional por km (R$)"><MoneyInput name="cost_per_km" defaultCents={c.costPerKmCents} className="campo" disabled={!admin} /></Field>
+          <Field label="Margem sobre a venda (%)"><input name="margin" type="number" min={0} max={95} step="0.01" defaultValue={c.marginPercent} className="campo" disabled={!admin} /></Field>
+          <Field label="Valor mínimo (R$)"><MoneyInput name="minimum" defaultCents={c.minimumCents} className="campo" disabled={!admin} /></Field>
+          <Field label="Arredondamento (R$; 0 desliga)"><MoneyInput name="rounding" defaultCents={c.roundingCents} className="campo" disabled={!admin} /></Field>
+          <Field label="Mão de obra (R$)"><MoneyInput name="labor" defaultCents={c.laborCents} className="campo" disabled={!admin} /></Field>
         </Grid>
         <p className="text-xs text-stone-500">O modo manual preserva a fórmula existente. Rotas por endereço usam somente a quilometragem dos trechos exibidos, sem duplicar viagens.</p>
         {admin && <SubmitButton>Salvar {tipo === "comum" ? "Frete Comum" : "Frete de Locação"}</SubmitButton>}

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { RESERVATION_STATUS } from "@/lib/domain";
 import {
   EVENTOS,
@@ -136,10 +137,9 @@ export default function FidelitySettings({
             />
           </Field>
           <Field label="Valor mínimo da locação (R$)" hint="0 = qualquer valor conta.">
-            <input
+            <MoneyInput
               name="min_value"
-              inputMode="decimal"
-              defaultValue={((Number(settings.fidelity_min_value_cents ?? 0) || 0) / 100).toFixed(2)}
+              defaultCents={Number(settings.fidelity_min_value_cents ?? 0) || 0}
               className="campo"
               disabled={!admin}
             />

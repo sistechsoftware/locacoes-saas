@@ -4,6 +4,7 @@ import { diasCobrados, money, parseMoney, today } from "@/lib/format";
 import { descontoDePct, exprDePct, pctDeExpr, pctDigitado, type ModoDesconto } from "@/lib/desconto";
 import { precoPromocional, precoUnitarioEntre, rotuloFaixa, type Promocao } from "@/lib/promocoes";
 import { Icon } from "./Icons";
+import MoneyInput from "./MoneyInput";
 
 export type Product = {
   id: number;
@@ -424,11 +425,10 @@ export default function ItemsEditor({
                     <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">
                       {per > 1 ? "Valor/diária" : "Valor un."}
                     </span>
-                    <input
-                      key={`${item.product_id}-${item.unit_price_cents}`}
-                      defaultValue={(item.unit_price_cents / 100).toFixed(2)}
-                      onBlur={(e) => {
-                        const digitado = parseMoney(e.target.value);
+                    <MoneyInput
+                      valueCents={item.unit_price_cents}
+                      onCentsChange={(cents) => {
+                        const digitado = cents ?? 0;
                         if (digitado === item.unit_price_cents) return;
                         // a partir daqui o preco e escolha da pessoa, nao da regra
                         patch(index, {
@@ -438,7 +438,6 @@ export default function ItemsEditor({
                           preservado: false,
                         });
                       }}
-                      inputMode="decimal"
                       className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
                     />
                   </label>
@@ -447,13 +446,25 @@ export default function ItemsEditor({
                     <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">
                       Desconto {modoDesconto === "percent" ? "%" : "R$"}
                     </span>
-                    <input
-                      key={`desc-${modoDesconto}-${item.product_id}`}
-                      defaultValue={valorDescontoLinha(item, baseLinha, modoDesconto)}
-                      onBlur={(e) => aplicarDescontoLinha(index, e.target.value, baseLinha)}
-                      inputMode="decimal"
-                      className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
-                    />
+                    {modoDesconto === "percent" ? (
+                      <input
+                        key={`desc-pct-${item.product_id}`}
+                        defaultValue={valorDescontoLinha(item, baseLinha, "percent")}
+                        onBlur={(e) => aplicarDescontoLinha(index, e.target.value, baseLinha)}
+                        inputMode="decimal"
+                        className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
+                      />
+                    ) : (
+                      <MoneyInput
+                        valueCents={item.discount_cents}
+                        onCentsChange={(cents) => {
+                          const valor = cents ?? 0;
+                          if (valor === item.discount_cents && !item.discount_expr) return;
+                          patch(index, { discount_cents: valor, discount_expr: null });
+                        }}
+                        className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
+                      />
+                    )}
                   </label>
                 </div>
 

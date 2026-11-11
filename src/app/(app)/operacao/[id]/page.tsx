@@ -14,6 +14,7 @@ import { dateBR, dateTimeBR, mapsLink, money, phoneBR, timeBR, utcParaLocal, waL
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import ImageInput from "@/components/ImageInput";
 import { RESOLUTION_LABEL } from "@/lib/danos";
 import { cancelOperation, consertarDano, deletePhoto, estornarBaixaDano, reportDamage, resolverDano, saveChecklist, setOperationStatus, updateOperation } from "../actions";
@@ -303,11 +304,11 @@ export default async function OperacaoDetalhePage({
             </label>
             <label className="block">
               <span className="rotulo">Valor estimado (R$)</span>
-              <input name="estimated" inputMode="decimal" className="campo" />
+              <MoneyInput name="estimated" className="campo" />
             </label>
             <label className="block">
               <span className="rotulo">Descontar da caução (R$)</span>
-              <input name="charged" inputMode="decimal" className="campo" />
+              <MoneyInput name="charged" className="campo" />
             </label>
             <label className="col-span-2 block">
               <span className="rotulo">Descrição</span>

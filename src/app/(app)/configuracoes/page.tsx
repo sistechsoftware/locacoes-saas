@@ -17,6 +17,7 @@ import { Alerta, Badge, Card, Empty, Field, Grid, PageHeader, Section } from "@/
 import { Tabs } from "@/components/List";
 import { SubmitButton } from "@/components/SubmitButton";
 import ImageInput from "@/components/ImageInput";
+import MoneyInput from "@/components/MoneyInput";
 import EditorContrato from "@/components/EditorContrato";
 import { addCategory, removeCategory, resetPassword, saveCompanySettings, saveFreightSettings, saveNavLayout, saveTemplates, toggleUser, updateUser, deleteUser } from "./actions";
 import { getCompanySignature } from "@/lib/assinatura-empresa";
@@ -292,10 +293,9 @@ export default async function ConfiguracoesPage({
                 <input name="pix_key" defaultValue={s.pix_key} className="campo" disabled={!admin} />
               </Field>
               <Field label="Caução padrão (R$)">
-                <input
+                <MoneyInput
                   name="default_deposit"
-                  defaultValue={(Number(s.default_deposit_cents || 0) / 100).toFixed(2)}
-                  inputMode="decimal"
+                  defaultCents={Number(s.default_deposit_cents || 0)}
                   className="campo"
                   disabled={!admin}
                 />
@@ -331,10 +331,9 @@ export default async function ConfiguracoesPage({
                 label="Valor da hora extra (R$)"
                 hint="Cobrado por hora cheia quando a retirada é estendida na edição, até o limite abaixo. Em 0 desliga."
               >
-                <input
+                <MoneyInput
                   name="extra_hour_price"
-                  defaultValue={(Number(s.extra_hour_price_cents || 0) / 100).toFixed(2)}
-                  inputMode="decimal"
+                  defaultCents={Number(s.extra_hour_price_cents || 0)}
                   className="campo"
                   disabled={!admin}
                 />
@@ -648,7 +647,7 @@ export default async function ConfiguracoesPage({
               <option value="outro">Outra</option>
             </select>
             <input name="bank" placeholder="Banco" className="campo" />
-            <input name="initial_balance" placeholder="Saldo inicial (R$)" inputMode="decimal" className="campo" />
+            <MoneyInput name="initial_balance" placeholder="Saldo inicial (R$)" allowNegative className="campo" />
             <input name="notes" placeholder="Observações" className="campo" />
             <label className="col-span-2 flex items-center gap-2 text-sm text-stone-700">
               <input type="checkbox" name="is_cash_account" value="1" className="h-4 w-4" />
@@ -710,11 +709,11 @@ export default async function ConfiguracoesPage({
                           <option value="outro">Outra</option>
                         </select>
                         <input name="bank" defaultValue={c.bank ?? ""} placeholder="Banco" className="campo" />
-                        <input
+                        <MoneyInput
                           name="initial_balance"
-                          defaultValue={(Number(c.initial_balance_cents || 0) / 100).toFixed(2)}
+                          defaultCents={Number(c.initial_balance_cents || 0)}
                           placeholder="Saldo inicial (R$)"
-                          inputMode="decimal"
+                          allowNegative
                           className="campo"
                         />
                         <input name="notes" defaultValue={c.notes ?? ""} placeholder="Observações" className="campo" />

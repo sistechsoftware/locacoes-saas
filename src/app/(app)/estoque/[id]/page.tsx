@@ -13,6 +13,7 @@ import { UNIT_STATUS } from "@/lib/domain";
 import { addDays, dateBR, money, today, utcParaLocal } from "@/lib/format";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, Stat, StatusBadge } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { addUnits, closeMaintenance, deleteProduct, deleteUnit, openMaintenance, setUnitStatus, toggleProduct } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -237,7 +238,7 @@ export default async function ProdutoPage({
           <form action={addUnits} className="mb-3 flex flex-wrap gap-2">
             <input type="hidden" name="product_id" value={p.id} />
             <input name="qty" type="number" min={1} max={200} defaultValue={1} className="campo w-24" />
-            <input name="value" placeholder="Valor un. (R$)" inputMode="decimal" className="campo w-40" />
+            <MoneyInput name="value" placeholder="Valor un. (R$)" className="campo w-40" />
             <SubmitButton variant="secundario">Gerar códigos</SubmitButton>
           </form>
 
@@ -287,7 +288,7 @@ export default async function ProdutoPage({
             <input name="qty" type="number" min={1} defaultValue={1} placeholder="Qtd" className="campo" />
             <input name="started_at" type="date" defaultValue={d0} className="campo" />
             <input name="reason" placeholder="Motivo" className="campo col-span-2" />
-            <input name="cost" placeholder="Custo (R$)" inputMode="decimal" className="campo" />
+            <MoneyInput name="cost" placeholder="Custo (R$)" className="campo" />
             <select name="product_unit_id" className="campo">
               <option value="">Sem unidade especifica</option>
               {units.map((u) => (

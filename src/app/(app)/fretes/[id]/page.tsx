@@ -9,6 +9,7 @@ import { dateBR, mapsLink, money, phoneBR, timeBR, today, utcParaLocal, waLink }
 import { Card, Empty, LinkButton, PageHeader, Row, Section, StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { deleteFreight, payFreight, setFreightStatus } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -116,13 +117,7 @@ export default async function FretePage({ params }: { params: Promise<{ id: stri
         <Section title="Pagamentos">
           <form action={payFreight} className="grid grid-cols-2 gap-2">
             <input type="hidden" name="id" value={f.id} />
-            <input
-              name="amount"
-              placeholder="Valor (R$)"
-              defaultValue={((f.amount_cents - pago) / 100).toFixed(2)}
-              inputMode="decimal"
-              className="campo"
-            />
+            <MoneyInput name="amount" placeholder="Valor (R$)" defaultCents={f.amount_cents - pago} className="campo" />
             <input name="paid_at" type="date" defaultValue={today()} className="campo" />
             <select name="method" defaultValue={f.method} className="campo col-span-2">
               {PAYMENT_METHODS.map((m) => (

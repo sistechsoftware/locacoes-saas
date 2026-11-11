@@ -4,6 +4,7 @@ import RouteEstimate from "@/components/RouteEstimate";
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import ItemsEditor, { subtotalLinha, type ItemRow, type Product, type StockInfo } from "@/components/ItemsEditor";
 import ConflictList from "@/components/ConflictList";
+import MoneyInput from "@/components/MoneyInput";
 import { Field, Grid, Alerta } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { diasCobrados, money, parseMoney } from "@/lib/format";
@@ -452,38 +453,58 @@ export default function ReservationForm({
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">Serviços e Valores</h2>
         <Grid>
           <Field label="Frete (R$)">
-            <input value={freight} onChange={(e) => setFreight(e.target.value)} inputMode="decimal" className="campo" />
+            <MoneyInput
+              valueCents={freight.trim() === "" ? null : parseMoney(freight)}
+              onCentsChange={(cents) => setFreight(cents === null ? "" : (cents / 100).toFixed(2))}
+              className="campo"
+            />
           </Field>
           {/* montagem/desmontagem desabilitadas: os valores já lançados
               continuam no estado (e no hidden input "assembly"/
               "disassembly" do topo) — só a edição some da tela */}
           {vis.montagem && (
             <Field label="Montagem (R$)">
-              <input value={assembly} onChange={(e) => setAssembly(e.target.value)} inputMode="decimal" className="campo" />
+              <MoneyInput
+                valueCents={assembly.trim() === "" ? null : parseMoney(assembly)}
+                onCentsChange={(cents) => setAssembly(cents === null ? "" : (cents / 100).toFixed(2))}
+                className="campo"
+              />
             </Field>
           )}
           {vis.montagem && (
             <Field label="Desmontagem (R$)">
-              <input
-                value={disassembly}
-                onChange={(e) => setDisassembly(e.target.value)}
-                inputMode="decimal"
+              <MoneyInput
+                valueCents={disassembly.trim() === "" ? null : parseMoney(disassembly)}
+                onCentsChange={(cents) => setDisassembly(cents === null ? "" : (cents / 100).toFixed(2))}
                 className="campo"
               />
             </Field>
           )}
           <Field label="Outros serviços (R$)">
-            <input value={other} onChange={(e) => setOther(e.target.value)} inputMode="decimal" className="campo" />
+            <MoneyInput
+              valueCents={other.trim() === "" ? null : parseMoney(other)}
+              onCentsChange={(cents) => setOther(cents === null ? "" : (cents / 100).toFixed(2))}
+              className="campo"
+            />
           </Field>
           <Field label={modoDesconto === "percent" ? "Desconto (%)" : "Desconto (R$)"}>
             <div className="flex gap-2">
-              <input
-                value={modoDesconto === "percent" ? discountPct : discount}
-                onChange={(e) => (modoDesconto === "percent" ? setDiscountPct(e.target.value) : setDiscount(e.target.value))}
-                inputMode="decimal"
-                placeholder={modoDesconto === "percent" ? "ex.: 10" : "ex.: 150,00"}
-                className="campo flex-1"
-              />
+              {modoDesconto === "percent" ? (
+                <input
+                  value={discountPct}
+                  onChange={(e) => setDiscountPct(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="ex.: 10"
+                  className="campo flex-1"
+                />
+              ) : (
+                <MoneyInput
+                  valueCents={discount.trim() === "" ? null : parseMoney(discount)}
+                  onCentsChange={(cents) => setDiscount(cents === null ? "" : (cents / 100).toFixed(2))}
+                  placeholder="ex.: 150,00"
+                  className="campo flex-1"
+                />
+              )}
               <div className="flex shrink-0 self-start overflow-hidden rounded-xl border border-nuvem-300">
                 <button
                   type="button"
@@ -506,12 +527,7 @@ export default function ReservationForm({
               submit via hidden input — a desativação nunca zera a caução */}
           {vis.caucao ? (
             <Field label="Caução (R$)" hint="Valor separado da locação.">
-              <input
-                name="deposit"
-                defaultValue={cents(reservation?.deposit_cents)}
-                inputMode="decimal"
-                className="campo"
-              />
+              <MoneyInput name="deposit" defaultCents={reservation?.deposit_cents ?? 0} className="campo" />
             </Field>
           ) : (
             <input type="hidden" name="deposit" value={cents(reservation?.deposit_cents)} />
@@ -559,11 +575,10 @@ export default function ReservationForm({
             <div className="mt-3 space-y-3">
               <Grid>
                 <Field label="Valor do adiantamento (R$)">
-                  <input
+                  <MoneyInput
                     name="advance_amount"
-                    value={advanceAmount}
-                    onChange={(e) => setAdvanceAmount(e.target.value)}
-                    inputMode="decimal"
+                    valueCents={advanceAmount.trim() === "" ? null : parseMoney(advanceAmount)}
+                    onCentsChange={(cents) => setAdvanceAmount(cents === null ? "" : (cents / 100).toFixed(2))}
                     className="campo"
                   />
                 </Field>

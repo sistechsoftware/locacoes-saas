@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Icon } from "@/components/Icons";
+import MoneyInput from "@/components/MoneyInput";
 import { money, parseMoney } from "@/lib/format";
 import { montarParcelas, subtotaisCompra } from "@/lib/financeiro";
 
@@ -187,10 +188,9 @@ export default function PurchaseForm({
                       <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">
                         Valor un.
                       </span>
-                      <input
-                        defaultValue={(item.unit_price_cents / 100).toFixed(2)}
-                        onBlur={(e) => patch(idx, { unit_price_cents: parseMoney(e.target.value) })}
-                        inputMode="decimal"
+                      <MoneyInput
+                        valueCents={item.unit_price_cents}
+                        onCentsChange={(cents) => patch(idx, { unit_price_cents: cents ?? 0 })}
                         className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
                       />
                     </label>
@@ -198,10 +198,9 @@ export default function PurchaseForm({
                       <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">
                         Desconto
                       </span>
-                      <input
-                        defaultValue={(item.discount_cents / 100).toFixed(2)}
-                        onBlur={(e) => patch(idx, { discount_cents: parseMoney(e.target.value) })}
-                        inputMode="decimal"
+                      <MoneyInput
+                        valueCents={item.discount_cents}
+                        onCentsChange={(cents) => patch(idx, { discount_cents: cents ?? 0 })}
                         className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
                       />
                     </label>
@@ -220,10 +219,9 @@ export default function PurchaseForm({
           </div>
           <label className="flex items-center justify-between gap-2 text-stone-600">
             <span>Desconto geral</span>
-            <input
-              value={desconto}
-              onChange={(e) => setDesconto(e.target.value)}
-              inputMode="decimal"
+            <MoneyInput
+              valueCents={desconto.trim() === "" ? null : parseMoney(desconto)}
+              onCentsChange={(cents) => setDesconto(cents === null ? "" : (cents / 100).toFixed(2))}
               className="w-28 rounded-lg border border-nuvem-300 px-2 py-1 text-right text-sm outline-none"
             />
           </label>

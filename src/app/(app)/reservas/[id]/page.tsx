@@ -36,6 +36,7 @@ import { rotuloExtensao } from "@/lib/hora-extra";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, Stat, StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/Icons";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { RESOLUTION_LABEL } from "@/lib/danos";
 import { addPayment, changeStatus, deletePayment, deleteReservation, estornarPagamentoAction, refreshComposition, saveDeposit } from "../actions";
 import { consertarDano, estornarBaixaDano, resolverDano } from "../../operacao/actions";
@@ -561,7 +562,7 @@ export default async function ReservaPage({
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
                   <span className="rotulo">Valor (R$)</span>
-                  <input name="amount" inputMode="decimal" required className="campo" />
+                  <MoneyInput name="amount" required className="campo" />
                 </label>
                 <label className="block">
                   <span className="rotulo">Forma de pagamento</span>
@@ -747,10 +748,9 @@ export default async function ReservaPage({
                   {sit !== "quitada" && r.status !== "cancelada" && (
                     <form action={receberParcela} className="mt-2 grid grid-cols-2 gap-2">
                       <input type="hidden" name="entry_id" value={p.id} />
-                      <input
+                      <MoneyInput
                         name="amount"
-                        defaultValue={(falta / 100).toFixed(2)}
-                        inputMode="decimal"
+                        defaultCents={falta}
                         className="campo"
                         aria-label="Valor"
                       />
@@ -794,7 +794,7 @@ export default async function ReservaPage({
         <Section title="Pagamentos">
           <form action={addPayment} className="grid grid-cols-2 gap-2">
             <input type="hidden" name="reservation_id" value={r.id} />
-            <input name="amount" placeholder="Valor (R$)" inputMode="decimal" className="campo" required />
+            <MoneyInput name="amount" placeholder="Valor (R$)" required className="campo" />
             <input name="paid_at" type="date" defaultValue={today()} className="campo" />
             <select name="method" className="campo">
               {PAYMENT_METHODS.map((mth) => (
@@ -980,7 +980,7 @@ export default async function ReservaPage({
             <input type="hidden" name="reservation_id" value={r.id} />
             <label className="col-span-2 block">
               <span className="rotulo">Valor da caução</span>
-              <input name="amount" defaultValue={(m.deposit / 100).toFixed(2)} inputMode="decimal" className="campo" />
+              <MoneyInput name="amount" defaultCents={m.deposit} className="campo" />
             </label>
             <label className="block">
               <span className="rotulo">Forma de recebimento</span>
@@ -1012,7 +1012,7 @@ export default async function ReservaPage({
             </label>
             <label className="block">
               <span className="rotulo">Valor retido</span>
-              <input name="retained" defaultValue={(m.depositRetained / 100).toFixed(2)} inputMode="decimal" className="campo" />
+              <MoneyInput name="retained" defaultCents={m.depositRetained} className="campo" />
             </label>
             <label className="block">
               <span className="rotulo">Motivo da retenção</span>
@@ -1334,7 +1334,7 @@ function AdiantamentoAberto({
           <input type="hidden" name="reservation_id" value={reservationId} />
           <label className="block">
             <span className="rotulo">Valor (R$)</span>
-            <input name="amount" defaultValue={(entry.amount_cents / 100).toFixed(2)} inputMode="decimal" className="campo" />
+            <MoneyInput name="amount" defaultCents={entry.amount_cents} className="campo" />
           </label>
           <label className="block">
             <span className="rotulo">Data prevista</span>
