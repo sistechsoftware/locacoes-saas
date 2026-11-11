@@ -52,6 +52,16 @@ const AMBIENTES = new Set(["staging", "production", "dev"]);
 
 /** Trio Asaas: exigido em ALGUM lugar — secret do Worker ou painel (D1). */
 export const TRIO_ASAAS = ["ASAAS_API_KEY", "ASAAS_ENVIRONMENT", "ASAAS_WEBHOOK_TOKEN"];
+/**
+ * Secrets OPCIONAIS de verdade — não são cobrados como bloqueio em ambiente
+ * nenhum. Hoje só a chave server-side do Google Maps: sem ela o cálculo de
+ * frete usa OSM (Nominatim + OSRM), que é o comportamento normal de staging e
+ * produção enquanto a chave não for cadastrada. Ela está declarada no bloco
+ * TOP-LEVEL do wrangler.jsonc apenas para o `wrangler types` gerar o campo
+ * `CloudflareEnv.GOOGLE_MAPS_API_KEY`; por isso, no modo `dev`, ausência ou
+ * formato ruim é AVISO e não reprova o pré-deploy.
+ */
+export const SECRETS_OPCIONAIS = new Set(["GOOGLE_MAPS_API_KEY"]);
 /** Nome de cada secret do trio na tabela platform_settings (migration 0038). */
 const NO_PAINEL = {
   ASAAS_API_KEY: "asaas_api_key",
@@ -388,9 +398,16 @@ function main() {
       falha(".dev.vars.saas não encontrado (copie .env.example e preencha; o arquivo é gitignored)");
     } else {
       for (const nome of esperados) {
+        const opcional = SECRETS_OPCIONAIS.has(nome);
+        if (locais[nome] === undefined) {
+          if (opcional) aviso(`${nome}: ausente no .dev.vars.saas — secret opcional (o mapa cai no provedor OSM)`);
+          else falha(`${nome}: ausente no .dev.vars.saas`);
+          continue;
+        }
         const problema = problemaDeFormato(nome, locais[nome]);
-        if (problema) falha(`${nome}: ${problema}`);
-        else ok(`${nome} presente e com formato válido (valor não exibido)`);
+        if (!problema) ok(`${nome} presente e com formato válido (valor não exibido)`);
+        else if (opcional) aviso(`${nome}: ${problema} — secret opcional, o mapa cai no provedor OSM`);
+        else falha(`${nome}: ${problema}`);
       }
     }
   } else {

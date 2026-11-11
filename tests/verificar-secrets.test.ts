@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   TRIO_ASAAS,
+  SECRETS_OPCIONAIS,
   resolverTrio,
   regraAmbiente,
   segredoCifrado,
@@ -146,6 +147,17 @@ describe("esperadosDe (o trio Asaas nunca sai da cobrança)", () => {
     const r = esperadosDe(comTrio);
     assert.equal(r.length, comTrio.length, "union precisa deduplicar");
     assert.equal(new Set(r).size, r.length);
+  });
+});
+
+describe("SECRETS_OPCIONAIS (não entram na cobrança de deploy)", () => {
+  it("GOOGLE_MAPS_API_KEY é opcional: sem ela o frete usa OSM", () => {
+    assert.ok(SECRETS_OPCIONAIS.has("GOOGLE_MAPS_API_KEY"));
+    assert.equal(
+      esperadosDe([]).includes("GOOGLE_MAPS_API_KEY"),
+      false,
+      "a lista exigida dos ambientes (secrets.required + trio) não cobra a chave opcional",
+    );
   });
 });
 

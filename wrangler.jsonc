@@ -47,6 +47,16 @@
   // o guarda do Next nao se aplica ao Worker e impedia o cron de rodar
   "alias": { "server-only": "./src/lib/server-only-worker.ts" },
   "secrets": {
+    // Este bloco é TOP-LEVEL: serve a `wrangler types` (gera CloudflareEnv) e
+    // ao desenvolvimento local — nunca é deployado.
+    //
+    // GOOGLE_MAPS_API_KEY (chave server-side do Google Maps) é OPCIONAL: sem
+    // ela o cálculo de frete usa OSM (Nominatim + OSRM), que é o estado atual
+    // de staging e produção. Ela fica declarada AQUI, e não nos blocos env.*,
+    // de propósito: o `secrets.required` de ambiente nomeado bloqueia o deploy
+    // até o secret existir no Worker, e hoje ele não existe em nenhum dos dois.
+    // Quando for cadastrado (wrangler secret put GOOGLE_MAPS_API_KEY --env
+    // production), mover a declaração para o bloco daquele ambiente.
     "required": [
       "VAPID_PUBLIC_KEY",
       "VAPID_PRIVATE_KEY",
@@ -54,7 +64,8 @@
       "ASAAS_ENVIRONMENT",
       "ASAAS_WEBHOOK_TOKEN",
       "RESEND_API_KEY",
-      "RESEND_FROM"
+      "RESEND_FROM",
+      "GOOGLE_MAPS_API_KEY"
     ]
   },
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },
