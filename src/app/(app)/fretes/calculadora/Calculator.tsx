@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alerta, Card, Field, Grid, Row } from "@/components/ui";
 import { Icon } from "@/components/Icons";
+import MoneyInput from "@/components/MoneyInput";
 import RouteMap, { type RotaMapa } from "@/components/RouteMap";
 import { money, parseMoney } from "@/lib/format";
 import { calcularFrete, VIAGENS, type TipoFrete } from "@/lib/freight";
@@ -179,10 +180,9 @@ export default function Calculator({
 
           {editandoPreco && (
             <div className="mt-2 space-y-2">
-              <input
-                value={precoLitro}
-                onChange={(e) => setPrecoLitro(e.target.value)}
-                inputMode="decimal"
+              <MoneyInput
+                valueCents={precoLitro.trim() === "" ? null : parseMoney(precoLitro)}
+                onCentsChange={(cents) => setPrecoLitro(cents === null ? "" : (cents / 100).toFixed(2))}
                 className="campo"
                 aria-label="Preço do litro"
               />
@@ -213,13 +213,16 @@ export default function Calculator({
         {mostrarAvancado && (
           <Grid>
             <Field label="Pedágio (R$)">
-              <input value={pedagio} onChange={(e) => setPedagio(e.target.value)} inputMode="decimal" className="campo" />
+              <MoneyInput
+                valueCents={pedagio.trim() === "" ? null : parseMoney(pedagio)}
+                onCentsChange={(cents) => setPedagio(cents === null ? "" : (cents / 100).toFixed(2))}
+                className="campo"
+              />
             </Field>
             <Field label="Mão de obra (R$)">
-              <input
-                value={maoDeObra}
-                onChange={(e) => setMaoDeObra(e.target.value)}
-                inputMode="decimal"
+              <MoneyInput
+                valueCents={maoDeObra.trim() === "" ? null : parseMoney(maoDeObra)}
+                onCentsChange={(cents) => setMaoDeObra(cents === null ? "" : (cents / 100).toFixed(2))}
                 className="campo"
               />
             </Field>

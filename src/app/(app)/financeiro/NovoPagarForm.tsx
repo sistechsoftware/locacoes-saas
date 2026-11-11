@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { money, parseMoney } from "@/lib/format";
 import { montarParcelas } from "@/lib/financeiro";
 
@@ -53,12 +54,11 @@ export default function NovoPagarForm({
             className="campo"
           />
         </Field>
-        <Field label="Valor (R$) *" hint="Ex.: 500,00 ou 1.234,56">
-          <input
+        <Field label="Valor (R$) *" hint="Digite só os números: as casas decimais entram automaticamente (50000 vira R$ 500,00).">
+          <MoneyInput
             name="amount"
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            inputMode="decimal"
+            valueCents={valor.trim() === "" ? null : parseMoney(valor)}
+            onCentsChange={(cents) => setValor(cents === null ? "" : (cents / 100).toFixed(2))}
             required
             className="campo"
           />

@@ -13,6 +13,7 @@ import { editarTransferenciaAction, excluirTransferenciaAction, transferirValor 
 import { receberParcela } from "./receber-actions";
 import { payEntry } from "../compras/actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { addExpense, createPurpose, deleteExpense, finalidadesDisponiveis } from "./actions";
 import { cancelarPagarManual, criarPagarManual } from "./pagar-actions";
 import NovoPagarForm from "./NovoPagarForm";
@@ -292,7 +293,7 @@ export default async function FinanceiroPage({
                 ))}
               </select>
               <input name="description" placeholder="Descrição" className="campo col-span-2" />
-              <input name="amount" placeholder="Valor (R$)" inputMode="decimal" className="campo" required />
+              <MoneyInput name="amount" placeholder="Valor (R$)" required className="campo" />
               <select name="method" className="campo">
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>
@@ -434,7 +435,7 @@ export default async function FinanceiroPage({
                 </label>
                 <label className="block">
                   <span className="rotulo">Valor (R$) *</span>
-                  <input name="amount" inputMode="decimal" placeholder="0,00" required className="campo" />
+                  <MoneyInput name="amount" placeholder="R$ 0,00" required className="campo" />
                 </label>
                 <label className="block">
                   <span className="rotulo">Data *</span>
@@ -496,10 +497,9 @@ export default async function FinanceiroPage({
                                   </option>
                                 ))}
                               </select>
-                              <input
+                              <MoneyInput
                                 name="amount"
-                                defaultValue={(t.valor_cents / 100).toFixed(2)}
-                                inputMode="decimal"
+                                defaultCents={t.valor_cents}
                                 className="campo"
                                 aria-label="Valor"
                               />
@@ -728,10 +728,9 @@ function ListaParcelas({
 
                 <form action={acao} className="mt-2 grid grid-cols-2 gap-2">
                   <input type="hidden" name="entry_id" value={p.id} />
-                  <input
+                  <MoneyInput
                     name="amount"
-                    defaultValue={(p.saldo_cents / 100).toFixed(2)}
-                    inputMode="decimal"
+                    defaultCents={p.saldo_cents}
                     className="campo"
                     aria-label="Valor"
                   />

@@ -11,6 +11,7 @@ import { PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
 import { dateBR, money, today, utcParaLocal } from "@/lib/format";
 import { Alerta, Badge, Card, Empty, LinkButton, PageHeader, Row, Section, Stat } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
+import MoneyInput from "@/components/MoneyInput";
 import { cancelPurchase, payEntry, reverseExpense } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -173,10 +174,9 @@ export default async function CompraPage({
                     {sit !== "quitada" && sit !== "cancelada" && compra.status !== "cancelada" && (
                       <form action={payEntry} className="mt-2 grid grid-cols-2 gap-2">
                         <input type="hidden" name="entry_id" value={p.id} />
-                        <input
+                        <MoneyInput
                           name="amount"
-                          defaultValue={(falta / 100).toFixed(2)}
-                          inputMode="decimal"
+                          defaultCents={falta}
                           className="campo"
                           aria-label="Valor"
                         />

@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Icon } from "@/components/Icons";
+import MoneyInput from "@/components/MoneyInput";
 import { money, parseMoney } from "@/lib/format";
 import { rotuloFaixa, validarFaixas, type Faixa } from "@/lib/promocoes";
 
@@ -345,10 +346,11 @@ export default function PromotionForm({
                   <span className="mb-0.5 block text-[0.68rem] font-semibold uppercase text-stone-500">
                     Preço por unidade
                   </span>
-                  <input
-                    value={l.preco}
-                    inputMode="decimal"
-                    onChange={(e) => patch(i, { preco: e.target.value })}
+                  <MoneyInput
+                    valueCents={l.preco.trim() === "" ? null : parseMoney(l.preco)}
+                    onCentsChange={(cents) =>
+                      patch(i, { preco: cents === null ? "" : (cents / 100).toFixed(2) })
+                    }
                     className="w-full rounded-lg border border-nuvem-300 px-2 py-2 text-sm outline-none"
                   />
                 </label>

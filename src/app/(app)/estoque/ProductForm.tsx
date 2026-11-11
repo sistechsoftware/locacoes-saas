@@ -5,6 +5,7 @@ import { Alerta, Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Icon } from "@/components/Icons";
 import { money } from "@/lib/format";
+import MoneyInput from "@/components/MoneyInput";
 
 type Action = (prev: string | null, fd: FormData) => Promise<string | null>;
 
@@ -119,20 +120,10 @@ export default function ProductForm({
           label="Valor de locação (R$)"
           hint={kind === "kit" ? "Preço próprio do kit, independente dos componentes." : undefined}
         >
-          <input
-            name="rent_price"
-            defaultValue={((v.rent_price_cents ?? 0) / 100).toFixed(2)}
-            inputMode="decimal"
-            className="campo"
-          />
+          <MoneyInput name="rent_price" defaultCents={v.rent_price_cents ?? 0} className="campo" />
         </Field>
         <Field label="Valor de reposição (R$)">
-          <input
-            name="replace_price"
-            defaultValue={((v.replace_cents ?? 0) / 100).toFixed(2)}
-            inputMode="decimal"
-            className="campo"
-          />
+          <MoneyInput name="replace_price" defaultCents={v.replace_cents ?? 0} className="campo" />
         </Field>
         <Field
           label="Cobrança"

@@ -4,8 +4,10 @@ import RouteEstimate from "@/components/RouteEstimate";
 import { Field, Grid } from "@/components/ui";
 import { SubmitButton } from "@/components/SubmitButton";
 import { FREIGHT_STATUS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from "@/lib/domain";
+import { parseMoney } from "@/lib/format";
 import { unicosPorId, type OpcaoSelecionavel } from "@/lib/search-select-utils";
 import SearchableSelect from "@/components/SearchableSelect";
+import MoneyInput from "@/components/MoneyInput";
 
 type Action = (prev: string | null, fd: FormData) => Promise<string | null>;
 
@@ -100,11 +102,10 @@ export default function FreightForm({
 
       <Grid cols={3}>
         <Field label="Valor (R$)">
-          <input
+          <MoneyInput
             name="amount"
-            value={amount}
-            onChange={e => setAmount(e.target.value)}
-            inputMode="decimal"
+            valueCents={amount.trim() === "" ? null : parseMoney(amount)}
+            onCentsChange={(cents) => setAmount(cents === null ? "" : (cents / 100).toFixed(2))}
             className="campo"
           />
         </Field>
