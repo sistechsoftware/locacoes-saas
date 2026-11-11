@@ -146,6 +146,8 @@ export type ReservationMoney = {
   depositRetained: number;
   /** Adiantamento agendado, ainda nao recebido. Nao entra em `paid` nem reduz `balance`. */
   scheduledAdvance: number;
+  /** Devolvido ao cliente por estorno. Ja descontado de `paid` (que e liquido). */
+  refunded: number;
 };
 
 export async function reservationMoney(id: number, companyId?: number): Promise<ReservationMoney> {
@@ -155,7 +157,7 @@ export async function reservationMoney(id: number, companyId?: number): Promise<
    * tela, um único batch). Encadeadas como antes, cada uma era uma volta ao
    * D1 — o caminho mais fundo da tela de detalhe.
    */
-  const [total, paid, dep, scheduledAdvance] = await Promise.all([
+  const [total, paid, dep, scheduledAdvance, refunded] = await Promise.all([
     scalar<number>(`SELECT COALESCE(total_cents,0) FROM reservations WHERE id = ? AND company_id = ?`, [id, cid]),
     scalar<number>(`SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE reservation_id = ? AND company_id = ?`, [id, cid]),
     one<any>(`SELECT * FROM deposits WHERE reservation_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1`, [id, cid]),
@@ -164,6 +166,13 @@ export async function reservationMoney(id: number, companyId?: number): Promise<
     scalar<number>(
       `SELECT COALESCE(SUM(amount_cents),0) FROM financial_entries
         WHERE reservation_id = ? AND company_id = ? AND category = 'Adiantamento' AND status = 'aberta'`,
+      [id, cid],
+    ),
+    // devolucoes ao cliente (estornos): linhas negativas do caixa da RESERVA.
+    // Transferencia entre contas tem reservation_id nulo e nao e devolucao.
+    scalar<number>(
+      `SELECT COALESCE(SUM(-amount_cents),0) FROM payments
+        WHERE reservation_id = ? AND company_id = ? AND amount_cents < 0 AND transfer_group IS NULL`,
       [id, cid],
     ),
   ]);
@@ -175,6 +184,7 @@ export async function reservationMoney(id: number, companyId?: number): Promise<
     depositStatus: dep?.status ?? "nao_recebida",
     depositRetained: dep?.retained_cents ?? 0,
     scheduledAdvance,
+    refunded,
   };
 }
 
