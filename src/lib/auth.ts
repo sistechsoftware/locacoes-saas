@@ -80,6 +80,26 @@ export async function createSession(userId: number) {
   });
 }
 
+/**
+ * Adota neste navegador uma sessão que JÁ existe (handoff da impressão).
+ *
+ * Usado por /sessao-impressao: o app instalado no iPhone e o Safari têm
+ * cookie jars separados, então o documento aberto no Safari recebe a sessão
+ * curta criada por `criarSessaoDeImpressao` em vez de pedir login de novo.
+ * As opções são as MESMAS de createSession — com qualquer diferença
+ * (sameSite, path, secure) o cookie não valeria nesta origem.
+ */
+export async function adotarSessao(id: string, expires: Date) {
+  const jar = await cookies();
+  jar.set(COOKIE, id, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    expires,
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
 export async function destroySession() {
   const jar = await cookies();
   const id = jar.get(COOKIE)?.value;

@@ -200,19 +200,49 @@ function ImpressaoPwa() {
     }, 1500);
   }
 
-  function testarSafari() {
+  /**
+   * Testa o caminho REAL do botão dos documentos: pede a sessão curta ao
+   * servidor e abre o Safari com ela. O que importa é o documento abrir
+   * AUTENTICADO, sem login.
+   */
+  async function testarSafari() {
     if (!amb) return;
-    setTesteSafari("tentando abrir o Safari… (o app deve ir para segundo plano)");
+    setTesteSafari("pedindo a sessão de impressão ao servidor…");
+    let alvo = amb.alvo;
+    let comSessao = false;
+    try {
+      const resposta = await fetch("/api/impressao/sessao", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proximo: `${location.pathname}?imprimir=1` }),
+      });
+      const dados = (await resposta.json()) as { caminho?: string; error?: string };
+      if (!resposta.ok || !dados.caminho) {
+        setTesteSafari(
+          `❌ o servidor recusou a sessão de impressão (HTTP ${resposta.status}: ${
+            dados.error ?? "sem detalhe"
+          }) — confira se você está logado.`,
+        );
+        return;
+      }
+      alvo = linkSafari(new URL(dados.caminho, location.origin).toString());
+      comSessao = true;
+    } catch {
+      setTesteSafari("⚠️ não deu para pedir a sessão (rede) — testando só o esquema do Safari");
+    }
+
     let saiu = false;
     const parar = aoSairDoApp(() => {
       saiu = true;
     });
-    window.location.href = amb.alvo;
+    window.location.href = alvo;
     window.setTimeout(() => {
       parar();
       setTesteSafari(
         saiu
-          ? "✅ saiu do app — o Safari foi chamado (x-safari- funciona neste iOS)"
+          ? comSessao
+            ? "✅ saiu do app levando a sessão — o documento deve abrir já logado no Safari (sem pedir senha)"
+            : "✅ saiu do app — o Safari foi chamado (x-safari- funciona neste iOS), mas sem a sessão"
           : "❌ o app continuou aberto — x-safari- foi ignorado; o painel manual com o endereço é a saída",
       );
     }, 2000);
@@ -248,9 +278,9 @@ function ImpressaoPwa() {
             ele falha desde o iOS 27.
           </p>
           <p className="rounded-xl bg-nuvem-100 p-2.5 text-xs text-stone-600">
-            O Safari do iPhone tem <b>sessão separada</b> do app instalado (cookies isolados por design), por isso o
-            botão dos documentos manda o endereço por <code>/login?proximo=…</code>: na primeira vez o Safari pede
-            login e devolve você no documento; depois entra direto.
+            O Safari do iPhone tem <b>sessão separada</b> do app instalado (cookies isolados por design). Em vez de
+            pedir login, o botão dos documentos pede ao servidor uma sessão curta do próprio usuário e a leva na URL —
+            o passo 2 testa exatamente isso.
           </p>
 
           <div className="space-y-2">
@@ -272,7 +302,7 @@ function ImpressaoPwa() {
               onClick={testarSafari}
               className="w-full rounded-xl border border-nuvem-300 bg-white px-4 py-2.5 font-semibold text-tinta-900"
             >
-              2. Testar abrir no Safari (x-safari-)
+              2. Testar abrir no Safari já logado (x-safari-)
             </button>
             {testeSafari && (
               <p role="status" className="rounded-xl bg-nuvem-100 p-2.5 text-sm text-tinta-900">

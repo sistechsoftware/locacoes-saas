@@ -84,25 +84,46 @@ export default function PrintButton() {
   }, []);
 
   /**
-   * Endereço que vai para o Safari. Passa por `/login?proximo=<documento>`
-   * porque o Safari do iPhone tem sessão SEPARADA do app instalado (cookie
-   * jars isolados por design): na primeira impressão ele pede login e, com o
-   * `proximo`, devolve o usuário no documento já com a impressão armada; nas
-   * seguintes o /login reconhece a sessão e cai direto nele.
+   * Endereço que vai para o Safari JÁ AUTENTICADO.
+   *
+   * O app instalado e o Safari têm cookie jars separados no iOS, então pedir
+   * login de novo não faz sentido: quem pediu a impressão já está logado aqui.
+   * O app pede ao servidor uma sessão CURTA do próprio usuário e a leva na
+   * URL — `/sessao-impressao?s=…&proximo=…` adota o cookie no Safari e cai no
+   * documento, que abre a impressão sozinho (`?imprimir=1`).
+   *
+   * Se o servidor recusar (sessão expirada, rede, conta bloqueada), o caminho
+   * com login continua valendo como reserva: nunca fica sem saída.
    */
-  function enderecoSafari(): { copiavel: string; alvo: string } {
+  async function enderecoSafari(): Promise<{ url: string; alvo: string }> {
     const documento = urlComImpressao();
+    const caminhoDoc = `${documento.pathname}${documento.search}`;
+    try {
+      const resposta = await fetch("/api/impressao/sessao", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proximo: caminhoDoc }),
+      });
+      const dados = (await resposta.json()) as { caminho?: string; error?: string };
+      if (resposta.ok && dados.caminho) {
+        const porta = new URL(dados.caminho, documento.origin);
+        return { url: porta.toString(), alvo: linkSafari(porta) };
+      }
+    } catch {
+      /* rede fora ou cookie indisponível: segue para o caminho com login */
+    }
     const porta = new URL("/login", documento.origin);
-    porta.searchParams.set("proximo", `${documento.pathname}${documento.search}`);
-    return { copiavel: porta.toString(), alvo: linkSafari(porta) };
+    porta.searchParams.set("proximo", caminhoDoc);
+    return { url: porta.toString(), alvo: linkSafari(porta) };
   }
 
   /** Abre o documento no Safari e vigia se o app realmente saiu da frente. */
-  function irParaSafari() {
-    const { copiavel, alvo } = enderecoSafari();
-    setManual({ url: copiavel, alvo });
-    setCopiado("nao");
+  async function irParaSafari() {
     setEstado("saindo");
+    setCopiado("nao");
+    const { url, alvo } = await enderecoSafari();
+    if (!vivo.current) return;
+    setManual({ url, alvo });
 
     let saiu = false;
     const parar = aoSairDoApp(() => {
@@ -171,8 +192,8 @@ export default function PrintButton() {
             perde: o endereço está abaixo.
           </p>
           <p>
-            Ele abre o documento <b>pelo Safari</b>, que no iPhone tem sessão separada do app instalado — se pedir
-            login, é só na primeira vez, e você volta direto para o documento.
+            Ele abre o documento <b>no Safari já na sua conta</b> (a sessão vai junto, sem senha) e a impressão sai de
+            lá. O endereço abaixo vale por 10 minutos.
           </p>
           <input
             ref={campo}
@@ -192,8 +213,8 @@ export default function PrintButton() {
           </div>
           {copiado === "ok" && (
             <p>
-              Endereço copiado. Abra o <b>Safari</b>, cole na barra de endereço e toque em <b>Imprimir / PDF</b> na
-              própria página. Se o Safari pedir login, entre: ele devolve você no documento.
+              Endereço copiado. Abra o <b>Safari</b> e cole na barra de endereço: ele abre o documento já na sua conta e
+              a folha de impressão aparece (vale por 10 minutos).
             </p>
           )}
           {copiado === "manual" && (
