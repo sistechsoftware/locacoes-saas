@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { aoSairDoApp, ehIOS, estaInstalado, linkSafari, urlComImpressao, urlDoDocumento } from "@/lib/impressao";
 
 /*
  * Diagnostico de splash screen (apple-touch-startup-image) no iPhone.
@@ -81,14 +82,7 @@ export default function DiagnosticoPwaPage() {
     }
   }, []);
 
-  const Linha = ({ k, v }: { k: string; v: React.ReactNode }) => (
-    <div className="flex items-start justify-between gap-3 border-b border-nuvem-200 py-2 last:border-0">
-      <span className="text-sm text-stone-500">{k}</span>
-      <span className="text-right text-sm font-medium text-tinta-900 break-all">{v}</span>
-    </div>
-  );
-
-  return (
+    return (
     <main className="mx-auto max-w-md space-y-4 p-4">
       <h1 className="text-xl font-bold text-tinta-900">Diagnóstico de splash (PWA)</h1>
       <p className="text-sm text-stone-500">
@@ -139,6 +133,8 @@ export default function DiagnosticoPwaPage() {
             )}
           </div>
 
+          <ImpressaoPwa />
+
           <div className="cartao p-4 text-xs text-stone-500 break-all">
             <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-stone-500">User agent</h2>
             {r.ua}
@@ -146,5 +142,171 @@ export default function DiagnosticoPwaPage() {
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * Impressao no PWA — testa EXATAMENTE o caminho que o botao "Imprimir / PDF"
+ * dos documentos usa (src/lib/impressao.ts + PrintButton), para o usuario
+ * validar no aparelho real o que nao da para simular daqui:
+ *
+ *   1. o `window.print()` abre a folha de impressao neste modo de exibicao?
+ *      (desde o iOS 27 nao abre quando o app esta INSTALADO, embora abra no
+ *      Safari — a chamada executa sem erro e o `beforeprint` nao dispara);
+ *   2. o esquema `x-safari-<url>`, usado como contorno, abre o Safari mesmo?
+ *      (nao e documentado pela Apple e pode ser ignorado sem aviso);
+ *   3. o endereco do documento fica sempre visivel e copiavel — a saida manual
+ *      que garante que nenhum usuario fica sem conseguir imprimir.
+ *
+ * Cada passo mostra o resultado cru na tela, sem inferencia.
+ */
+function ImpressaoPwa() {
+  const [amb, setAmb] = useState<{
+    instalado: boolean;
+    ios: boolean;
+    printApi: boolean;
+    url: string;
+    alvo: string;
+  } | null>(null);
+  const [testePrint, setTestePrint] = useState<string | null>(null);
+  const [testeSafari, setTesteSafari] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
+
+  useEffect(() => {
+    setAmb({
+      instalado: estaInstalado(),
+      ios: ehIOS(),
+      printApi: typeof window.print === "function",
+      url: urlDoDocumento().toString(),
+      alvo: linkSafari(urlComImpressao()),
+    });
+  }, []);
+
+  function testarPrint() {
+    let abriu = false;
+    const ao = () => {
+      abriu = true;
+    };
+    setTestePrint("testando… (a folha de impressão deve abrir agora)");
+    window.addEventListener("beforeprint", ao);
+    window.print();
+    window.setTimeout(() => {
+      window.removeEventListener("beforeprint", ao);
+      setTestePrint(
+        abriu
+          ? "✅ abriu a folha de impressão (beforeprint disparou): neste modo o window.print() funciona"
+          : "❌ nada abriu e o beforeprint não disparou — é a regressão do iOS 27; aqui o contorno é o passo 2",
+      );
+    }, 1500);
+  }
+
+  function testarSafari() {
+    if (!amb) return;
+    setTesteSafari("tentando abrir o Safari… (o app deve ir para segundo plano)");
+    let saiu = false;
+    const parar = aoSairDoApp(() => {
+      saiu = true;
+    });
+    window.location.href = amb.alvo;
+    window.setTimeout(() => {
+      parar();
+      setTesteSafari(
+        saiu
+          ? "✅ saiu do app — o Safari foi chamado (x-safari- funciona neste iOS)"
+          : "❌ o app continuou aberto — x-safari- foi ignorado; o painel manual com o endereço é a saída",
+      );
+    }, 2000);
+  }
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(amb?.url ?? "");
+      setCopiado(true);
+    } catch {
+      setCopiado(false);
+    }
+  }
+
+  return (
+    <div className="cartao space-y-3 p-4">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">
+        Impressão — botão "Imprimir / PDF"
+      </h2>
+
+      {!amb ? (
+        <p className="text-sm text-stone-500">Medindo…</p>
+      ) : (
+        <>
+          <div>
+            <Linha k="Aberto como PWA?" v={amb.instalado ? "sim (standalone)" : "não (navegador)"} />
+            <Linha k="Sistema iOS?" v={amb.ios ? "sim" : "não"} />
+            <Linha k="window.print disponível" v={amb.printApi ? "sim" : "não"} />
+          </div>
+
+          <p className="rounded-xl bg-nuvem-100 p-2.5 text-xs text-stone-600">
+            Rode com o app <b>instalado</b> (ícone da tela de início). No Safari o passo 1 sempre passa — é no PWA que
+            ele falha desde o iOS 27.
+          </p>
+
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={testarPrint}
+              className="w-full rounded-xl bg-marca-600 px-4 py-2.5 font-semibold text-white"
+            >
+              1. Testar window.print()
+            </button>
+            {testePrint && (
+              <p role="status" className="rounded-xl bg-nuvem-100 p-2.5 text-sm text-tinta-900">
+                {testePrint}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={testarSafari}
+              className="w-full rounded-xl border border-nuvem-300 bg-white px-4 py-2.5 font-semibold text-tinta-900"
+            >
+              2. Testar abrir no Safari (x-safari-)
+            </button>
+            {testeSafari && (
+              <p role="status" className="rounded-xl bg-nuvem-100 p-2.5 text-sm text-tinta-900">
+                {testeSafari}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-stone-500">
+              Endereço do documento (saída manual, sempre disponível)
+            </h3>
+            <input
+              readOnly
+              value={amb.url}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Endereço do documento"
+              className="campo text-[0.7rem]"
+            />
+            <button
+              type="button"
+              onClick={copiar}
+              className="rounded-xl border border-nuvem-300 bg-white px-3 py-2 text-xs font-semibold text-tinta-900"
+            >
+              {copiado ? "Copiado" : "Copiar endereço"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Linha de leitura usada pelas duas secoes desta pagina. */
+function Linha({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-nuvem-200 py-2 last:border-0">
+      <span className="text-sm text-stone-500">{k}</span>
+      <span className="text-right text-sm font-medium text-tinta-900 break-all">{v}</span>
+    </div>
   );
 }

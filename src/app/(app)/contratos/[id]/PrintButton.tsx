@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BTN } from "@/components/ui";
+import {
+  aoSairDoApp,
+  ehIOS,
+  estaInstalado,
+  linkSafari,
+  PARAM_IMPRESSAO,
+  urlComImpressao,
+  urlDoDocumento,
+} from "@/lib/impressao";
 
 /**
  * Botao de impressao de todos os documentos do sistema (contrato, contrato
@@ -11,8 +20,8 @@ import { BTN } from "@/components/ui";
  * No iOS 27 o `window.print()` deixou de abrir a folha de impressao quando o
  * app roda INSTALADO na tela de inicio (display-mode: standalone): a chamada
  * executa, nenhum erro aparece e o evento `beforeprint` nunca dispara. No
- * Safari comum o mesmo botao continua funcionando, entao o clique precisa de
- * dois caminhos:
+ * Safari comum o mesmo botao continua funcionando, entao o clique tem dois
+ * caminhos:
  *
  *   1. navegador (ou qualquer ambiente onde imprimir funciona): chama
  *      `window.print()` como sempre fez;
@@ -24,27 +33,34 @@ import { BTN } from "@/components/ui";
  * O teste e por comportamento (`beforeprint`) e nao por versao do iOS: quando
  * a Apple corrigir a regressao, a impressao abre direto no PWA e nenhum
  * redirecionamento acontece.
+ *
+ * O `x-safari-` nao e documentado e pode ser ignorado sem aviso. Por isso o
+ * caminho nunca termina em beco sem saida: se o app continuar em primeiro
+ * plano 1,5 s depois da tentativa, aparece um painel com o ENDERECO do
+ * documento (selecionavel e copiavel) e um link para tentar o Safari de novo —
+ * o usuario imprime colando o endereco no Safari. O mesmo fluxo e testavel em
+ * /diagnostico-pwa.
  */
-const PARAM_IMPRESSAO = "imprimir";
 const ESPERA_BEFOREPRINT_MS = 1200;
-
-/** App aberto pela tela de inicio (e nao numa aba do navegador). */
-function estaInstalado(): boolean {
-  const nav = window.navigator as Navigator & { standalone?: boolean };
-  return window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
-}
-
-function ehIOS(): boolean {
-  const ua = window.navigator.userAgent;
-  // iPadOS 13+ se apresenta como Mac com touch: o "ontouchend" separa do Mac real
-  return /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && "ontouchend" in document);
-}
+const ESPERA_SAIR_DO_APP_MS = 1500;
+const ESPERA_IMPRESSAO_NO_SAFARI_MS = 350;
 
 export default function PrintButton() {
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [destino, setDestino] = useState<string | null>(null);
+  /** "pronto" = botao normal; "saindo" = tentando o Safari; "manual" = sem saida automatica */
+  const [estado, setEstado] = useState<"pronto" | "saindo" | "manual">("pronto");
+  const [manual, setManual] = useState<{ url: string; alvo: string } | null>(null);
+  const [copiado, setCopiado] = useState<"nao" | "ok" | "manual">("nao");
+  const campo = useRef<HTMLInputElement | null>(null);
+  const vivo = useRef(true);
 
-  /* De volta do Safari com ?imprimir=1: tira o parametro (para o botao e o
+  useEffect(() => {
+    vivo.current = true;
+    return () => {
+      vivo.current = false;
+    };
+  }, []);
+
+  /* Voltando do Safari com ?imprimir=1: limpa a flag (para o botao e o
      recarregar nao repetirem) e abre a impressao — aqui ela funciona. */
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -53,23 +69,45 @@ export default function PrintButton() {
     window.history.replaceState(null, "", url.toString());
     // dentro do proprio PWA imprimir nao abre nada: nao insiste
     if (estaInstalado()) return;
-    const t = window.setTimeout(() => window.print(), 350);
+    const t = window.setTimeout(() => window.print(), ESPERA_IMPRESSAO_NO_SAFARI_MS);
     return () => window.clearTimeout(t);
   }, []);
 
-  function abrirNoSafari() {
-    const url = new URL(window.location.href);
-    url.searchParams.set(PARAM_IMPRESSAO, "1");
-    const alvo = `x-safari-${url.toString()}`;
-    setDestino(alvo);
-    setAviso(
-      "O app instalado não abre a impressão neste iOS. Abrindo o documento no Safari — se nada acontecer, toque em",
-    );
+  /* De volta ao app depois de tentar o Safari: o botao volta ao normal. O
+     painel manual, quando apareceu, continua na tela (e a saida do usuario). */
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") setEstado((e) => (e === "saindo" ? "pronto" : e));
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => document.removeEventListener("visibilitychange", aoVoltar);
+  }, []);
+
+  /** Abre o documento no Safari e vigia se o app realmente saiu da frente. */
+  function irParaSafari() {
+    const alvo = linkSafari(urlComImpressao());
+    setManual({ url: urlDoDocumento().toString(), alvo });
+    setCopiado("nao");
+    setEstado("saindo");
+
+    let saiu = false;
+    const parar = aoSairDoApp(() => {
+      saiu = true;
+    });
     window.location.href = alvo;
+
+    window.setTimeout(() => {
+      parar();
+      if (!vivo.current || saiu) return;
+      // o esquema foi ignorado: o app continua aberto => oferece o caminho manual
+      setEstado("manual");
+    }, ESPERA_SAIR_DO_APP_MS);
   }
 
   function imprimir() {
-    setAviso(null);
+    setEstado("pronto");
+    setManual(null);
+    setCopiado("nao");
     if (!estaInstalado() || !ehIOS()) {
       window.print();
       return;
@@ -84,24 +122,74 @@ export default function PrintButton() {
     window.print();
     window.setTimeout(() => {
       window.removeEventListener("beforeprint", aoImprimir);
-      if (!abriu) abrirNoSafari();
+      if (!abriu) irParaSafari();
     }, ESPERA_BEFOREPRINT_MS);
   }
 
+  async function copiarEndereco() {
+    const texto = manual?.url ?? urlDoDocumento().toString();
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiado("ok");
+    } catch {
+      // sem permissao de area de transferencia: seleciona o campo para o
+      // usuario copiar pelo menu do proprio iOS (toque longo > Copiar)
+      campo.current?.focus();
+      campo.current?.select();
+      setCopiado("manual");
+    }
+  }
+
   return (
-    <div className="nao-imprimir flex flex-col items-start gap-1">
+    <div className="nao-imprimir flex w-full max-w-[22rem] flex-col items-start gap-1">
       <button type="button" onClick={imprimir} className={BTN.primario}>
-        Imprimir / PDF
+        {estado === "saindo" ? "Abrindo no Safari…" : "Imprimir / PDF"}
       </button>
-      {aviso && (
-        <p className="max-w-[17rem] text-xs leading-snug text-stone-600">
-          {aviso}{" "}
-          {destino && (
-            <a href={destino} className="font-semibold text-marca-600 underline">
-              Abrir no Safari
+
+      {estado === "manual" && manual && (
+        <div
+          role="status"
+          className="w-full space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-snug text-amber-900"
+        >
+          <p className="text-sm font-bold">A impressão não abriu neste app.</p>
+          <p>
+            O app instalado não abre a folha de impressão e o atalho para o Safari não respondeu. O documento não se
+            perde: o endereço está abaixo.
+          </p>
+          <input
+            ref={campo}
+            readOnly
+            value={manual.url}
+            onFocus={(e) => e.currentTarget.select()}
+            aria-label="Endereço do documento"
+            className="campo text-[0.7rem]"
+          />
+          <div className="flex flex-wrap gap-2">
+            <a href={manual.alvo} className={`${BTN.secundario} px-3 py-2 text-xs`}>
+              Tentar no Safari
             </a>
+            <button type="button" onClick={copiarEndereco} className={`${BTN.secundario} px-3 py-2 text-xs`}>
+              {copiado === "ok" ? "Copiado" : "Copiar endereço"}
+            </button>
+          </div>
+          {copiado === "ok" && (
+            <p>
+              Endereço copiado. Abra o <b>Safari</b>, cole na barra de endereço e toque em <b>Imprimir / PDF</b> na
+              própria página.
+            </p>
           )}
-        </p>
+          {copiado === "manual" && (
+            <p>
+              O endereço está selecionado acima: toque e segure para <b>Copiar</b>, abra o <b>Safari</b> e cole na
+              barra de endereço.
+            </p>
+          )}
+          {copiado === "nao" && (
+            <p className="text-amber-800/80">
+              No Safari a impressão funciona: cole o endereço acima lá e toque em <b>Imprimir / PDF</b>.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
