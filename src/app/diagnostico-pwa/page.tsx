@@ -247,6 +247,11 @@ function ImpressaoPwa() {
             Rode com o app <b>instalado</b> (ícone da tela de início). No Safari o passo 1 sempre passa — é no PWA que
             ele falha desde o iOS 27.
           </p>
+          <p className="rounded-xl bg-nuvem-100 p-2.5 text-xs text-stone-600">
+            O Safari do iPhone tem <b>sessão separada</b> do app instalado (cookies isolados por design), por isso o
+            botão dos documentos manda o endereço por <code>/login?proximo=…</code>: na primeira vez o Safari pede
+            login e devolve você no documento; depois entra direto.
+          </p>
 
           <div className="space-y-2">
             <button

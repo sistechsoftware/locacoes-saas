@@ -4,10 +4,16 @@ import { loginAction } from "./actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Field } from "@/components/ui";
 
-export default function LoginForm() {
+/**
+ * Formulario de login. `proximo` e o caminho interno para onde voltar depois
+ * de entrar (impressao aberta no Safari do iPhone, por exemplo) — ja chega
+ * validado pelo servidor (destinoInterno) e viaja num campo oculto.
+ */
+export default function LoginForm({ proximo = "" }: { proximo?: string }) {
   const [error, action] = useActionState(loginAction, null);
   return (
     <form action={action} className="space-y-4">
+      {proximo && <input type="hidden" name="proximo" value={proximo} />}
       <Field label="CPF, CNPJ ou e-mail">
         <input
           name="identifier"

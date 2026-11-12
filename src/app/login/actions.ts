@@ -2,6 +2,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSession, destroySession, verifyPassword, destinoAposLogin } from "@/lib/auth";
+import { destinoInterno } from "@/lib/destino";
 import { localizarConta } from "@/lib/contas";
 import { logAction } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
@@ -29,6 +30,9 @@ export async function loginAction(_prev: string | null, formData: FormData): Pro
     .slice(0, 160);
   const password = String(formData.get("password") ?? "");
   if (!identificador || !password) return "Informe CPF/CNPJ (ou e-mail) e senha.";
+  // caminho interno de volta (documento aberto no Safari do iPhone); validado
+  // de novo aqui: o campo oculto do form e dado do cliente.
+  const proximo = destinoInterno(String(formData.get("proximo") ?? ""), "");
 
   // Rate limit ANTES de tocar na conta: a mensagem é genérica para não
   // revelar se o identificador existe. Falha do limitador não bloqueia o login.
@@ -54,7 +58,8 @@ export async function loginAction(_prev: string | null, formData: FormData): Pro
   await logAction({ id: user.id, name: user.name, username: user.username, role: user.role, company_id: user.company_id, avatar_url: user.avatar_url ?? null, platform_admin: !!user.platform_admin }, "login", "usuario", user.id, `${user.name} entrou no sistema`);
   // Administrador da plataforma entra no ambiente SaaS; cliente/locador no
   // dashboard operacional — destino decidido pelo perfil na SESSÃO (server).
-  redirect(destinoAposLogin({ platform_admin: !!user.platform_admin }));
+  // Com `proximo` valido, volta para a pagina pedida (impressao no Safari).
+  redirect(proximo || destinoAposLogin({ platform_admin: !!user.platform_admin }));
 }
 
 export async function logoutAction() {

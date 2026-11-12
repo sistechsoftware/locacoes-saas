@@ -83,10 +83,24 @@ export default function PrintButton() {
     return () => document.removeEventListener("visibilitychange", aoVoltar);
   }, []);
 
+  /**
+   * Endereço que vai para o Safari. Passa por `/login?proximo=<documento>`
+   * porque o Safari do iPhone tem sessão SEPARADA do app instalado (cookie
+   * jars isolados por design): na primeira impressão ele pede login e, com o
+   * `proximo`, devolve o usuário no documento já com a impressão armada; nas
+   * seguintes o /login reconhece a sessão e cai direto nele.
+   */
+  function enderecoSafari(): { copiavel: string; alvo: string } {
+    const documento = urlComImpressao();
+    const porta = new URL("/login", documento.origin);
+    porta.searchParams.set("proximo", `${documento.pathname}${documento.search}`);
+    return { copiavel: porta.toString(), alvo: linkSafari(porta) };
+  }
+
   /** Abre o documento no Safari e vigia se o app realmente saiu da frente. */
   function irParaSafari() {
-    const alvo = linkSafari(urlComImpressao());
-    setManual({ url: urlDoDocumento().toString(), alvo });
+    const { copiavel, alvo } = enderecoSafari();
+    setManual({ url: copiavel, alvo });
     setCopiado("nao");
     setEstado("saindo");
 
@@ -156,6 +170,10 @@ export default function PrintButton() {
             O app instalado não abre a folha de impressão e o atalho para o Safari não respondeu. O documento não se
             perde: o endereço está abaixo.
           </p>
+          <p>
+            Ele abre o documento <b>pelo Safari</b>, que no iPhone tem sessão separada do app instalado — se pedir
+            login, é só na primeira vez, e você volta direto para o documento.
+          </p>
           <input
             ref={campo}
             readOnly
@@ -175,7 +193,7 @@ export default function PrintButton() {
           {copiado === "ok" && (
             <p>
               Endereço copiado. Abra o <b>Safari</b>, cole na barra de endereço e toque em <b>Imprimir / PDF</b> na
-              própria página.
+              própria página. Se o Safari pedir login, entre: ele devolve você no documento.
             </p>
           )}
           {copiado === "manual" && (

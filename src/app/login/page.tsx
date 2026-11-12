@@ -1,15 +1,27 @@
 import { redirect } from "next/navigation";
 import { currentUser, destinoAposLogin } from "@/lib/auth";
+import { destinoInterno } from "@/lib/destino";
 import LoginForm from "./LoginForm";
 
+/**
+ * Login.
+ *
+ * `?proximo=` volta o usuario para a pagina que ele estava abrindo. E o que
+ * fecha o caminho da impressao no iPhone: o app instalado e o Safari tem
+ * sessoes separadas, entao o documento aberto no Safari passa por aqui, o
+ * usuario entra uma vez e cai de volta no documento (ja com ?imprimir=1).
+ * Quem ja esta logado neste navegador nem ve o formulario.
+ */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redefinida?: string }>;
+  searchParams: Promise<{ redefinida?: string; proximo?: string }>;
 }) {
+  const sp = await searchParams;
+  const proximo = destinoInterno(sp.proximo, "");
   const logado = await currentUser();
-  if (logado) redirect(destinoAposLogin(logado));
-  const senhaRedefinida = (await searchParams).redefinida === "1";
+  if (logado) redirect(proximo || destinoAposLogin(logado));
+  const senhaRedefinida = sp.redefinida === "1";
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-nuvem-200 to-nuvem-100 p-5">
       <div className="w-full max-w-sm">
@@ -41,7 +53,12 @@ export default async function LoginPage({
               Senha redefinida com sucesso. Entre com a senha nova.
             </p>
           )}
-          <LoginForm />
+          {proximo && (
+            <p className="mb-4 rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+              Entre para abrir o documento que você pediu neste navegador. Você volta direto para ele.
+            </p>
+          )}
+          <LoginForm proximo={proximo} />
         </div>
 
         <p className="mt-5 text-center text-xs leading-relaxed text-stone-500">
