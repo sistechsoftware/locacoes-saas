@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type Servidor = {
@@ -129,6 +130,12 @@ export default function PushDiagnostico() {
           {teste}
         </p>
       )}
+
+      {/* Atalho para a tela de diagnóstico geral: no iPhone instalado não há
+          barra de endereço, então sem um link ela seria inalcançável no app. */}
+      <Link href="/diagnostico-pwa" className="block text-xs font-semibold text-marca-600">
+        Abrir diagnóstico do PWA (splash e impressão) →
+      </Link>
     </section>
   );
 }
